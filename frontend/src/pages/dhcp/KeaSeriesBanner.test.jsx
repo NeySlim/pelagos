@@ -35,7 +35,7 @@ describe('KeaSeriesBanner', () => {
     db.alerts = [alert('A1')]
     show()
     const row = await screen.findByTestId('kea-series-banner-row')
-    await waitFor(() => expect(row).toHaveTextContent('ns1 runs Kea 2.6, which ISC no longer maintains since 2026-07-30'))
+    await waitFor(() => expect(row).toHaveTextContent('Kea 2.6 on ns1: ISC no longer maintains this series since 2026-07-30'))
     expect(screen.getByTestId('kea-series-banner-link')).toHaveAttribute('href', '/install/kea-migration')
     expect(db.calls[0]).toEqual({ state: 'open', kind: 'kea_series_obsolete' })
   })
@@ -61,7 +61,10 @@ describe('KeaSeriesBanner', () => {
     unmount()
     db.alerts = [alert('A1'), alert('A4', { node_id: 'N2' })]
     show()
-    expect(await screen.findAllByTestId('kea-series-banner-row')).toHaveLength(2)
+    // One line for the cluster, naming both nodes.
+    const rows = await screen.findAllByTestId('kea-series-banner-row')
+    expect(rows).toHaveLength(1)
+    await waitFor(() => expect(rows[0]).toHaveTextContent('Kea 2.6 on ns1, N2'))
   })
 
   it('keeps open alerts of its kind only', () => {

@@ -394,8 +394,8 @@
     "unknown": "inconnu"
   },
   "keaSeries": {
-    "row": "{{node}} fait tourner Kea {{series}}, que l'ISC ne maintient plus",
-    "rowSince": "{{node}} fait tourner Kea {{series}}, que l'ISC ne maintient plus depuis le {{date}}",
+    "row": "Kea {{series}} sur {{nodes}} : l'ISC ne maintient plus cette série",
+    "rowSince": "Kea {{series}} sur {{nodes}} : l'ISC ne maintient plus cette série depuis le {{date}}",
     "analyze": "Analyser la migration vers Kea 3.x",
     "dismiss": "Masquer"
   },

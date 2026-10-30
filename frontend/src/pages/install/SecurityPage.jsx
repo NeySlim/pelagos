@@ -188,16 +188,19 @@ export default function SecurityPage() {
   const { t } = useTranslation(['install', 'common'])
   const { hasPermission } = usePermission()
   const canExcept = hasPermission('write:alerts') && hasPermission('admin:settings')
-  // ?node=<id>: a path_not_writable alert opens the Permissions card of its node.
+  // ?node=<id>: a path_not_writable alert opens the Permissions card of its node. Every node by
+  // default: a finding on another node must not hide behind "no finding" here (review E3).
   const [searchParams] = useSearchParams()
-  const [node, setNode] = useState(searchParams.get('node') || '')
+  const [node, setNode] = useState(searchParams.get('node') || 'all')
   const findingsQ = useApi(() => api.install.security(node || undefined), [node])
   const all = useMemo(() => sortFindings(findingsQ.data?.findings || []), [findingsQ.data])
   const findings = all.filter((f) => !isExcepted(f))
   const excepted = all.filter(isExcepted)
   const choices = findingsQ.data?.node_choices || []
   const failed = (findingsQ.data?.nodes || []).filter((n) => !n.ok)
-  const showNode = node === 'all'
+  const showNode = node === 'all' && choices.length > 1
+  const answered = (findingsQ.data?.nodes || []).filter((n) => n.ok)
+  const perNode = showNode ? answered.map((n) => ({ ...n, count: findings.filter((f) => f.node_id === n.id || f.node_name === n.name).length })) : []
   const [selected, setSelected] = useState([])
   const [actions, setActions] = useState({})
   const [plan, setPlan] = useState(null)
@@ -279,6 +282,13 @@ export default function SecurityPage() {
         <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(findingsQ.error)}</p></Card>
       ) : (
         <div className="space-y-4 max-w-5xl">
+          {perNode.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2" data-testid="security-node-counts">
+              {perNode.map((n) => (
+                <Badge key={n.id} variant={n.count ? 'warning' : 'success'} size="sm">{t('security.nodeCount', { node: n.name || n.id, count: n.count })}</Badge>
+              ))}
+            </div>
+          )}
           {failed.map((n) => (
             <p key={n.id} className="text-sm status-warning-text" role="alert" data-testid="security-node-error">{t('security.nodeError', { node: n.name, error: n.error })}</p>
           ))}

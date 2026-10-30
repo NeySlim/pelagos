@@ -151,6 +151,8 @@
     "node": "Node",
     "thisNode": "This node",
     "allNodes": "All nodes",
+    "nodeCount_one": "{{node}}: {{count}} finding",
+    "nodeCount_other": "{{node}}: {{count}} findings",
     "nodeError": "{{node}} did not answer the audit: {{error}}",
     "exception": {
       "title": "Keep this finding as it is",
@@ -250,6 +252,7 @@
     "report": {
       "title": "Analysis for Kea {{series}} from {{source}}",
       "by": "By {{user}}, {{date}}",
+      "byOn": "By {{user}}, {{date}}, from {{node}}",
       "blocking": "Blocking findings remain: the migration cannot start until they are fixed.",
       "ready": "No blocking finding: Pelagos can convert everything listed.",
       "notValidated": "Some files were not checked by the target daemons (dry run skipped or failed): see each node.",

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Design 13.4: while `kea_series_obsolete` is open, the DHCP pages name the nodes whose Kea series
-// ISC no longer maintains and point admins at the read-only migration analysis.
+// ISC no longer maintains and point admins at the read-only migration analysis. One banner for the
+// cluster: a line per series naming every node that runs it (review E4).
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -10,7 +11,7 @@ import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { useNodeNames } from './hooks'
-import { KIND, obsoleteSeries } from './keaSeries'
+import { KIND, obsoleteSeries, seriesGroups } from './keaSeries'
 
 const DISMISS_KEY = 'pelagos.keaSeriesBanner.dismissed'
 
@@ -51,13 +52,16 @@ export function KeaSeriesBanner() {
     <div role="status" className="flex items-start gap-2 rounded-lg border status-primary-bg status-primary-border px-3 py-2 text-xs status-primary-text" data-testid="kea-series-banner">
       <Info size={16} weight="fill" className="shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0 space-y-1">
-        {rows.map((r) => (
-          <p key={r.id} data-testid="kea-series-banner-row">
-            {r.eol
-              ? t('keaSeries.rowSince', { node: nameOf(r.nodeId), series: r.series, date: r.eol })
-              : t('keaSeries.row', { node: nameOf(r.nodeId), series: r.series })}
-          </p>
-        ))}
+        {seriesGroups(rows).map((g) => {
+          const nodes = g.nodeIds.map(nameOf).join(', ')
+          return (
+            <p key={g.key} data-testid="kea-series-banner-row">
+              {g.eol
+                ? t('keaSeries.rowSince', { nodes, series: g.series, date: g.eol, count: g.nodeIds.length })
+                : t('keaSeries.row', { nodes, series: g.series, count: g.nodeIds.length })}
+            </p>
+          )
+        })}
         {hasPermission('admin:install') && (
           <Link to="/install/kea-migration" className="text-accent-primary hover:underline" data-testid="kea-series-banner-link">
             {t('keaSeries.analyze')}

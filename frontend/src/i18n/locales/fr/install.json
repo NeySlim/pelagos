@@ -151,6 +151,8 @@
     "node": "Nœud",
     "thisNode": "Ce nœud",
     "allNodes": "Tous les nœuds",
+    "nodeCount_one": "{{node}} : {{count}} constat",
+    "nodeCount_other": "{{node}} : {{count}} constats",
     "nodeError": "{{node}} n'a pas répondu à l'audit : {{error}}",
     "exception": {
       "title": "Garder ce constat tel quel",
@@ -250,6 +252,7 @@
     "report": {
       "title": "Analyse pour Kea {{series}}, paquets {{source}}",
       "by": "Par {{user}}, {{date}}",
+      "byOn": "Par {{user}}, {{date}}, depuis {{node}}",
       "blocking": "Des constats bloquants restent : la migration ne peut pas commencer avant leur correction.",
       "ready": "Aucun constat bloquant : Pelagos sait convertir tout ce qui est listé.",
       "notValidated": "Certains fichiers n'ont pas été vérifiés par les démons cibles (validation à blanc sautée ou en échec) : voir chaque nœud.",

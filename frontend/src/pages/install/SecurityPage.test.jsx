@@ -105,7 +105,7 @@ describe('SecurityPage', () => {
         on(rndc, 'ns2'),
         on(FINDINGS[0], 'ns2', { exception: { id: 'x1', key: `ns2|${FINDINGS[0].id}`, comment: 'by design', created_by: 'admin', created_at: '2026-10-27T10:00:00Z' } }),
       ],
-      nodes: [{ id: 'ns1', ok: true }, { id: 'ns2', ok: true }],
+      nodes: [{ id: 'ns1', name: 'ns1', ok: true }, { id: 'ns2', name: 'ns2', ok: true }],
       node_choices: [{ id: 'ns1', name: 'ns1' }, { id: 'ns2', name: 'ns2' }],
       local_node_id: 'ns1',
     })
@@ -113,6 +113,10 @@ describe('SecurityPage', () => {
     api.alerts.revokeException.mockResolvedValue(null)
     renderPage()
     await waitFor(() => expect(screen.getAllByTestId('security-finding')).toHaveLength(2))
+    // Every node by default, with the count of open findings per node.
+    expect(api.install.security).toHaveBeenCalledWith('all')
+    expect(screen.getByTestId('security-node-counts')).toHaveTextContent('ns1: 1 finding')
+    expect(screen.getByTestId('security-node-counts')).toHaveTextContent('ns2: 1 finding')
     expect(screen.getByTestId('security-excepted')).toHaveTextContent('by design')
     fireEvent.click(screen.getByTestId('security-select-all'))
     fireEvent.click(screen.getByTestId('security-build'))

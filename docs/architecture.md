@@ -3817,7 +3817,11 @@ return and switchover, D5 screen, D6 lab.
   until its `ddns.roles` entry names the serving primary, every copy declares the D2 key of its
   domains (default `kea.ddns_key`) and the view's admin key, and every D2 lists the primary first
   then each copy. A D2 server maps to a node by address and port (the address of the node URL,
-  the port of its `listen-on`, 53 by default), else a loopback address names the D2's own node;
+  the port of its `listen-on`, 53 by default), else a loopback address names the D2's own node.
+  A URL host name never resolves to a loopback, unspecified, link-local or multicast address
+  (Debian's `127.0.1.1 <hostname>` alias); this node's own name resolving to nothing else takes
+  the source address towards its peers; IPv4 first, then IPv6 (`core.node_address`, also used
+  for the primaries and also-notify given to secondaries). An address literal is kept as is;
   servers of no node stay after them, entries already there are kept as they are. The plan
   (`POST /dhcp/ddns/resilience/plan`, default every zone without such a blocker; a named zone
   with one is a `400`, nothing left to change a `409`): one `dns.key` part per copy missing a key

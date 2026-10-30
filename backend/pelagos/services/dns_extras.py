@@ -7,11 +7,9 @@ Mixed into DnsService; the methods use its context, local backend and peer gatew
 
 from __future__ import annotations
 
-import ipaddress
-import socket
-import urllib.parse
 from typing import Any
 
+from pelagos.core import node_address
 from pelagos.core import settings_registry as reg
 from pelagos.domain import (
     AuditEntry,
@@ -350,20 +348,13 @@ class DnsExtras:
         peer = self.peers.peer(node_id)
         return self._addresses(peer.url) if peer is not None else []
 
-    @staticmethod
-    def _addresses(url: str) -> list[str]:
-        host = urllib.parse.urlparse(url or "").hostname
-        if not host:
-            return []
-        try:
-            return [str(ipaddress.ip_address(host))]
-        except ValueError:
-            pass
-        try:
-            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        except OSError:
-            return []
-        return sorted({str(info[4][0]) for info in infos})[:1]
+    def _addresses(self, url: str) -> list[str]:
+        """The address peers reach `url`'s node at; this node's own URL falls back to the source
+        address towards its peers when its name resolves to a loopback alias here."""
+        if url and url == self.ctx.node.replication_url:
+            peers = [p.url for p in self.ctx.cluster().nodes if p.id != self.ctx.node.id]
+            return node_address.own_addresses(url, peers)[:1]
+        return node_address.url_addresses(url)[:1]
 
     # Catalog zones ----------------------------------------------------------------------------
 

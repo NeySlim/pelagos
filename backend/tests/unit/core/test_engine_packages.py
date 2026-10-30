@@ -71,3 +71,9 @@ def test_families_and_advisory_link() -> None:
     assert ep.advisory_update("n1", pkg) is None  # another series: not from here
     pkg["candidate"] = "1:9.20.15-1~deb13u1"
     assert ep.advisory_update("n1", pkg)["packages"] == ["bind9"]
+
+
+def test_upstream_of_package_and_rndc_versions() -> None:
+    assert ep.upstream("1:9.20.30-1~deb13u1") == (9, 20, 30)
+    assert ep.upstream("32:9.18.33-15.el10_2.1") == (9, 18, 33)
+    assert ep.upstream("9.20.30-1~deb13u1-Debian (Stable Release) <id:> (none)") == (9, 20, 30)

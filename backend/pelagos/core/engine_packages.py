@@ -9,6 +9,7 @@ from `security_advisory`). A change of Kea series goes through the migration of 
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -46,7 +47,8 @@ def upstream(version: str | None) -> tuple[int, ...] | None:
     """Upstream release of a deb or rpm version ("1:9.20.15-1~deb13u1", "32:9.18.33-1.el10")."""
     if not version:
         return None
-    return version_tuple(version.split(":", 1)[-1])
+    # Only a leading epoch: `rndc status` says "9.20.30-1~deb13u1-Debian (Stable Release) <id:>".
+    return version_tuple(re.sub(r"^\s*\d+:", "", version))
 
 
 def series(version: str | None) -> tuple[int, ...] | None:

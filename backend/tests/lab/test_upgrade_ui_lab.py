@@ -324,6 +324,7 @@ def broken_release_rolls_back(web: str, nodes: list[str], folder: Path, rpm: boo
 def engine_rollout(web: str, nodes: list[str], package: str, rpm: bool = False) -> None:
     """The engine packages tab: the candidate the collectors report, installed by a rollout."""
     client = api(web)
+    ids = set(STATE.get("node_ids") or [n["node_id"] for n in client.get("/admin/updates")["nodes"]])
 
     def rows() -> list[dict[str, Any]] | None:
         found = [
@@ -331,7 +332,7 @@ def engine_rollout(web: str, nodes: list[str], package: str, rpm: bool = False) 
             for e in api(web).get("/admin/updates")["engines"]
             if e["package"] == package and e.get("candidate")
         ]
-        return found if {e["node_id"] for e in found} >= set(STATE["node_ids"]) else None
+        return found if {e["node_id"] for e in found} >= ids else None
 
     found = wait_for(f"{package} candidates", rows, timeout=900, interval=15)
     candidate = found[0]["candidate"]
@@ -474,11 +475,14 @@ class TestDebianPair:
     def test_04_bind_from_the_distribution(self, deb_releases):
         newest = {}
         for address in (A1, A2):
-            table = ssh(address, "apt-cache madison bind9 | awk '{print $3}'")[1].split()
+            # Binary versions only (madison lists the Sources too), oldest first.
+            table = ssh(address, "apt-cache madison bind9 | awk '/Packages/ {print $3}' | sort -uV")[
+                1
+            ].split()
             if len(table) < 2:
                 pytest.skip(f"{address}: one bind9 version in the archive, nothing to update to")
-            newest[address] = table[0]
-            older = table[-1]
+            newest[address] = table[-1]
+            older = table[0]
             pkgs = ssh(
                 address,
                 "dpkg-query -W -f '${Package} ${source:Package}\\n' | awk '$2 == \"bind9\" {print $1}'",
@@ -486,9 +490,10 @@ class TestDebianPair:
             spec = " ".join(f"{p}={older}" for p in pkgs)
             ssh(
                 address,
-                f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --allow-downgrades {spec} 2>&1 | tail -3",
+                f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --allow-downgrades {spec}",
                 timeout=900,
             )
+            assert ssh(address, "dpkg-query -W -f '${Version}' bind9")[1].strip() == older
             # The advisories check reads the candidate when the collector starts.
             ssh(address, "sudo systemctl restart named pelagos-collector")
         engine_rollout(A1, [A1, A2], "bind9")

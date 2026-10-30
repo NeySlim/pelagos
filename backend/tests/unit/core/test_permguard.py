@@ -291,6 +291,7 @@ def test_an_enforced_apparmor_profile_refuses_the_daemon_write(tmp_path, monkeyp
     _fake_proc(proc, 812, "kea-dhcp4", "kea-dhcp4 (enforce)")
     monkeypatch.setattr(permguard, "PROC", proc)
     monkeypatch.setattr(permguard, "APPARMOR_LOCAL", local)
+    monkeypatch.setattr(permguard, "APPARMOR_ACCESS", tmp_path / "no-securityfs")
     conf = tmp_path / "kea-dhcp4.conf"
     conf.write_text("{}")
     conf.chmod(0o666)
@@ -315,3 +316,61 @@ def test_an_enforced_apparmor_profile_refuses_the_daemon_write(tmp_path, monkeyp
     assert permguard.probe(target).ok
     (proc / "812" / "attr" / "apparmor" / "current").write_text("unconfined\n")
     assert permguard.probe(target).ok
+
+
+def _kea_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, label: str) -> permguard.Target:
+    proc, local = tmp_path / "proc", tmp_path / "apparmor.d" / "local"
+    local.mkdir(parents=True)
+    _fake_proc(proc, 812, "kea-dhcp4", label)
+    monkeypatch.setattr(permguard, "PROC", proc)
+    monkeypatch.setattr(permguard, "APPARMOR_LOCAL", local)
+    monkeypatch.setattr(permguard, "APPARMOR_ACCESS", tmp_path / "no-securityfs")
+    monkeypatch.setattr(permguard, "daemon_ids", lambda name, path: (os.geteuid() + 4242, set(), "_kea"))
+    conf = tmp_path / "kea-dhcp4.conf"
+    conf.write_text("{}")
+    conf.chmod(0o666)
+    return permguard.Target(conf, permguard.DAEMON, "kea-dhcp4", "kea_config", daemon="kea-dhcp4")
+
+
+@pytest.mark.parametrize(
+    "label", ["docker-default (enforce)", "unconfined", "named (enforce)", "kea-dhcp4 (complain)"]
+)
+def test_only_a_kea_profile_in_enforce_mode_is_judged(tmp_path, monkeypatch, label) -> None:
+    # docker-default confines every process of a container but lets it write any file.
+    assert permguard.probe(_kea_target(tmp_path, monkeypatch, label)).ok
+
+
+@pytest.mark.parametrize("label", ["kea-dhcp4 (enforce)", "/usr/sbin/kea-dhcp4 (enforce)"])
+def test_a_kea_profile_without_a_local_rule_is_judged(tmp_path, monkeypatch, label) -> None:
+    check = permguard.probe(_kea_target(tmp_path, monkeypatch, label))
+    assert not check.ok and check.problem == "daemon_apparmor" and check.fix["apparmor"] == "kea-dhcp4"
+
+
+def test_the_kernel_answer_wins_over_the_local_override(tmp_path, monkeypatch) -> None:
+    target = _kea_target(tmp_path, monkeypatch, "kea-dhcp4 (enforce)")
+    asked: list[tuple[str, Path]] = []
+
+    def kernel(label: str, path: Path) -> bool:
+        asked.append((label, path))
+        return True
+
+    monkeypatch.setattr(permguard, "apparmor_kernel_allows_write", kernel)
+    assert permguard.probe(target).ok and asked == [("kea-dhcp4", target.path)]
+    (tmp_path / "apparmor.d/local/usr.sbin.kea-dhcp4").write_text(f"{target.path} rw,\n")
+    monkeypatch.setattr(permguard, "apparmor_kernel_allows_write", lambda label, path: False)
+    assert permguard.probe(target).problem == "daemon_apparmor"  # rule written, profile not reloaded
+
+
+def test_the_kernel_query_is_the_libapparmor_one() -> None:
+    query = permguard._aa_query("kea-dhcp4", Path("/etc/kea/kea-dhcp4.conf"))
+    assert query == b"label\0kea-dhcp4\0\x02/etc/kea/kea-dhcp4.conf"
+    reply = "allow 0x{:08x}\ndeny 0x{:08x}\naudit 0x00000000\nquiet 0x00000000\n"
+    assert permguard._aa_reply(reply.format(0x6, 0).encode()) is True
+    assert permguard._aa_reply(reply.format(0x4, 0).encode()) is False  # read only
+    assert permguard._aa_reply(reply.format(0x6, 0x2).encode()) is False  # explicit deny
+    assert permguard._aa_reply(b"garbage") is None
+
+
+def test_no_securityfs_means_no_kernel_answer(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(permguard, "APPARMOR_ACCESS", tmp_path / "missing")
+    assert permguard.apparmor_kernel_allows_write("kea-dhcp4", tmp_path) is None

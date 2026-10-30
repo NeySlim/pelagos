@@ -27,6 +27,12 @@ package files are gone. Option `https_sockets` removed from the record and the p
 A phase that cannot push cluster.toml, or a `migrating` / `rolling_back` record left by a stopped
 driver for 40 minutes, becomes `failed`. Nothing released used the old layout. Section 28 updated.
 
+## 2026-10-30, WP-CORE: AppArmor probe judges only Kea profiles (item 83)
+Additive. `core/permguard.py`: `kea_profile`, `apparmor_kernel_allows_write` (the securityfs
+`.access` query) and `apparmor_denied_profile`. A daemon target is reported `daemon_apparmor` only
+when its label is a Kea profile in enforce mode and the kernel (else the local override) denies the
+write; `docker-default` and other labels no longer are. Section 7 updated. No other package affected.
+
 ## 2026-10-30, WP-CORE, WP-API, WP-FRONTEND: item 81 review fixes (AppArmor probe, errno reasons, PTR cap)
 Additive. `core/permguard.py`: problems `daemon_apparmor` and `daemon_denied_apparmor` (fix field
 `apparmor`), `apparmor_profile`, `apparmor_allows_write`; `apply_error` words `ENOSPC`/`EDQUOT`

@@ -1253,9 +1253,14 @@ Kea 2.6.3 `src/lib/process/daemon.cc`, read 2026-10-30; `daemon` names the proce
 target is judged by the mode bits against the uid and groups `/proc` shows for that running process
 (route `daemon`; `absent` when it does not run), problem `daemon_denied`, command `chgrp <its group>
 <file> && chmod g+w <file>`, never fixed by the helper. The process's AppArmor label
-(`/proc/<pid>/attr/apparmor/current`, else `attr/current`) is read too: a profile in `(enforce)`
-whose local override (`/etc/apparmor.d/local/usr.sbin.<profile>`, where `keasetup` writes its rule)
-grants no write on the file gives problem `daemon_apparmor` (`daemon_denied_apparmor` with the mode
+(`/proc/<pid>/attr/apparmor/current`, else `attr/current`) is read too. Only a Kea profile in
+`(enforce)` is judged (`kea-dhcp4`, `kea-dhcp6`, `kea-dhcp-ddns`, `kea-ctrl-agent`, or the same
+names as `/usr/sbin/<name>`); any other label (`docker-default` in a container, `unconfined`, a
+site's own profile) is not. The kernel is asked whether the label may write the file
+(`/sys/kernel/security/apparmor/.access`, the query of libapparmor's `aa_query_file_path`, writable
+by any user and under the units' sandbox); without an answer (no securityfs, as in a container) the
+local override (`/etc/apparmor.d/local/usr.sbin.<profile>`, where `keasetup` writes its rule)
+decides. A denied write gives problem `daemon_apparmor` (`daemon_denied_apparmor` with the mode
 bits too), fix field `apparmor` and the command `echo '<file> rw,' >> <local> && apparmor_parser -r
 <profile>`: Debian 13's `kea-dhcp4`, `kea-dhcp6` and `kea-dhcp-ddns` profiles (isc-kea
 2.6.3-1+deb13u1, read 2026-10-30) allow `/etc/kea/** r` only. A probe runs the writer's own operation with the same mode bits on a

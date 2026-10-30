@@ -218,6 +218,13 @@ write rule for each configuration file in
 replace Debian's, the installer disables the profiles the removed packages
 leave behind.
 
+The permission check (`pelagos permissions check`, alert `path_not_writable`)
+reports a Kea file the daemon cannot rewrite only when the daemon runs under
+one of these Kea profiles in enforce mode, and asks the kernel whether the
+loaded profile allows the write: a rule added to the local file counts once
+the profile is reloaded with `apparmor_parser -r`. Docker's `docker-default`
+profile and other profiles are not reported.
+
 For development only: the daemon tests run `named` from a temporary
 directory, which the profile denies ("loading configuration: permission
 denied"). Disable the profile on that machine:

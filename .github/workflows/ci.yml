@@ -139,8 +139,9 @@ jobs:
 
   daemon:
     # Debian 13 ships BIND 9.20; Kea 3.2 comes from the ISC Cloudsmith repository. Inside the
-    # container named runs under Docker's default AppArmor profile, not the distribution one
-    # that confines /usr/sbin/named to /etc/bind (the fixtures use a temporary directory).
+    # container named and Kea run under Docker's default AppArmor profile, not the distribution
+    # ones that confine them to /etc/bind and /etc/kea (the fixtures use a temporary directory).
+    # scripts/lab/ci-daemon.sh runs this job on a lab Docker host.
     needs: scope
     if: needs.scope.outputs.run == 'true' && needs.scope.outputs.daemon == 'true'
     runs-on: ubuntu-24.04

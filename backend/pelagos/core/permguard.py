@@ -38,6 +38,10 @@ KINDS = (DIR, FILE, READ, DAEMON)
 PROBE_PREFIX = ".pelagos-probe."
 PROC = Path("/proc")
 APPARMOR_LOCAL = Path("/etc/apparmor.d/local")
+APPARMOR_ACCESS = Path("/sys/kernel/security/apparmor/.access")
+AA_MAY_WRITE = 1 << 1
+# Debian's Kea profiles (isc-kea 2.6.3-1+deb13u1): /etc/kea/** read only, local/usr.sbin.<name> include.
+KEA_PROFILES = frozenset({"kea-dhcp4", "kea-dhcp6", "kea-dhcp-ddns", "kea-ctrl-agent"})
 UNITS = "pelagos.service pelagos-collector.service"
 
 
@@ -315,6 +319,46 @@ def apparmor_profile(name: str, path: Path) -> str | None:
     return None
 
 
+def kea_profile(label: str) -> str | None:
+    """The Kea profile name a label stands for (Debian's `kea-dhcp4` or `/usr/sbin/kea-dhcp4`),
+    else None: docker-default or a site's own profile does not confine Kea to read-only /etc/kea."""
+    name = label.rsplit("/", 1)[-1]
+    return name if name in KEA_PROFILES else None
+
+
+def _aa_query(label: str, path: Path) -> bytes:
+    """The `.access` query libapparmor's aa_query_file_path sends: "label\0" <label> "\0" then
+    AA_CLASS_FILE (2) and the path (libapparmor kernel.c and apparmor.h, read 2026-10-30)."""
+    return b"label\0" + label.encode() + b"\0\x02" + str(path).encode()
+
+
+def _aa_reply(reply: bytes) -> bool | None:
+    """Whether a `.access` reply (allow, deny, audit, quiet masks in hex) grants AA_MAY_WRITE."""
+    m = re.match(rb"allow 0x([0-9a-f]{8})\ndeny 0x([0-9a-f]{8})\n", reply)
+    if not m:
+        return None
+    allow, deny = int(m.group(1), 16), int(m.group(2), 16)
+    return bool(allow & ~deny & AA_MAY_WRITE)
+
+
+def apparmor_kernel_allows_write(label: str, path: Path) -> bool | None:
+    """Ask the kernel whether `label` may write `path` (securityfs `.access`, writable by anyone);
+    None when it cannot answer (no securityfs in a container, a read-only /sys, unknown label)."""
+    try:
+        fd = os.open(APPARMOR_ACCESS, os.O_RDWR)
+    except OSError:
+        return None
+    try:
+        query = _aa_query(label, path)
+        if os.write(fd, query) != len(query):
+            return None
+        return _aa_reply(os.read(fd, 128))
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
 _AA_RULE = re.compile(r"^\s*(?:owner\s+)?(\S+)\s+([a-z]+)\s*,")
 
 
@@ -332,6 +376,19 @@ def apparmor_allows_write(profile: str, path: Path) -> bool:
     return False
 
 
+def apparmor_denied_profile(name: str, path: Path) -> str | None:
+    """The Kea profile that keeps the running daemon from writing `path`, else None. The kernel
+    answers when it can; else the local override decides (Debian's profiles read /etc/kea only)."""
+    label = apparmor_profile(name, path)
+    profile = kea_profile(label) if label else None
+    if label is None or profile is None:
+        return None
+    allowed = apparmor_kernel_allows_write(label, path)
+    if allowed is None:
+        allowed = apparmor_allows_write(profile, path)
+    return None if allowed else profile
+
+
 def _file_writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
     mode = st.st_mode
     if uid == 0:
@@ -345,7 +402,7 @@ def _file_writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
 
 def _probe_daemon(target: Target, check: Check) -> None:
     """Whether the daemon may rewrite the file: its user's mode bits (it is another process), then
-    its AppArmor profile (Debian 13 confines Kea 2.6.3 to read-only /etc/kea, enforced)."""
+    its Kea AppArmor profile (Debian 13 confines Kea 2.6.3 to read-only /etc/kea, enforced)."""
     path = Path(target.path)
     ids = daemon_ids(target.daemon or "", path)
     if ids is None:
@@ -362,8 +419,8 @@ def _probe_daemon(target: Target, check: Check) -> None:
         check.error = f"{target.daemon} runs as uid {uid}"
         commands.append(f"chgrp {group} {d} && chmod g+w {d}" if check.group != group else f"chmod g+w {d}")
         check.fix = {"action": "daemon_write", "path": str(d), "group": group}
-    profile = apparmor_profile(target.daemon or "", path)
-    if profile and not apparmor_allows_write(profile, path):
+    profile = apparmor_denied_profile(target.daemon or "", path)
+    if profile:
         check.problem = "daemon_apparmor" if ok else "daemon_denied_apparmor"
         check.error = "; ".join(e for e in (check.error, f"AppArmor profile {profile} (enforce)") if e)
         local = APPARMOR_LOCAL / f"usr.sbin.{profile}"

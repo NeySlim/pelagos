@@ -42,13 +42,13 @@ test('alert titles render in the UI language', async ({ page }) => {
 test('security findings, plan summary and job steps follow the language', async ({ page }) => {
   await signInFrench(page)
   await page.goto('/install/security')
-  const finding = page.locator('[data-finding="bind:stats_nonlocal:0.0.0.0"]')
+  const finding = page.locator('[data-node="01JB0000000000000000NS1AAA"][data-finding="bind:stats_nonlocal:0.0.0.0"]')
   await expect(finding).toContainText('Le canal de statistiques écoute sur 0.0.0.0 et autorise tout le monde.')
   await expect(finding).toContainText('Les collecteurs distants des statistiques BIND perdent l\'accès')
-  await expect(page.locator('[data-finding="bind:weak_rndc_key:rndc-key"]')).toContainText('Régénérer rndc-key en hmac-sha256')
-  await expect(page.locator('[data-finding="kea:weak_shared_kea_key:kea-ddns"]')).toContainText('D2 signe les mises à jour avec kea-ddns en hmac-md5.')
+  await expect(page.locator('[data-node="01JB0000000000000000NS1AAA"][data-finding="bind:weak_rndc_key:rndc-key"]')).toContainText('Régénérer rndc-key en hmac-sha256')
+  await expect(page.locator('[data-node="01JB0000000000000000NS1AAA"][data-finding="kea:weak_shared_kea_key:kea-ddns"]')).toContainText('D2 signe les mises à jour avec kea-ddns en hmac-md5.')
   // A configuration snippet has no message: it stays as the backend wrote it.
-  const transfer = page.locator('[data-finding="bind:open_allow_transfer:_default/partner.example."]')
+  const transfer = page.locator('[data-node="01JB0000000000000000NS1AAA"][data-finding="bind:open_allow_transfer:_default/partner.example."]')
   await expect(transfer).toContainText('La zone partner.example. autorise les transferts de zone')
   await expect(transfer).toContainText('allow-transfer { key ddi-read; };')
   await finding.click()

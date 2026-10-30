@@ -37,7 +37,7 @@ test('a category is enabled by level, shown with its size and applied through a 
   await applyPlan(page)
   await expect(page.getByTestId('rpz-lists-table')).toContainText('OISD small')
   await expect(page.getByTestId('rpz-lists-table')).toContainText('up to date')
-  await expect(page.getByTestId('rpz-node').first()).toContainText('up to date')
+  await expect(page.getByTestId('rpz-node').first()).toContainText('configuration applied')
   await expect(page.getByTestId('rpz-apply')).toHaveCount(0)
 })
 

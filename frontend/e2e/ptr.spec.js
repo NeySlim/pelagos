@@ -51,7 +51,8 @@ test('an orphan PTR is listed and deleted through a plan', async ({ page }) => {
   const table = page.getByTestId('orphans-table')
   const row = table.getByTestId('data-table-row').filter({ hasText: 'workstation7.example.lan.' })
   await expect(row).toContainText('192.0.2.106')
-  await expect(row.getByTestId('orphan-create')).toContainText('Create the A')
+  // No lease, reservation or IPv6 observation holds the address under that name: no A to offer.
+  await expect(row.getByTestId('orphan-create')).toHaveCount(0)
   await row.getByTestId('orphan-select').check()
   await page.getByTestId('orphans-delete-selected').click()
   const preview = page.getByTestId('plan-preview')

@@ -8,7 +8,7 @@ import { failedChecks, fixableIds } from './permissions'
 
 vi.mock('../../services/api', () => {
   const api = {
-    install: { permissions: vi.fn(), securityPlan: vi.fn() },
+    install: { permissions: vi.fn(), security: vi.fn(), securityPlan: vi.fn() },
     plans: { apply: vi.fn(), get: vi.fn(), rollback: vi.fn() },
     jobs: { get: vi.fn() },
   }
@@ -49,6 +49,7 @@ describe('PermissionsCard', () => {
 
   it('shows every path, the finding and the command, and plans the fix', async () => {
     api.install.permissions.mockResolvedValue({ node_id: 'n2', available: true, checks: [ok(ZONE, 'zone_dir'), bad] })
+    api.install.security.mockResolvedValue({ findings: [{ id: `bind:path_access:${ZONE}` }, { id: 'bind:other' }] })
     api.install.securityPlan.mockResolvedValue({ id: 'p1', scope: 'security', state: 'validated', changes: [], validations: [], target_node_ids: ['n2'], diff: '', summary: 'fix' })
     render(<MemoryRouter><PermissionsCard node="n2" /></MemoryRouter>)
     expect(await screen.findByTestId('permissions-state')).toHaveTextContent('1 path not writable')
@@ -61,6 +62,17 @@ describe('PermissionsCard', () => {
     expect(screen.getByTestId('permissions-command')).toHaveTextContent(COMMAND)
     fireEvent.click(screen.getByTestId('permissions-fix'))
     await waitFor(() => expect(api.install.securityPlan).toHaveBeenCalledWith({ n2: [`bind:path_access:${ZONE}`] }))
+  })
+
+  it('sends only the ids the security audit lists', async () => {
+    const stale = { ...bad, path: '/srv/x', finding_id: 'bind:path_access:/srv/x' }
+    api.install.permissions.mockResolvedValue({ node_id: 'n2', available: true, checks: [bad, stale] })
+    api.install.security.mockResolvedValue({ findings: [{ id: `bind:path_access:${ZONE}` }] })
+    api.install.securityPlan.mockResolvedValue({ id: 'p1', scope: 'security', state: 'validated', changes: [], validations: [], target_node_ids: ['n2'], diff: '', summary: 'fix' })
+    render(<MemoryRouter><PermissionsCard node="n2" /></MemoryRouter>)
+    fireEvent.click(await screen.findByTestId('permissions-fix'))
+    await waitFor(() => expect(api.install.securityPlan).toHaveBeenCalledWith({ n2: [`bind:path_access:${ZONE}`] }))
+    expect(api.install.security).toHaveBeenCalledWith('n2')
   })
 
   it('says so when every path is writable, with no fix button', async () => {

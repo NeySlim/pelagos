@@ -16,7 +16,7 @@ import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, 
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
-import { permissionsHandlers, PATH_FINDING } from './permissions.mjs'
+import { permissionsHandlers, PATH_FINDING, ZONE_DIR as PATH_ZONE_DIR } from './permissions.mjs'
 import { ptrHelpers } from './ptr.mjs'
 import { certsHandlers } from './certs.mjs'
 import { notifyHandlers } from './notify.mjs'
@@ -235,6 +235,14 @@ const securityByNode = (state) => {
   }
   return state.security
 }
+// The path_access finding of a node whose zone folder the permissions mock took away.
+const pathFindings = (state, nodeId) => (state.permissionsBroken?.has(nodeId)
+  ? [{ ...finding('bind', 'path_access', PATH_ZONE_DIR, 'warning', {
+    description: `Pelagos cannot create ${PATH_ZONE_DIR}.`,
+    proposal: `install -d -o bind -g bind -m 2775 ${PATH_ZONE_DIR}`,
+    risk: 'None: only this folder is created.',
+  }), node_id: nodeId }]
+  : [])
 const SECURITY_EXCEPTION_KIND = 'security_finding'
 const markedFindings = (state, nodeId) => {
   const exceptions = state.ptr.exceptions().filter((e) => e.kind === SECURITY_EXCEPTION_KIND)
@@ -2603,7 +2611,7 @@ function buildHandlers(state, emit) {
       const targets = !node ? [state.selfId] : node === 'all' ? ids : [node]
       const name = (id) => state.nodes.find((n) => n.peer.id === id)?.peer.name || id
       return {
-        findings: targets.flatMap((id) => markedFindings(state, id)),
+        findings: targets.flatMap((id) => [...markedFindings(state, id), ...pathFindings(state, id)]),
         nodes: targets.map((id) => ({ id, name: name(id), ok: true, error: null })),
         node_choices: ids.map((id) => ({ id, name: name(id) })),
         local_node_id: state.selfId,

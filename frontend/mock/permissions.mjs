@@ -8,7 +8,7 @@ const PATHS = [
   { path: '/etc/bind/pelagos', kind: 'dir', engine: 'bind', purpose: 'include_dir' },
   { path: '/var/lib/pelagos/backups/bind', kind: 'dir', engine: 'bind', purpose: 'backup_dir' },
 ]
-const ZONE_DIR = PATHS[0].path
+export const ZONE_DIR = PATHS[0].path
 export const PATH_FINDING = `bind:path_access:${ZONE_DIR}`
 const COMMAND = `install -d -o bind -g bind -m 2775 ${ZONE_DIR}`
 

@@ -30,7 +30,15 @@ export default function PermissionsCard({ node }) {
     setBusy(true)
     setError(null)
     try {
-      setPlan(await api.install.securityPlan({ [data.node_id]: ids }))
+      // Only the findings the helper's audit lists now: an unknown id fails the whole plan.
+      const audit = await api.install.security(node || undefined)
+      const known = new Set((audit?.findings || []).map((f) => f.id))
+      const chosen = ids.filter((id) => known.has(id))
+      if (!chosen.length) {
+        q.refetch()
+        return
+      }
+      setPlan(await api.install.securityPlan({ [data.node_id]: chosen }))
     } catch (err) {
       setError(err)
     } finally {

@@ -392,13 +392,14 @@ def hub_subnets_warning(body: dict[str, Any], names: list[str]) -> str | None:
 
 
 def hooks_dir_of(hooks: list[dict[str, Any]]) -> str | None:
-    """Directory of the loaded hook libraries (lease_cmds first), None when none is loaded."""
+    """Directory of the loaded hook libraries (lease_cmds first), None when none is loaded; "" when
+    they are bare file names, which Kea resolves in its own hooks directory (the seeded configs)."""
     paths = [str(h.get("library", "")) for h in hooks if isinstance(h, dict) and h.get("library")]
     paths.sort(key=lambda p: "libdhcp_lease_cmds" not in p)
     for path in paths:
         if "/" in path:
             return path.rsplit("/", 1)[0]
-    return None
+    return "" if paths else None
 
 
 def hooks_with_ha(
@@ -418,7 +419,7 @@ def hooks_with_ha(
     def located(name: str) -> str:
         if hooks_dir is None:
             raise ValueError("the hooks directory is unknown: no hook library is loaded to locate it")
-        return f"{hooks_dir.rstrip('/')}/{name}"
+        return f"{hooks_dir.rstrip('/')}/{name}" if hooks_dir else name
 
     if not any("libdhcp_lease_cmds" in str(h.get("library", "")) for h in out):
         out.append({"library": located("libdhcp_lease_cmds.so")})

@@ -92,6 +92,11 @@ def test_hook_entry_per_server_and_hooks_list():
     assert ha.hooks_with_ha(again, None, None) == out[:2]
     with pytest.raises(ValueError, match="hooks directory"):
         ha.hooks_with_ha([], entry, ha.hooks_dir_of([]))
+    # Bare file names (the seeded container configs): the new libraries follow that style.
+    bare = [{"library": "libdhcp_lease_cmds.so"}, {"library": "libdhcp_host_cmds.so"}]
+    assert ha.hooks_dir_of(bare) == ""
+    named = ha.hooks_with_ha(bare, entry, ha.hooks_dir_of(bare))
+    assert [h["library"] for h in named] == ["libdhcp_lease_cmds.so", "libdhcp_host_cmds.so", "libdhcp_ha.so"]
     cfg = {"hooks-libraries": out}
     assert [(p.name, p.role, p.auto_failover) for p in ha.ha_peers_from_config(cfg)] == [
         ("s1", "primary", None),

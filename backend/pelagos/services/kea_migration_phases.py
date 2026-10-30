@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -49,6 +50,9 @@ STALE_SWITCH = timedelta(minutes=40)
 # Lab only: `<step>@<role>` in the driver's environment fails that migrate step once it really ran,
 # so the automatic return is proven after each step of times 1 and 2 (tests/lab, item 82).
 FAIL_AFTER = "PELAGOS_KEA_MIGRATION_FAIL_AFTER"
+# Helpers older than this run the 0.3.0 steps (cross-node validation, the return that stops at the
+# first package, no check or cleanup): every node of the migration must run it first (item 82).
+MIN_PELAGOS = (0, 3, 1)
 _running: set[str] = set()  # migration ids a PhaseRunner of this process is running
 _running_lock = threading.Lock()
 
@@ -103,6 +107,7 @@ def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str
         )
     if not nodes:
         raise Conflict("no analyzed node uses Kea: nothing to migrate")
+    require_versions(service, [n["node_id"] for n in nodes])
     request = {
         "phase": phase,
         "migration_id": migration_id,
@@ -151,6 +156,7 @@ def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, An
     why = km.phase_allowed(record, phase)
     if why:
         raise Conflict(why)
+    require_versions(service, [n["node_id"] for n in record["nodes"]])
     if phase == km.RECONCILE:
         request = switch_request(record, phase, {})
         request["packages_before"] = {n["node_id"]: n["packages_before"] for n in record["nodes"]}
@@ -162,6 +168,45 @@ def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, An
     )
     options.setdefault("auto_rollback", bool(reg.get(settings, "kea.migration_auto_rollback_enabled")))
     return _build(service, switch_request(record, phase, options), actor)
+
+
+def _release(version: str | None) -> tuple[int, ...] | None:
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", version or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def require_versions(service: Any, node_ids: list[str]) -> None:
+    """Conflict unless every node runs Pelagos MIN_PELAGOS or later (0.3.1.devN counts as 0.3.1):
+    the driver sends the steps, each node's helper runs its own code for them."""
+    from pelagos import __version__
+
+    want = ".".join(map(str, MIN_PELAGOS))
+    problems = []
+    for node_id in dict.fromkeys(node_ids):
+        if node_id == service.ctx.node.id:
+            version: str | None = __version__
+            name = service.ctx.node.name
+        else:
+            peers = service.peers
+            peer = peers.peer(node_id) if peers is not None else None
+            if peer is None:
+                problems.append(f"{node_id} (not enrolled)")
+                continue
+            name = peer.name
+            if hasattr(peers, "forget"):
+                peers.forget(node_id)  # a fresh answer: the node may have just been updated
+            status = peers.status(peer)
+            version = status.version if status.reachable else None
+            if version is None:
+                problems.append(f"{name} (no answer: {status.error or 'version unknown'})")
+                continue
+        found = _release(version)
+        if found is None or found < MIN_PELAGOS:
+            problems.append(f"{name} ({version})")
+    if problems:
+        raise Conflict(
+            f"update every node to Pelagos {want} or later first, then plan again: {', '.join(problems)}"
+        )
 
 
 def _build(service: Any, request: dict[str, Any], actor: str) -> Plan:

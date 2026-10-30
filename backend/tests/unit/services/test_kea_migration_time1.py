@@ -15,7 +15,15 @@ from pelagos.domain import Job, NodeApplyResult
 from pelagos.installer import kea_migration_steps as steps
 from pelagos.services import kea_migration_phases as phases
 from pelagos.services.errors import Conflict
-from tests.unit.services.test_kea_migration_phases import MID, RESULT, Peers, run, service  # noqa: F401
+from tests.unit.services.test_kea_migration_phases import (  # noqa: F401
+    MID,
+    RESULT,
+    Peers,
+    recipients,
+    report,
+    run,
+    service,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -354,3 +362,34 @@ def test_a_lab_injected_failure_after_a_step_returns_the_pair(service, local_ste
     _plan, job = apply(service, "migrate")
     assert "failure injected after kea-mig-stop" in job.error and "automatic return" in job.error
     assert record(service)["state"] == km.ROLLED_BACK
+
+
+def test_every_phase_waits_for_each_node_on_pelagos_0_3_1(service, local_steps, monkeypatch):  # noqa: F811
+    # A 0.3.0 helper validates across nodes and returns with apt --no-download (item 82): refused.
+    service.peers.version = "0.3.0"
+    report(service)
+    recipients(service)
+    with pytest.raises(Conflict, match=r"Pelagos 0\.3\.1 or later first.*ns2 \(0\.3\.0\)"):
+        service.plan(MID, {"phase": "prepare"}, "admin")
+    service.peers.version = "0.3.1.dev0"
+    prepared(service)
+    service.peers.version = "0.3.0"
+    with pytest.raises(Conflict, match=r"ns2 \(0\.3\.0\)"):
+        service.plan(MID, {"phase": "migrate"}, "admin")
+
+    def failed(c):
+        rec = km.read_migration(c.settings)
+        km.write(c.settings, {**rec, "state": km.FAILED, "phase": km.MIGRATE, "stage": "standby"})
+
+    service.ctx.config_store.update_cluster(failed, "test")
+    for version, match in (("0.3.0", r"ns2 \(0\.3\.0\)"), (None, r"ns2 \(no answer: timed out\)")):
+        service.peers.version = version
+        for phase in ("rollback", "reconcile"):
+            with pytest.raises(Conflict, match=match):
+                service.plan(MID, {"phase": phase}, "admin")
+    service.peers.version = "0.4.0"
+    monkeypatch.setattr("pelagos.__version__", "0.3.0")
+    with pytest.raises(Conflict, match=r"ns1 \(0\.3\.0\)"):
+        service.plan(MID, {"phase": "rollback"}, "admin")
+    monkeypatch.setattr("pelagos.__version__", "0.3.1")
+    assert service.plan(MID, {"phase": "rollback"}, "admin").changes

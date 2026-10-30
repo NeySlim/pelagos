@@ -48,9 +48,15 @@ class Peers:
         self.ok = ok
         self.synced: list[str] = []
         self.sent: list[Any] = []
+        self.version: str | None = "0.3.1"
 
     def peer(self, node_id: str) -> Any:
         return SimpleNamespace(id=node_id, name="ns2") if node_id == "node-b" else None
+
+    def status(self, peer: Any) -> Any:
+        if self.version is None:
+            return SimpleNamespace(reachable=False, version=None, error="timed out")
+        return SimpleNamespace(reachable=True, version=self.version, error=None)
 
     def sync(self, peer: Any) -> Any:
         self.synced.append(peer.id)

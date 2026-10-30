@@ -199,7 +199,9 @@ def test_stable_address_gets_aaaa_and_ptr_temporaries_never(lab):
     assert missing.value.status == 409
     zones = missing.value.body["reverse_zones"]
     rev = "7.9.0.0.8.b.d.0.1.0.0.2.ip6.arpa."
-    assert zones == [{"prefix": str(PREFIX), "zone": "0.0.0.0." + rev, "view": "_default"}], zones
+    want = {"prefix": str(PREFIX), "zone": "0.0.0.0." + rev, "view": "_default", "node_ids": []}
+    # One node: the primary goes there and there is no copy to place.
+    assert len(zones) == 1 and want.items() <= zones[0].items() and zones[0]["node_id"], zones
     a.apply(a.post("/hosts/ipv6/reverse-zone/plan", {"prefix": str(PREFIX)}))
     assert dig("0.0.0.0." + rev, "SOA")
 

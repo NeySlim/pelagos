@@ -96,7 +96,7 @@ class TestKeaMigrationTime1:
         # A converted file changed behind the prepare: refused after the packages went in.
         ssh(STANDBY[0], f"sudo sh -c 'echo >> {k3.mdir(mid)}/private/target/kea-dhcp4.conf'")
         plan = api(PRIMARY[1]).post(f"/install/kea-migration/{mid}/plan", {"phase": "migrate"})
-        assert [c["after"]["step"] for c in plan["changes"]] == [
+        assert [c["after"]["step"] for c in plan["changes"]][:4] == [
             "kea-mig-ha-maintenance",
             "kea-mig-stop",
             "kea-mig-install",

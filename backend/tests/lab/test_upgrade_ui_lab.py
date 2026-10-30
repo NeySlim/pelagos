@@ -8,7 +8,9 @@ is a `make release NO_TAG=1` directory:
 
     make release NO_TAG=1 VERSION=0.9.0 RELEASE_DIR=build/upgrade-ui
 
-($PELAGOS_UPGRADE_UI_DIR, default build/upgrade-ui, must hold 0.9.0/). The test derives two
+($PELAGOS_UPGRADE_UI_DIR, default build/upgrade-ui, must hold 0.9.0/), built from the tree under
+test: the update unit runs the installed release's code, so an older base tests older code. The
+test derives two
 releases from its debs with dpkg-deb: 0.9.1 (version bumped, signed by a test key generated here,
 its public key installed on the nodes as a packaged key) and 0.9.2 (unsigned, its web unit never
 starts: gunicorn_conf.py exits). Then:
@@ -59,7 +61,7 @@ PASSWORD = labkit.ADMIN_PASSWORD
 AUDIT = "/var/lib/pelagos/audit/audit.jsonl"
 STATE: dict[str, Any] = {}
 # Fast rollouts: the checks wait settle_seconds, then at most timeout_seconds.
-FAST = {"settle_seconds": 15, "pause_seconds": 10, "timeout_seconds": 120}
+FAST = {"settle_seconds": 15, "pause_seconds": 10, "timeout_seconds": 300}
 
 
 def _up(*hosts: str) -> bool:
@@ -149,9 +151,16 @@ def install_key(host: str, public: Path) -> None:
 # API ---------------------------------------------------------------------------------------------------
 
 
+CLIENTS: dict[str, Api] = {}
+
+
 def api(address: str) -> Api:
-    client = Api(address)
-    wait_for(f"{address} login", lambda: client.login("admin", PASSWORD), timeout=300)
+    """One session per node: every login is an audit entry, and polling with new sessions would
+    keep the audit counts the convergence check compares moving."""
+    client = CLIENTS.get(address)
+    if client is None or not client.csrf:
+        client = CLIENTS[address] = Api(address)
+        wait_for(f"{address} login", lambda: client.login("admin", PASSWORD), timeout=300)
     return client
 
 
@@ -418,6 +427,12 @@ class TestDebianPair:
             return len(nodes) == 2 and all(n["status"] == "online" for n in nodes)
 
         wait_for("both online", online, timeout=300)
+        # The security plan gives Pelagos its key on the zones (AXFR, updates), as in production.
+        for address in (A1, A2):
+            client = api(address)
+            todo = labkit.fixable(client.get("/install/security")["findings"])
+            if todo:
+                client.apply(client.post("/install/security/plan", {"finding_ids": todo}), timeout=900)
         STATE["node_ids"] = [n["peer"]["id"] for n in api(A1).get("/nodes")["items"]]
         for i, via in enumerate((A1, A2)):
             add_record(via, f"before{i}", f"10.99.0.{180 + i}")

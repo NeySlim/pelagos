@@ -3177,7 +3177,7 @@ installs nothing and writes nothing to `/etc/kea`.
 | `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": Migration|null}` (`analysis`: the newest report kept on any node, from `kea.migration.inventory` answers, with `kept_on` {"node_id","name"}; a target's `version` is the `target_version` of the newest report for it; `current`: the migration `[settings.kea.migration]` holds, section 28) |
 | `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` (`series` and `source` one of `targets`; `node_ids` default every node running Kea) | `Report`; `400` on an unknown target or node; audited `kea.migration.analyze` |
 | `GET /install/kea-migration/{id}` | `admin:install` | | `Migration` (section 28); `404` unless it is the migration cluster.toml holds |
-| `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id (prepare: not the last analysis of this node), `409 conflict` while a blocking finding is open, a node was not analyzed, the analysis has no `roles` (made by an older release), no archive recipient exists, or when the phase does not follow the state (section 28); `400` when the record gives no plan (neither one HA pair nor nodes without HA only) |
+| `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id (prepare: not the last analysis of this node), `409 conflict` while a blocking finding is open, a node was not analyzed, the analysis has no `roles` (made by an older release), no archive recipient exists, a node of the migration runs Pelagos older than 0.3.1 or does not answer with its version (0.3.1, item 82: a 0.3.0 helper runs the 0.3.0 steps), or when the phase does not follow the state (section 28); `400` when the record gives no plan (neither one HA pair nor nodes without HA only) |
 
 ### IPv6 observations
 
@@ -4698,6 +4698,12 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   one reported, a failed one leaves its node's `error`). Summary key `plan.kea_migration.reconcile`
   (`nodes`, `series`). A peer's helper accepts the two steps also while its record is `rolled_back`
   or `prepare_failed`.
+- **Version gate** (0.3.1, item 82). Every phase's plan (`prepare`, `migrate`, `rollback`,
+  `reconcile`) is refused with `409 conflict` unless each node of the migration reports Pelagos
+  0.3.1 or later (`0.3.1.devN` counts; this node's own version, a peer's from a fresh `GET /status`
+  on the replication channel; a peer that does not answer is refused too): the driver only sends
+  the steps, each node's helper runs its own code for them, and a 0.3.0 helper validates across
+  nodes, returns with the failing apt call and knows neither `kea-mig-check` nor `kea-mig-cleanup`.
 - **Plans**: scope `kea.migration` (`PlanScope.KEA_MIGRATION`), permission `admin:install` to
   apply, plus `ops:dhcp.ha` (checked by the route and by `POST /plans/{id}/apply`), always
   `requires_confirmation`, run as a job without the backend lock (`UNLOCKED_SCOPES`). One composite
@@ -4748,7 +4754,9 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   differ from the prepare's copy and AppArmor `disable/` links are notes, not failures),
   `kea-mig-cleanup` (reconcile: the AppArmor profiles a migration noted as disabled enabled again,
   removed ISC packages purged as in the return, HA maintenance windows closed, every migration
-  directory of the node removed, root's and the service user's; /etc/kea untouched),
+  directory of the node removed, root's and the service user's; /etc/kea untouched; when a file of
+  /etc/kea differs from the prepare's sums, that migration's `private/before` is first moved to
+  `<state dir>/before-<id>-<timestamp>` and kept, said in the step's output),
   `kea-mig-finish` (removes `private/target` and
   `packages/target`; the saved files, the kept previous packages, `state.json`, the manifest and
   the lease copies stay for the return of the pair, so `rollback_ready` stays true). Driver steps
@@ -4890,7 +4898,8 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   first stop found it (`units_before`, its raw `enabled_state` since 0.3.1), purges the ISC packages
   dpkg keeps as removed (`rc`) after replacing their `postrm` by a no-op (their purge would delete
   /etc/kea, /var/lib/kea and the `_kea` user Debian shares) with /etc/kea compared to a copy taken
-  just before, then `-t` with the 2.6 daemons. Each part runs even when an earlier one failed (Kea
+  just before (`<state dir>/purge-*`, put back even when `dpkg --purge` fails, whose conffile removal
+  may come first; on a failure the copy is kept and its path is in the error), then `-t` with the 2.6 daemons. Each part runs even when an earlier one failed (Kea
   is stopped); the step then fails with every error. The target direction installs the prepared
   files by path too, with `packages/target` as the cache. `kea-mig-ha-maintenance` `start` needs every relationship of P in its normal state
   (or already `partner-in-maintenance` or `partner-down`, a resume), sends `ha-maintenance-start` and

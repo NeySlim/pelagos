@@ -320,7 +320,10 @@ Kea migration (**Install, Kea migration**).
 their interfaces differently, and its automatic return could then fail to
 reinstall the kept Kea 2.6 packages. If you restored such a pair by hand, the
 migration stays shown as failed (or prepared) although both nodes run 2.6
-again. After the upgrade to 0.3.1, open **Install, Kea migration** and use
+again. Upgrade every node to 0.3.1 first: each migration phase is refused
+while a node runs an older release. With the migration shown failed, the
+0.3.0 Updates screen refuses the rollout: upgrade the nodes by hand then. After
+the upgrade, open **Install, Kea migration** and use
 "Check the real state, mark as back on 2.6": nothing in `/etc/kea` changes,
 the migration is marked returned, the ISC packages left as removed (`rc` in
 `dpkg -l`) and the migration folders are removed. Analyze and prepare again

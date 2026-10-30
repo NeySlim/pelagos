@@ -2476,3 +2476,8 @@ outputs are text only. Lab hook `PELAGOS_KEA_MIGRATION_FAIL_AFTER` (driver envir
 WP-API-AUTH: `services/kea_migration_phases.py`. WP-FRONTEND: wizard reconcile action, `outputText`,
 the migration page keeps its data on a failed refresh and reads it again while a phase runs.
 WP-LAB-E2E: `tests/lab/test_kea_migration_p82_lab.py`, snapshot `k1-ifdiff`.
+Same release, after review: the plan of every phase answers `409 conflict` while a node of the
+migration runs Pelagos older than 0.3.1 or does not report its version. A failed purge of the `rc`
+ISC packages still puts /etc/kea back and keeps its copy (path in the error); `kea-mig-cleanup` keeps
+`private/before` as `before-<id>-<timestamp>` when /etc/kea differs from the prepare. Lab test_04: a
+target postinst that fails inside dpkg, returned exactly.

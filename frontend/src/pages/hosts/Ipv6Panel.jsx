@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hosts > IPv6 (read only, release 0.2.2): one row per MAC with its observed addresses and
-// their class, the AAAA and PTR it has, the proposal, and an exception per host or address.
-// Filter and zone live in the URL (?tab=ipv6&filter=&zone=) so alert links land on them.
-import { useEffect, useState } from 'react'
+// Hosts > IPv6: one row per MAC with its observed addresses and their class, the AAAA and PTR
+// it has, the proposal, an exception per host or address, and the plans: AAAA and PTR of the
+// selection, a prefix replacement, the reverse zone a selection lacks.
+// Filter and zone live in the URL (?tab=ipv6&filter=&zone=, &reverse=<prefix> for the alert).
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Globe, ProhibitInset, ShieldSlash, Shuffle, Warning } from '@phosphor-icons/react'
+import { ArrowsLeftRight, Globe, Plus, ProhibitInset, ShieldSlash, Shuffle, Warning, X } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { DataTable } from '../../components/DataTable'
@@ -13,9 +14,16 @@ import { useNodeNames } from '../../hooks/useNodeNames'
 import { usePaginatedApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
+import { errorMessage } from '../../services/apiClient'
+import { useNotification } from '../../contexts/NotificationContext'
 import { cn, formatDate, formatRelativeTime } from '../../lib/utils'
+import { usePlanFlow } from '../dhcp/hooks'
 import { Ipv6ExceptionDialog } from './Ipv6ExceptionDialog'
-import { CLASS_VARIANT, FILTERS, exceptionTargets, staleAaaa, unavailableLines, validFilter } from './ipv6'
+import { ReplacePrefixDialog, ReverseZonesDialog } from './Ipv6PlanDialogs'
+import {
+  CLASS_VARIANT, FILTERS, defaultAddress, exceptionTargets, missingReverseZones, parsePrefix, reverseZoneName,
+  selectableAddresses, selectionKey, staleAaaa, suggestPrefixSwap, unavailableLines, validFilter,
+} from './ipv6'
 
 function Chip({ active, onClick, children, testId, value }) {
   return (
@@ -40,10 +48,17 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
   const [params, setParams] = useSearchParams()
   const { hasPermission } = usePermission()
   const nameOf = useNodeNames()
+  const { showError } = useNotification()
   const filter = validFilter(params.get('filter'))
   const zone = params.get('zone') || ''
   const [excepting, setExcepting] = useState(null)
   const canExcept = hasPermission('write:alerts')
+  const canPlan = hasPermission('write:dns.records')
+  const canZones = hasPermission('write:dns.zones')
+  // Selected addresses: selectionKey(host_key, address) -> {host_key, address}.
+  const [selected, setSelected] = useState(() => new Map())
+  const [missingZones, setMissingZones] = useState(null)
+  const [replacing, setReplacing] = useState(false)
 
   const hosts = usePaginatedApi((p) => api.ipv6.hosts(p), { perPage: 50, filters: { filter: filter || undefined, zone: zone || undefined } })
   const { refetch } = hosts
@@ -51,6 +66,60 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
     if (refreshKey) refetch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
+  // A reverse zone plan keeps the selection waiting for it; the AAAA and PTR plans clear it.
+  const keepSelection = useRef(false)
+  const flow = usePlanFlow({
+    onApplied: () => {
+      if (!keepSelection.current) setSelected(new Map())
+      hosts.refetch()
+    },
+  })
+
+  // ?reverse=<prefix> (the ipv6_reverse_missing alert link) opens the zone to create.
+  const reversePrefix = params.get('reverse')
+  useEffect(() => {
+    const p = reversePrefix && parsePrefix(reversePrefix)
+    if (p) setMissingZones([{ prefix: p.text, zone: reverseZoneName(p.text), view: '_default' }])
+  }, [reversePrefix])
+  const closeZones = () => {
+    setMissingZones(null)
+    if (reversePrefix) update({ reverse: '' })
+  }
+
+  const toggle = (row, address) => {
+    setSelected((prev) => {
+      const next = new Map(prev)
+      const key = selectionKey(row.host_key, address)
+      if (next.has(key)) next.delete(key)
+      else next.set(key, { host_key: row.host_key, address })
+      return next
+    })
+  }
+  const rowSelected = (row) => [...selected.values()].some((s) => s.host_key === row.host_key)
+  const toggleRow = (row) => {
+    if (rowSelected(row)) {
+      setSelected((prev) => new Map([...prev].filter(([, v]) => v.host_key !== row.host_key)))
+    } else {
+      const address = defaultAddress(row)
+      if (address) toggle(row, address)
+    }
+  }
+  const buildSelection = async () => {
+    try {
+      keepSelection.current = false
+      await flow.build(() => api.ipv6.plan({ items: [...selected.values()] }), { rethrow: true })
+    } catch (err) {
+      const missing = missingReverseZones(err)
+      if (missing) setMissingZones(missing)
+      else showError(errorMessage(err))
+    }
+  }
+  const createZone = async (z) => {
+    keepSelection.current = true
+    const plan = await flow.build(() => api.ipv6.reverseZonePlan({ prefix: z.prefix, ...(z.view && z.view !== '_default' ? { view: z.view } : {}) }))
+    if (plan) closeZones()
+  }
+  const suggestion = useMemo(() => suggestPrefixSwap(hosts.items || []), [hosts.items])
 
   const update = (next) => {
     const q = new URLSearchParams(params)
@@ -65,6 +134,27 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
   const engineErrors = Object.entries(hosts.meta?.errors || {}).map(([source, detail]) => `${source}: ${detail}`)
 
   const columns = [
+    ...(canPlan
+      ? [{
+          key: 'select',
+          label: '',
+          render: (h) => {
+            const selectable = Boolean(defaultAddress(h)) || rowSelected(h)
+            return (
+              <input
+                type="checkbox"
+                className="accent-accent-pro"
+                checked={rowSelected(h)}
+                disabled={!selectable}
+                onChange={() => toggleRow(h)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={t('plans.selectRow', { host: h.name || h.mac || h.host_key })}
+                data-testid="ipv6-select-row"
+              />
+            )
+          },
+        }]
+      : []),
     {
       key: 'name',
       label: t('columns.host'),
@@ -91,10 +181,24 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
     {
       key: 'observed',
       label: t('columns.observed'),
-      render: (h) => (!h.observed?.length ? <span className="text-text-tertiary" data-testid="ipv6-not-observed">{t('notObserved')}</span> : (
+      render: (h) => {
+        if (!h.observed?.length) return <span className="text-text-tertiary" data-testid="ipv6-not-observed">{t('notObserved')}</span>
+        const selectable = canPlan ? new Set(selectableAddresses(h)) : new Set()
+        return (
         <ul className="space-y-1" data-testid="ipv6-observed">
           {h.observed.map((o) => (
             <li key={o.address} className="flex flex-wrap items-center gap-1.5" data-address={o.address} data-class={o.class}>
+              {selectable.has(o.address) && (
+                <input
+                  type="checkbox"
+                  className="accent-accent-pro"
+                  checked={selected.has(selectionKey(h.host_key, o.address))}
+                  onChange={() => toggle(h, o.address)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={t('plans.selectAddress', { address: o.address })}
+                  data-testid="ipv6-select-address"
+                />
+              )}
               <span className="font-mono text-xs break-all">{o.address}</span>
               <Badge variant={CLASS_VARIANT[o.class] || 'gray'} size="sm" title={t(`classHelp.${o.class}`, { defaultValue: '' })} data-testid="ipv6-class">
                 {t(`class.${o.class}`, { defaultValue: o.class })}
@@ -105,7 +209,8 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
             </li>
           ))}
         </ul>
-      )),
+        )
+      },
     },
     {
       key: 'records',
@@ -188,6 +293,24 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
           {t('total', { n: hosts.total })}
         </span>
       </div>
+      {canPlan && (
+        <div className="flex flex-wrap items-center gap-2" data-testid="ipv6-actions">
+          <Button size="sm" variant="primary" disabled={!selected.size || flow.building} onClick={buildSelection} data-testid="ipv6-plan-selection">
+            <Plus size={14} />
+            {t('plans.createSelection', { n: selected.size })}
+          </Button>
+          {selected.size > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Map())} data-testid="ipv6-clear-selection">
+              <X size={14} />
+              {t('plans.clear')}
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => setReplacing(true)} disabled={flow.building} data-testid="ipv6-replace-prefix" className="ml-auto">
+            <ArrowsLeftRight size={14} />
+            {t('plans.replace.button')}
+          </Button>
+        </div>
+      )}
       {unavailable.length > 0 && (
         <p role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="ipv6-unavailable">
           {t('unavailable', { sources: unavailable.join('; ') })}
@@ -214,7 +337,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
         testId="ipv6-table"
       />
       <p className="text-2xs text-text-tertiary">
-        {t('footer')}{' '}
+        {t(canPlan ? 'footerPlans' : 'footer')}{' '}
         {hasPermission('admin:settings') && (
           <Link to="/admin/ipv6" className="underline" data-testid="ipv6-sources-link">{t('sourcesLink')}</Link>
         )}{' '}
@@ -223,6 +346,15 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
         )}
       </p>
       <Ipv6ExceptionDialog row={excepting} onClose={() => setExcepting(null)} onDone={hosts.refetch} />
+      <ReverseZonesDialog zones={missingZones} onClose={closeZones} canCreate={canZones} building={flow.building} onCreate={createZone} />
+      <ReplacePrefixDialog
+        open={replacing}
+        initial={suggestion}
+        onClose={() => setReplacing(false)}
+        build={(body) => (keepSelection.current = false, flow.build(() => api.ipv6.replacePrefixPlan(body), { rethrow: true }))}
+        onMissingZones={setMissingZones}
+      />
+      {flow.modal}
     </div>
   )
 }

@@ -259,6 +259,9 @@ export const ENDPOINTS = [
   'POST /install/kea-migration/{id}/plan',
   // Hosts > IPv6 and Administration > IPv6 observation (section 27)
   'GET /hosts/ipv6',
+  'POST /hosts/ipv6/plan',
+  'POST /hosts/ipv6/replace-prefix/plan',
+  'POST /hosts/ipv6/reverse-zone/plan',
   'GET /admin/ipv6',
   'PUT /admin/ipv6',
   // Administration > Updates (section 29)

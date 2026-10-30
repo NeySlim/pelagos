@@ -116,6 +116,8 @@ const invocations = [
   () => api.updates.overview(), () => api.updates.check(), () => api.updates.upload([new File(['x'], 'SHA256SUMS')]),
   () => api.updates.saveSettings({ source: 'upload' }), () => api.updates.plan({ kind: 'pelagos', version: '0.3.0' }),
   () => api.updates.rollout(), () => api.updates.action('r1', 'resume'), () => api.updates.history({ page: 1 }),
+  () => api.ipv6.plan({ items: [] }), () => api.ipv6.replacePrefixPlan({ old_prefix: '2001:db8::/64', new_prefix: '2001:db8:1::/64' }),
+  () => api.ipv6.reverseZonePlan({ prefix: '2001:db8:1::/64' }),
 ]
 
 describe('api.js', () => {

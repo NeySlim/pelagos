@@ -75,6 +75,9 @@ def test_hosts_ipv6_rows_proposal_and_filters(role_client, observed):
     assert www["ptr_missing"] == []  # no ip6.arpa zone: ptr_mismatch does not judge it either
     assert [r["mac"] for r in c.get(H + "?zone=example.lan").get_json()["items"]] == [MAC, None]
     assert c.get(H + "?filter=bogus").status_code == 400
+    one = c.get(H + f"?host_key=mac:{MAC}").get_json()
+    assert [r["host_key"] for r in one["items"]] == [f"mac:{MAC}"]
+    assert c.get(H + "?host_key=mac:00:00:00:00:00:01").get_json()["total"] == 0
 
 
 def test_stale_addresses_listed_per_row(role_client, observed, monkeypatch):

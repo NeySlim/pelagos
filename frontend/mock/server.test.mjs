@@ -96,6 +96,9 @@ const BODIES = {
   'PUT /admin/updates/settings': { check_interval_hours: 12 },
   'POST /admin/updates/plan': { kind: 'engine_packages' },
   'POST /admin/updates/rollout/{id}/action': { action: 'resume' },
+  'POST /hosts/ipv6/plan': { items: [{ host_key: 'mac:02:00:5e:00:53:11', address: '2001:db8::1c2a:77ff:9d01:4e10' }] },
+  'POST /hosts/ipv6/replace-prefix/plan': { old_prefix: '2001:db8::/64', new_prefix: '2001:db8:4::/64' },
+  'POST /hosts/ipv6/reverse-zone/plan': { prefix: '2001:db8:3::/64' },
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
@@ -170,6 +173,8 @@ const QUERIES = {
 const EXPECTED = {
   // No browser here: no key answers, so the ceremony steps refuse and no key exists.
   'POST /auth/webauthn/login/verify': 401,
+  // The PTR of 2001:db8::/64 would be lost: no zone serves 2001:db8:4::/64.
+  'POST /hosts/ipv6/replace-prefix/plan': 409,
   'POST /auth/webauthn/register/verify': 400,
   'PATCH /auth/webauthn/credentials/{id}': 404,
   'DELETE /auth/webauthn/credentials/{id}': 401,
@@ -420,6 +425,42 @@ describe('mock server resolver, Kea migration and IPv6', () => {
     expect(saved.data.effective_prefixes).toContainEqual({ prefix: '2001:db8:5::/64', from: 'setting' })
     expect((await admin('PUT', '/admin/ipv6', { sources: [] })).status).toBe(400)
     expect((await admin('POST', '/admin/ipv6/sources/test', { source_id: 'src-router' })).status).toBe(404)
+  })
+
+  it('builds the IPv6 plans of batch V4: selection, reverse zone, prefix swap', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const apply = async (res, confirm = false) => {
+      expect(res.status).toBe(200)
+      return (await admin('POST', `/plans/${res.data.id}/apply`, { confirm })).data.state
+    }
+    const row = async (key) => (await admin('GET', `/hosts/ipv6?host_key=${encodeURIComponent(key)}`)).data.items
+    expect((await row('ip:192.0.2.10')).map((h) => h.host_key)).toEqual(['ip:192.0.2.10'])
+    const temp = await admin('POST', '/hosts/ipv6/plan', { items: [{ host_key: 'mac:02:00:5e:00:53:11', address: '2001:db8::a4b9:12c3:5d6e:7f80' }] })
+    expect(temp.status).toBe(400)
+    const sel = await admin('POST', '/hosts/ipv6/plan', { items: [{ host_key: 'ip:192.0.2.10', address: '2001:db8::5eff:fe00:5310' }] })
+    expect(sel.data.summary_message).toEqual({ key: 'plan.ipv6.aaaa', params: { count: 1 } })
+    expect(sel.data.changes.map((c) => c.target.split('/').at(-1))).toEqual(['AAAA', 'PTR'])
+    expect(await apply(sel)).toBe('applied')
+    const [printer] = await row('ip:192.0.2.10')
+    expect([printer.aaaa, printer.ptr, printer.proposal]).toEqual([['2001:db8::5eff:fe00:5310'], ['2001:db8::5eff:fe00:5310'], null])
+    // The camera's prefix has no reverse zone: the zone first, then the selection.
+    const cam = { items: [{ host_key: 'mac:02:00:5e:00:53:30', address: '2001:db8:1::5eff:fe00:5330' }] }
+    const refused = await admin('POST', '/hosts/ipv6/plan', cam)
+    expect(refused.status).toBe(409)
+    expect(refused.data.reverse_zones).toEqual([{ prefix: '2001:db8:1::/64', zone: '0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', view: '_default' }])
+    expect(await apply(await admin('POST', '/hosts/ipv6/reverse-zone/plan', { prefix: '2001:db8:1::/64' }))).toBe('applied')
+    expect((await admin('POST', '/hosts/ipv6/reverse-zone/plan', { prefix: '2001:db8:1::/64' })).status).toBe(409)
+    expect(await apply(await admin('POST', '/hosts/ipv6/plan', cam))).toBe('applied')
+    // A provider change: the PTR cannot move until the new reverse zone is served.
+    const swap = { old_prefix: '2001:db8::/64', new_prefix: '2001:db8:2::/64' }
+    expect((await admin('POST', '/hosts/ipv6/replace-prefix/plan', { ...swap, new_prefix: '2001:db8:2::/48' })).status).toBe(400)
+    expect((await admin('POST', '/hosts/ipv6/replace-prefix/plan', swap)).data.reverse_zones[0].zone).toBe('0.0.0.0.2.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+    expect(await apply(await admin('POST', '/hosts/ipv6/reverse-zone/plan', { prefix: '2001:db8:2::/64' }))).toBe('applied')
+    const moved = await admin('POST', '/hosts/ipv6/replace-prefix/plan', swap)
+    expect(moved.data.requires_confirmation).toBe(true)
+    expect(await apply(moved, true)).toBe('applied')
+    expect((await row('ip:192.0.2.10'))[0].aaaa).toEqual(['2001:db8:2::5eff:fe00:5310'])
+    expect((await admin('POST', '/hosts/ipv6/replace-prefix/plan', swap)).status).toBe(409)
   })
 })
 

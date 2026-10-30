@@ -45,7 +45,8 @@
     "records": "DNS records",
     "reservation": "Reservation",
     "reservationMismatch": "Reserved {{reserved}} but leased {{leased}}",
-    "title": "Host"
+    "title": "Host",
+    "ipv6": "IPv6"
   },
   "actions": {
     "createRecords": "Create A and PTR",

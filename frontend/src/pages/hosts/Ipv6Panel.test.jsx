@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Hosts > IPv6: rows with classes, records and proposal, filters from and to the URL, the
-// unavailable sources banner, and an exception per host or address with its comment.
+// unavailable sources banner, an exception per host or address with its comment, and the plans:
+// AAAA and PTR of the selection, the reverse zone it lacks, the prefix replacement.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import { NotificationProvider } from '../../contexts/NotificationContext'
 import '../../i18n'
 
-const db = vi.hoisted(() => ({ rows: [], meta: {}, perms: null, calls: [], added: [] }))
+const db = vi.hoisted(() => ({ rows: [], meta: {}, perms: null, calls: [], added: [], plans: [], planError: null }))
 
 vi.mock('../../services/api', () => {
   const api = {
@@ -15,12 +17,27 @@ vi.mock('../../services/api', () => {
         db.calls.push(params)
         return { items: db.rows, total: db.rows.length, page: 1, per_page: 50, meta: db.meta }
       },
+      plan: async (body) => {
+        db.plans.push(['plan', body])
+        if (db.planError) throw db.planError
+        return { id: 'P1', summary: 'AAAA and PTR' }
+      },
+      replacePrefixPlan: async (body) => {
+        db.plans.push(['replace', body])
+        if (db.planError) throw db.planError
+        return { id: 'P2', summary: 'prefix replaced' }
+      },
+      reverseZonePlan: async (body) => {
+        db.plans.push(['zone', body])
+        return { id: 'P3', summary: 'zone' }
+      },
     },
     alerts: { addException: async (body) => { db.added.push(body); return { id: 'E1', ...body } } },
     nodes: { list: async () => ({ items: [{ peer: { id: 'N1', name: 'ns1' } }, { peer: { id: 'N2', name: 'ns2' } }] }) },
   }
   return { api, default: api }
 })
+vi.mock('../../components/PlanPreview', () => ({ PlanPreviewModal: ({ plan }) => <div data-testid="plan-preview">{plan.summary}</div> }))
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: (p) => !db.perms || db.perms.includes(p) }) }))
 
 const { Ipv6Panel } = await import('./Ipv6Panel')
@@ -54,10 +71,12 @@ function Where() {
 }
 const renderPanel = (entry = '/hosts?tab=ipv6') =>
   render(
-    <MemoryRouter initialEntries={[entry]}>
-      <Ipv6Panel zoneOptions={[{ value: 'example.lan.', label: 'example.lan.' }]} />
-      <Where />
-    </MemoryRouter>,
+    <NotificationProvider>
+      <MemoryRouter initialEntries={[entry]}>
+        <Ipv6Panel zoneOptions={[{ value: 'example.lan.', label: 'example.lan.' }]} />
+        <Where />
+      </MemoryRouter>
+    </NotificationProvider>,
   )
 const rowOf = (text) => screen.getByText(text).closest('tr')
 
@@ -67,6 +86,8 @@ beforeEach(() => {
   db.perms = null
   db.calls = []
   db.added = []
+  db.plans = []
+  db.planError = null
 })
 
 describe('Ipv6Panel', () => {
@@ -143,5 +164,68 @@ describe('Ipv6Panel', () => {
     await screen.findByText('02:00:5e:00:53:10')
     expect(screen.queryAllByTestId('ipv6-except')).toEqual([])
     expect(screen.queryByTestId('ipv6-sources-link')).toBeNull()
+  })
+
+  it('builds the AAAA and PTR plan of the selection, never of a temporary address', async () => {
+    renderPanel()
+    await screen.findByText('02:00:5e:00:53:10')
+    const printerRow = rowOf('02:00:5e:00:53:10')
+    expect(within(printerRow).getAllByTestId('ipv6-select-address').map((c) => c.closest('li').dataset.address)).toEqual(['2001:db8::5eff:fe00:5310'])
+    // The unknown host has no name: nothing to select; the nas has an AAAA without PTR.
+    expect(within(rowOf('06:11:22:33:44:55')).getByTestId('ipv6-select-row')).toBeDisabled()
+    expect(screen.getByTestId('ipv6-plan-selection')).toBeDisabled()
+    fireEvent.click(within(printerRow).getByTestId('ipv6-select-row'))
+    fireEvent.click(within(rowOf('02:00:5e:00:53:20')).getAllByTestId('ipv6-select-address')[0])
+    expect(screen.getByTestId('ipv6-plan-selection')).toHaveTextContent('(2)')
+    fireEvent.click(screen.getByTestId('ipv6-plan-selection'))
+    await screen.findByTestId('plan-preview')
+    expect(db.plans).toEqual([['plan', { items: [
+      { host_key: 'mac:02:00:5e:00:53:10', address: '2001:db8::5eff:fe00:5310' },
+      { host_key: 'mac:02:00:5e:00:53:20', address: '2001:db8::20' },
+    ] }]])
+  })
+
+  it('offers the missing reverse zone a selection needs', async () => {
+    db.planError = Object.assign(new Error('no reverse zone'), { status: 409, code: 'precondition_failed', problem: { reverse_zones: [{ prefix: '2001:db8:1::/64', zone: '0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', view: '_default' }] } })
+    renderPanel()
+    await screen.findByText('02:00:5e:00:53:10')
+    fireEvent.click(within(rowOf('02:00:5e:00:53:10')).getByTestId('ipv6-select-row'))
+    fireEvent.click(screen.getByTestId('ipv6-plan-selection'))
+    const dialog = await screen.findByTestId('ipv6-reverse-dialog')
+    expect(dialog).toHaveTextContent('0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+    fireEvent.click(within(dialog).getByTestId('ipv6-reverse-create'))
+    await screen.findByTestId('plan-preview')
+    expect(db.plans.at(-1)).toEqual(['zone', { prefix: '2001:db8:1::/64' }])
+  })
+
+  it('opens the zone of the reverse alert link', async () => {
+    renderPanel('/hosts?tab=ipv6&reverse=2001:db8:2::/64')
+    const dialog = await screen.findByTestId('ipv6-reverse-dialog')
+    expect(dialog).toHaveTextContent('0.0.0.0.2.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+  })
+
+  it('checks and builds a prefix replacement', async () => {
+    renderPanel()
+    await screen.findByText('02:00:5e:00:53:10')
+    fireEvent.click(screen.getByTestId('ipv6-replace-prefix'))
+    const dialog = await screen.findByTestId('ipv6-replace-dialog')
+    fireEvent.change(within(dialog).getByTestId('ipv6-replace-old'), { target: { value: '2001:db8::/64' } })
+    fireEvent.change(within(dialog).getByTestId('ipv6-replace-new'), { target: { value: '2001:db8:1::/56' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Build the plan' }))
+    expect(await within(dialog).findByText('Both prefixes must have the same length')).toBeInTheDocument()
+    expect(db.plans).toEqual([])
+    fireEvent.change(within(dialog).getByTestId('ipv6-replace-new'), { target: { value: '2001:db8:1::/64' } })
+    fireEvent.change(within(dialog).getByTestId('ipv6-replace-zones'), { target: { value: 'example.lan.' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Build the plan' }))
+    await screen.findByTestId('plan-preview')
+    expect(db.plans).toEqual([['replace', { old_prefix: '2001:db8::/64', new_prefix: '2001:db8:1::/64', zones: ['example.lan.'] }]])
+  })
+
+  it('offers no plan without write:dns.records', async () => {
+    db.perms = ['read:hosts']
+    renderPanel()
+    await screen.findByText('02:00:5e:00:53:10')
+    expect(screen.queryByTestId('ipv6-actions')).toBeNull()
+    expect(screen.queryAllByTestId('ipv6-select-row')).toEqual([])
   })
 })

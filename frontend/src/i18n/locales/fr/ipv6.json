@@ -75,7 +75,7 @@
   "noReverseZone": "pas de zone inverse",
   "total": "Hôtes : {{n}}",
   "unavailable": "Des sources n'ont pas répondu, la liste peut être incomplète : {{sources}}",
-  "footer": "Lecture seule : les plans AAAA et PTR de la sélection arrivent dans une release suivante.",
+  "footer": "Lecture seule : les plans AAAA et PTR demandent la permission write:dns.records.",
   "sourcesLink": "Sources d'observation",
   "exceptionsLink": "Exceptions",
   "admin": {
@@ -121,5 +121,45 @@
       "scope": "Le lien local et le multicast ne sont jamais surveillés : {{prefix}}"
     }
   },
-  "notObserved": "non observé"
+  "notObserved": "non observé",
+  "footerPlans": "Cochez les adresses à écrire, ou une ligne pour sa proposition : le plan écrit chaque AAAA et son PTR après l'aperçu habituel.",
+  "card": {
+    "none": "Aucune adresse IPv6 observée pour cet hôte",
+    "past": "plus d'actualité",
+    "unobserved": "AAAA non observés : {{addresses}}",
+    "proposal": "Proposition : {{address}} pour {{name}}",
+    "create": "Créer AAAA et PTR",
+    "openTab": "Ouvrir l'onglet IPv6"
+  },
+  "plans": {
+    "selectRow": "Sélectionner la proposition de {{host}}",
+    "selectAddress": "Sélectionner {{address}}",
+    "createSelection": "Créer AAAA et PTR de la sélection ({{n}})",
+    "clear": "Vider la sélection",
+    "reverse": {
+      "title": "Zone inverse absente",
+      "body": "Aucune zone inverse servie ne contient ces adresses. Créez d'abord la zone : une zone ip6.arpa primaire dynamique, écrite par plans comme les autres.",
+      "prefix": "Préfixe {{prefix}}",
+      "view": "vue {{view}}",
+      "create": "Créer la zone",
+      "noPermission": "Créer une zone demande la permission write:dns.zones.",
+      "then": "Une fois le plan de la zone appliqué, refaites le plan AAAA et PTR."
+    },
+    "replace": {
+      "button": "Remplacer un préfixe",
+      "title": "Remplacer un préfixe IPv6",
+      "body": "Chaque AAAA de l'ancien préfixe prend le nouveau avec les mêmes bits d'interface, et son PTR suit. Cas typique : le fournisseur d'accès change le préfixe délégué.",
+      "old": "Ancien préfixe",
+      "new": "Nouveau préfixe",
+      "zones": "Zones directes (facultatif)",
+      "zonesHelp": "Séparées par des virgules ou des espaces ; toutes les zones directes modifiables si vide",
+      "submit": "Préparer le plan",
+      "errors": {
+        "format": "Pas un préfixe IPv6 (exemple : 2001:db8::/64)",
+        "length": "De /16 à /124",
+        "sameLength": "Les deux préfixes doivent avoir la même longueur",
+        "overlap": "Le nouveau préfixe est l'ancien"
+      }
+    }
+  }
 }

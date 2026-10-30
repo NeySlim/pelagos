@@ -75,7 +75,7 @@
   "noReverseZone": "no reverse zone",
   "total": "Hosts: {{n}}",
   "unavailable": "Some sources did not answer, the list may be incomplete: {{sources}}",
-  "footer": "Read only: the AAAA and PTR plans of the selection come with a later release.",
+  "footer": "Read only: building the AAAA and PTR plans needs the write:dns.records permission.",
   "sourcesLink": "Observation sources",
   "exceptionsLink": "Exceptions",
   "admin": {
@@ -121,5 +121,45 @@
       "scope": "Link-local and multicast are never watched: {{prefix}}"
     }
   },
-  "notObserved": "not observed"
+  "notObserved": "not observed",
+  "footerPlans": "Tick the addresses to write, or a row for its proposal: the plan writes each AAAA and its PTR after the usual preview.",
+  "card": {
+    "none": "No IPv6 address observed for this host",
+    "past": "no longer current",
+    "unobserved": "AAAA not observed: {{addresses}}",
+    "proposal": "Proposal: {{address}} as {{name}}",
+    "create": "Create AAAA and PTR",
+    "openTab": "Open the IPv6 tab"
+  },
+  "plans": {
+    "selectRow": "Select the proposal of {{host}}",
+    "selectAddress": "Select {{address}}",
+    "createSelection": "Create AAAA and PTR of the selection ({{n}})",
+    "clear": "Clear the selection",
+    "reverse": {
+      "title": "Reverse zone missing",
+      "body": "No served reverse zone holds these addresses. Create the zone first: a dynamic primary ip6.arpa zone, written by plans like the others.",
+      "prefix": "Prefix {{prefix}}",
+      "view": "view {{view}}",
+      "create": "Create the zone",
+      "noPermission": "Creating a zone needs the write:dns.zones permission.",
+      "then": "Once the zone plan is applied, build the AAAA and PTR plan again."
+    },
+    "replace": {
+      "button": "Replace a prefix",
+      "title": "Replace an IPv6 prefix",
+      "body": "Every AAAA under the old prefix takes the new one with the same interface bits, and its PTR moves along. Typical after a provider changes the delegated prefix.",
+      "old": "Old prefix",
+      "new": "New prefix",
+      "zones": "Forward zones (optional)",
+      "zonesHelp": "Comma or space separated; every writable forward zone when empty",
+      "submit": "Build the plan",
+      "errors": {
+        "format": "Not an IPv6 prefix (example: 2001:db8::/64)",
+        "length": "From /16 to /124",
+        "sameLength": "Both prefixes must have the same length",
+        "overlap": "The new prefix is the old one"
+      }
+    }
+  }
 }

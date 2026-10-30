@@ -115,6 +115,8 @@ Object.assign(PERMISSIONS, {
   'GET /install/kea-migration': 'admin:install', 'POST /install/kea-migration/analyze': 'admin:install',
   'GET /install/kea-migration/{id}': 'admin:install', 'POST /install/kea-migration/{id}/plan': 'admin:install',
   'GET /hosts/ipv6': 'read:hosts', 'GET /admin/ipv6': 'admin:settings', 'PUT /admin/ipv6': 'admin:settings',
+  'POST /hosts/ipv6/plan': 'write:dns.records', 'POST /hosts/ipv6/replace-prefix/plan': 'write:dns.records',
+  'POST /hosts/ipv6/reverse-zone/plan': 'write:dns.zones',
 })
 
 class Problem extends Error {
@@ -1315,7 +1317,7 @@ function buildHandlers(state, emit) {
   const loginFailures = new Map()
   const recentFailures = (name) => (loginFailures.get(name) || []).filter((t) => Date.now() - t < LOGIN_WINDOW_MS)
 
-  return {
+  const handlers = {
     // Meta
     'GET /health': () => ({ status: 'ok', replication: 'ready', node_id: state.selfId, time: iso(Date.now()) }),
     'GET /version': () => ({ version: '0.1.0', api: 'v1', python: '3.12.11', build: 'mock' }),
@@ -2802,9 +2804,10 @@ function buildHandlers(state, emit) {
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...resolverHandlers(state, { Problem, invalid, createPlan }),
     ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
-    ...ipv6Handlers(state, { Problem, invalid }),
+    ...ipv6Handlers(state, { Problem, invalid, createPlan, zonePlan: (args) => handlers['POST /dns/zones/plan'](args) }),
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
   }
+  return handlers
 }
 
 // ------------------------------------------------------------------ server

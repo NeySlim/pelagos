@@ -76,7 +76,8 @@ export function subjectLink(alert, { canProposeFallback = true } = {}) {
   // IPv6 checks: "ipv6:aaaa:<zone>", "ipv6:stale:<zone>" open the filtered IPv6 tab of Hosts.
   if (kind === 'ipv6') {
     if (rest[0] === 'aaaa' || rest[0] === 'stale') return { to: ipv6Path({ filter: rest[0] === 'aaaa' ? 'missing_aaaa' : 'stale', zone: rest.slice(1).join(':') }), label: 'openIpv6' }
-    if (rest[0] === 'reverse') return { to: '/dns/zones', label: null }
+    // "ipv6:reverse:<prefix>": the IPv6 tab opens the plan of the missing zone.
+    if (rest[0] === 'reverse') return { to: ipv6Path({ reverse: rest.slice(1).join(':') }), label: 'openIpv6' }
   }
   // Grouped PTR checks: "ptr:stale" opens the stale orphan PTRs, "ptr:missing" the inconsistent hosts.
   if (kind === 'ptr') {

@@ -369,8 +369,14 @@ export const keaMigration = {
 
 // Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 observation, section 27).
 export const ipv6 = {
-  // {filter: missing_aaaa|missing_ptr|stale|unknown|random_mac, zone, page, per_page}
+  // {filter: missing_aaaa|missing_ptr|stale|unknown|random_mac, zone, host_key, page, per_page}
   hosts: (params) => apiClient.get(`/hosts/ipv6${buildQueryString(params)}`),
+  // {items: [{host_key, address, name?}], view?, reverse_view?}: AAAA and PTR of the selection
+  plan: (body) => apiClient.post('/hosts/ipv6/plan', body),
+  // {old_prefix, new_prefix, zones?, view?, reverse_view?}
+  replacePrefixPlan: (body) => apiClient.post('/hosts/ipv6/replace-prefix/plan', body),
+  // {prefix, view?, node_ids?}: the ip6.arpa zone a selection lacks
+  reverseZonePlan: (body) => apiClient.post('/hosts/ipv6/reverse-zone/plan', body),
   settings: () => apiClient.get('/admin/ipv6'),
   // {prefixes}
   update: (body) => apiClient.put('/admin/ipv6', body),

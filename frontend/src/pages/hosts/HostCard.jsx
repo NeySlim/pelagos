@@ -2,12 +2,12 @@
 // Host card (FloatingDetailWindow `host`, or a modal on mobile): the lease, the
 // reservation and its user-context, the A/AAAA/PTR records and the open
 // inconsistencies of one host, with cross actions that build plans on both sides.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
 import { useNavigate } from 'react-router-dom'
 import {
-  Desktop, Clock, BookmarkSimple, Globe, Warning, Trash, Plus, ArrowSquareOut, Copy, Check, PencilSimple,
+  Desktop, Clock, BookmarkSimple, Globe, GlobeHemisphereWest, Warning, Trash, Plus, ArrowSquareOut, Copy, Check, PencilSimple,
 } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
@@ -24,6 +24,7 @@ import { ClassChips, SectionError, UserContextView } from '../dhcp/ui'
 import { usePlanFlow, useNodeNames } from '../dhcp/hooks'
 import { absName, reservationTarget, zoneOf } from '../dhcp/lib'
 import { hostFacts, reservedIps } from './lib'
+import { HostIpv6Section } from './HostIpv6Section'
 import { zoneSegment } from '../../lib/zonePath'
 
 function Section({ icon: Icon, title, badge, actions, children, testId }) {
@@ -62,9 +63,11 @@ export function HostCard({ hostKey, onChanged }) {
   const host = useApi(() => api.hosts.get(hostKey), [hostKey])
   const canReadDns = hasPermission('read:dns')
   const zones = useApi(() => api.dns.zones(), [], { enabled: canReadDns })
+  const [ipv6Key, setIpv6Key] = useState(0)
   const flow = usePlanFlow({
     onApplied: () => {
       host.refetch()
+      setIpv6Key((k) => k + 1)
       onChanged?.()
     },
   })
@@ -287,6 +290,10 @@ export function HostCard({ hostKey, onChanged }) {
             {t('hosts:card.ptrMismatch')}
           </p>
         )}
+      </Section>
+
+      <Section icon={GlobeHemisphereWest} title={t('hosts:card.ipv6')} testId="host-ipv6">
+        <HostIpv6Section hostKey={hostKey} flow={flow} refreshKey={ipv6Key} />
       </Section>
 
       <Section icon={Warning} title={t('hosts:card.alerts')} testId="host-alerts" badge={h.alerts.length > 0 && <Badge variant="warning" size="sm">{h.alerts.length}</Badge>}>

@@ -2313,3 +2313,11 @@ WP-FRONTEND: page titles, translated built-in role descriptions, error items, no
 channel language, one date format on Certificates, locale numbers and sizes (thresholds, RPZ),
 copyable fingerprints, adopt a shared certificate source, label separators, live rate panel.
 Docs: supervision mapping and `scripts/examples/pelagos-metrics.py`.
+
+## 2026-10-30, 0.3.0: IPv6 tab plans and host card (batch V5)
+Section 17, additive. `GET /hosts/ipv6` takes `host_key`: only the rows of that host, as the host
+card reads its IPv6 part. The alert `ipv6_reverse_missing` links to `/hosts?tab=ipv6&reverse=<prefix>`,
+which opens the plan of the missing zone. WP-API-AUTH: `api/ipv6.py`, `services/ipv6_service.py`.
+WP-FRONTEND: `pages/hosts/` (selection, reverse zone and prefix dialogs, IPv6 part of the host
+card), `pages/alerts/lib.js`, `api.js`, `endpoints.js`, the mock and its three plan routes;
+messages (en, fr). WP-LAB-E2E: `tests/lab/test_ipv6_plans_lab.py`.

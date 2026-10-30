@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     dhcp: { leaseDeletePlan: vi.fn(), reservationPlan: vi.fn() },
     plans: { apply: vi.fn(), rollback: vi.fn(), get: vi.fn() },
     jobs: { get: vi.fn() },
+    ipv6: { hosts: vi.fn(), plan: vi.fn(), reverseZonePlan: vi.fn() },
   },
   permissions: new Set(['*']),
   openDetail: vi.fn(),
@@ -99,6 +100,7 @@ function renderCard(hostKey = `mac:${MAC}`) {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.permissions = new Set(['*'])
+  mocks.api.ipv6.hosts.mockResolvedValue({ items: [], total: 0, page: 1, per_page: 10, meta: {} })
   mocks.api.nodes.list.mockResolvedValue({ items: [{ peer: { id: NS1, name: 'ns1' } }] })
   mocks.api.dns.zones.mockResolvedValue({
     items: [{ zone: { name: 'example.lan.' } }, { zone: { name: '2.0.192.in-addr.arpa.' } }],
@@ -277,5 +279,53 @@ describe('host helpers', () => {
     expect(reverseZoneFor('2001:db8::108', ['8.b.d.0.1.0.0.2.ip6.arpa.'])).toBe('8.b.d.0.1.0.0.2.ip6.arpa.')
     expect(reverseZoneFor('2001:db8::108', ['0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', '8.b.d.0.1.0.0.2.ip6.arpa.'])).toBe('0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
     expect(reverseZoneFor('2001:db9::1', ['8.b.d.0.1.0.0.2.ip6.arpa.'])).toBeNull()
+  })
+})
+
+describe('HostCard IPv6 part', () => {
+  const v6row = {
+    host_key: `mac:${MAC}`, name: 'pc7.example.lan.', mac: MAC, mac_random: false, ipv4: ['192.0.2.106'],
+    observed: [
+      { address: '2001:db8::5eff:fe00:7', class: 'eui64', sources: ['neighbors'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z', current: true },
+      { address: '2001:db8::a4b9:12c3:5d6e:7f80', class: 'temporary', sources: ['neighbors'], first_seen: '2026-10-20T00:00:00Z', last_seen: '2026-10-21T00:00:00Z', current: false },
+    ],
+    aaaa: ['2001:db8::99'], ptr: [], ptr_missing: ['2001:db8::99'], stale: ['2001:db8::99'], excepted: false,
+    proposal: { address: '2001:db8::5eff:fe00:7', class: 'eui64', name: 'pc7.example.lan.', zone: 'example.lan.', reverse_zone: null },
+  }
+
+  it('lists the observed history of the host and its unobserved AAAA', async () => {
+    mocks.api.hosts.get.mockResolvedValue(host())
+    mocks.api.ipv6.hosts.mockResolvedValue({ items: [v6row], total: 1, page: 1, per_page: 10, meta: {} })
+    renderCard()
+    const section = await screen.findByTestId('host-ipv6')
+    await waitFor(() => expect(within(section).getAllByTestId('host-ipv6-class').map((b) => b.textContent)).toEqual(['EUI-64', 'temporary']))
+    expect(mocks.api.ipv6.hosts).toHaveBeenCalledWith({ host_key: `mac:${MAC}`, per_page: 10 })
+    expect(within(section).getAllByTestId('host-ipv6-seen')[0]).toHaveTextContent('node neighbors')
+    expect(within(section).getByText('no longer current')).toBeInTheDocument()
+    expect(within(section).getByTestId('host-ipv6-unobserved')).toHaveTextContent('2001:db8::99')
+    expect(within(section).getByTestId('host-ipv6-stale')).toBeInTheDocument()
+    expect(within(section).getByTestId('host-ipv6-proposal')).toHaveTextContent('no reverse zone')
+  })
+
+  it('creates the AAAA and PTR of the proposal, or the reverse zone it lacks first', async () => {
+    mocks.api.hosts.get.mockResolvedValue(host())
+    mocks.api.ipv6.hosts.mockResolvedValue({ items: [v6row], total: 1, page: 1, per_page: 10, meta: {} })
+    const err = Object.assign(new Error('no reverse zone'), { status: 409, code: 'precondition_failed', problem: { reverse_zones: [{ prefix: '2001:db8::/64', zone: '0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', view: '_default' }] } })
+    mocks.api.ipv6.plan.mockRejectedValueOnce(err)
+    mocks.api.ipv6.reverseZonePlan.mockResolvedValue(plan({ scope: 'dns.zone', summary: 'add zone' }))
+    renderCard()
+    fireEvent.click(await screen.findByTestId('host-ipv6-create'))
+    const missing = await screen.findByTestId('host-ipv6-missing-zones')
+    expect(mocks.api.ipv6.plan).toHaveBeenCalledWith({ items: [{ host_key: `mac:${MAC}`, address: '2001:db8::5eff:fe00:7' }] })
+    fireEvent.click(within(missing).getByTestId('ipv6-reverse-create'))
+    await waitFor(() => expect(mocks.api.ipv6.reverseZonePlan).toHaveBeenCalledWith({ prefix: '2001:db8::/64' }))
+    expect(await screen.findByTestId('plan-summary')).toHaveTextContent('add zone')
+  })
+
+  it('says when nothing was observed and hides the plan without write:dns.records', async () => {
+    mocks.permissions = new Set(['read:hosts', 'read:dns'])
+    mocks.api.hosts.get.mockResolvedValue(host())
+    renderCard()
+    expect(await screen.findByTestId('host-ipv6-none')).toHaveTextContent('No IPv6 address observed for this host')
   })
 })

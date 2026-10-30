@@ -91,13 +91,19 @@ the A, AAAA and PTR records of every DNS server, with where it was found
 (lease, reservation, records). Search by name, IP or MAC; filter by subnet
 or zone; "Inconsistent only" keeps the hosts with an open inconsistency.
 
-The **host card** shows the lease, the reservation, the DNS records and
-the open inconsistencies, with actions:
+The **host card** shows the lease, the reservation, the DNS records, the
+IPv6 part (each address observed for the host with its class, the sources
+that saw it, first and last sighting, its AAAA and PTR state, the AAAA no
+source sees any more, and the proposal) and the open inconsistencies, with
+actions:
 
 - **Create A and PTR** for a lease or reservation without records;
 - **Reserve this address** for a leased host;
 - **Delete lease**, **Delete** the reservation, **Per-node view** of the
-  lease, **Open the zone**, **Open in reservations**.
+  lease, **Open the zone**, **Open in reservations**;
+- **Create AAAA and PTR** of the IPv6 proposal (`write:dns.records`); when
+  no reverse zone serves the address, the card names the zone and offers
+  **Create the zone** (`write:dns.zones`) first.
 
 **New host** (`write:hosts`, or the DNS and DHCP write permissions it
 needs): hostname, IP, MAC, forward zone, TTL, "Also create a DHCP
@@ -115,7 +121,7 @@ the view": the PTR goes to the reverse zone of the same view; pick
 
 ### IPv6 tab
 
-The **IPv6** tab (`?tab=ipv6`, read only in this release) lists one line
+The **IPv6** tab (`?tab=ipv6`) lists one line
 per MAC address seen with a global IPv6 address: the host it belongs to
 (or "unknown host"), its IPv4 addresses, each observed address with its
 class (EUI-64, stable, temporary, unknown), the sources that saw it and
@@ -135,6 +141,30 @@ whole host (`mac:<mac>`) or one address (`addr:<address>`) of the missing
 AAAA or stale AAAA check; revoke it under Alerts, Exceptions. A banner
 names the nodes and sources that did not answer: the list may then be
 incomplete.
+
+Plans (`write:dns.records`):
+
+- **Selection**: the box of a line takes its proposal; the box next to an
+  observed address takes that address (a temporary address has none, an
+  address with its AAAA and PTR neither; an AAAA without PTR gets only its
+  PTR). **Create AAAA and PTR of the selection** builds one plan: the AAAA
+  under the host's name in its forward zone and the PTR in the reverse
+  zone, with the usual preview. Its notes say when a name is kept by DDNS
+  (the DHCP server never removes the AAAA written here), when a MAC is
+  random and when an address is not yet known as stable.
+- **Reverse zone missing**: when no served reverse zone holds an address,
+  nothing is built and the dialog names the zone to create (the widest
+  watched prefix holding the address, else its /64); **Create the zone**
+  (`write:dns.zones`) builds a dynamic primary `ip6.arpa` zone plan. The
+  selection stays: build it again once the zone is applied. The
+  `ipv6_reverse_missing` alert opens this dialog (`reverse=<prefix>`).
+- **Replace a prefix**: old and new prefix of the same length (/16 to
+  /124), optional forward zones (every writable one when empty). Every
+  AAAA under the old prefix takes the new one with the same interface
+  bits and its PTR follows; the plan always asks for confirmation. When a
+  stale AAAA and a current address of the same host sit in two /64, the
+  form starts with that pair (a provider that changed the delegated
+  prefix).
 
 ## Alerts
 

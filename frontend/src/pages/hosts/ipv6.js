@@ -11,10 +11,11 @@ const PROPOSABLE = new Set(['eui64', 'stable'])
 export const validFilter = (value) => (FILTERS.includes(value) ? value : '')
 
 // The hosts page link of an IPv6 view, as the alert links and the URL state use it.
-export function ipv6Path({ filter, zone } = {}) {
+export function ipv6Path({ filter, zone, reverse } = {}) {
   const q = new URLSearchParams({ tab: IPV6_TAB })
   if (filter) q.set('filter', filter)
   if (zone) q.set('zone', zone)
+  if (reverse) q.set('reverse', reverse)
   return `/hosts?${q.toString()}`
 }
 
@@ -56,4 +57,117 @@ export function exceptionTargets(row, now = Date.now()) {
 // "ns2 (neighbors): timed out" lines of meta.unavailable.
 export function unavailableLines(unavailable = [], nameOf = (id) => id) {
   return unavailable.map((u) => `${nameOf(u.node_id)} (${u.source}${u.error ? `: ${u.error}` : ''})`)
+}
+
+// IPv6 address as 32 hex nibbles, or null when it is not one (no embedded IPv4 form).
+export function expandIpv6(text) {
+  const s = String(text || '').trim().toLowerCase()
+  if (!/^[0-9a-f:]+$/.test(s) || s.split('::').length > 2) return null
+  const [head, tail] = s.split('::')
+  const h = head ? head.split(':') : []
+  const t = tail ? tail.split(':') : []
+  const fill = s.includes('::') ? 8 - h.length - t.length : 0
+  if ((s.includes('::') && fill < 1) || (!s.includes('::') && h.length !== 8)) return null
+  const groups = [...h, ...Array(fill).fill('0'), ...t]
+  if (groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null
+  return groups.map((g) => g.padStart(4, '0')).join('')
+}
+
+function compress(nibbles) {
+  const groups = nibbles.match(/.{4}/g).map((g) => g.replace(/^0+(?=.)/, ''))
+  let best = [-1, 0]
+  for (let i = 0; i < 8; i += 1) {
+    let j = i
+    while (j < 8 && groups[j] === '0') j += 1
+    if (j - i > best[1] && j - i > 1) best = [i, j - i]
+  }
+  if (best[0] < 0) return groups.join(':')
+  return `${groups.slice(0, best[0]).join(':')}::${groups.slice(best[0] + best[1]).join(':')}`
+}
+
+// "2001:db8::/64" as {nibbles, len} with the host bits cleared, or null.
+export function parsePrefix(text) {
+  const m = /^([^/]+)\/(\d{1,3})$/.exec(String(text || '').trim())
+  const nibbles = m && expandIpv6(m[1])
+  const len = m ? Number(m[2]) : NaN
+  if (!nibbles || !(len >= 0 && len <= 128)) return null
+  const bits = [...nibbles].map((n) => parseInt(n, 16).toString(2).padStart(4, '0')).join('')
+  const masked = bits.slice(0, len).padEnd(128, '0')
+  const out = masked.match(/.{4}/g).map((b) => parseInt(b, 2).toString(16)).join('')
+  return { nibbles: out, len, text: `${compress(out)}/${len}` }
+}
+
+// The /64 holding an address, as text.
+export const prefix64 = (address) => {
+  const p = parsePrefix(`${address}/64`)
+  return p ? p.text : null
+}
+
+// The ip6.arpa zone the reverse-zone plan builds for a prefix (cut at the nibble at or above it).
+export function reverseZoneName(prefix) {
+  const p = parsePrefix(prefix)
+  if (!p) return null
+  const nibbles = p.nibbles.slice(0, Math.floor(p.len / 4))
+  return `${[...nibbles].reverse().map((n) => `${n}.`).join('')}ip6.arpa.`
+}
+
+// Errors of the replace-prefix form (route rules: both prefixes, same length /16 to /124, apart).
+export function prefixSwapErrors(oldText, newText) {
+  const errors = {}
+  const a = parsePrefix(oldText)
+  const b = parsePrefix(newText)
+  if (!a) errors.old_prefix = 'format'
+  if (!b) errors.new_prefix = 'format'
+  if (a && (a.len < 16 || a.len > 124)) errors.old_prefix = 'length'
+  if (b && (b.len < 16 || b.len > 124)) errors.new_prefix = 'length'
+  if (a && b && !errors.old_prefix && !errors.new_prefix) {
+    if (a.len !== b.len) errors.new_prefix = 'sameLength'
+    else if (a.nibbles === b.nibbles) errors.new_prefix = 'overlap'
+  }
+  return errors
+}
+
+// A prefix swap the stale rows suggest: the /64 of a stale AAAA and the /64 of a current
+// address of the same host outside it (as the ipv6_stale_aaaa alert reads a provider change).
+export function suggestPrefixSwap(rows = []) {
+  for (const row of rows) {
+    for (const stale of staleAaaa(row)) {
+      const old = prefix64(stale)
+      const cur = (row.observed || []).find((o) => o.current && prefix64(o.address) !== old)
+      if (old && cur) return { old_prefix: old, new_prefix: prefix64(cur.address) }
+    }
+  }
+  return null
+}
+
+// The owner the selection plan writes for a row: the proposal's name, else the row's name.
+export const ownerOf = (row) => row.proposal?.name || row.name || null
+
+// Observed addresses a selection may hold: a known owner, never a temporary address, and not
+// already complete (an AAAA with its PTR); an AAAA without PTR gets only its PTR.
+export function selectableAddresses(row) {
+  if (!ownerOf(row)) return []
+  const aaaa = new Set(row.aaaa || [])
+  const missing = new Set(row.ptr_missing || [])
+  const ptr = new Set(row.ptr || [])
+  return (row.observed || [])
+    .filter((o) => o.class !== 'temporary')
+    .filter((o) => !aaaa.has(o.address) || missing.has(o.address) || !ptr.has(o.address))
+    .map((o) => o.address)
+}
+
+// The address a row's checkbox selects: the proposal, else the first selectable current one.
+export function defaultAddress(row) {
+  const selectable = selectableAddresses(row)
+  if (row.proposal && selectable.includes(row.proposal.address)) return row.proposal.address
+  const current = (row.observed || []).find((o) => o.current && selectable.includes(o.address))
+  return current ? current.address : null
+}
+
+export const selectionKey = (hostKey, address) => `${hostKey}|${address}`
+
+// reverse_zones of a 409 precondition_failed answer, or null for any other error.
+export function missingReverseZones(err) {
+  const zones = err?.status === 409 ? err.problem?.reverse_zones : null
+  return Array.isArray(zones) && zones.length ? zones : null
 }

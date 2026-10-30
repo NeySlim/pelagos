@@ -24,6 +24,7 @@ class Hosts(Resource):
         params={
             "filter": "missing_aaaa, missing_ptr, stale, unknown or random_mac",
             "zone": "forward zone of the host or its proposal",
+            "host_key": "the rows of one host (hosts view key), as the host card reads them",
             "page": "1-based",
             "per_page": "1 to 500",
         }
@@ -31,7 +32,7 @@ class Hosts(Resource):
     @hosts_ns.response(200, "Paginated hosts with observed addresses, records and proposal")
     @hosts_ns.response(400, "validation_error", m.Problem)
     def get(self):
-        rows, meta = ipv6().hosts_list(arg("filter"), arg("zone"))
+        rows, meta = ipv6().hosts_list(arg("filter"), arg("zone"), arg("host_key"))
         return page_of(rows, meta)
 
 

@@ -420,7 +420,7 @@ class Ipv6Service:
         return rows, missing, g, errors
 
     def hosts_list(
-        self, filter_: str | None, zone: str | None
+        self, filter_: str | None, zone: str | None, host_key: str | None = None
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if filter_ is not None and filter_ not in FILTERS:
             raise ValidationError("invalid filter", [field_error("filter", "one of " + ", ".join(FILTERS))])
@@ -437,6 +437,8 @@ class Ipv6Service:
             rows = [r for r in rows if not r["name"]]
         elif filter_ == "random_mac":
             rows = [r for r in rows if r["mac_random"]]
+        if host_key:
+            rows = [r for r in rows if r["host_key"] == host_key]
         if zone:
             z = normalize_name(zone)
             rows = [

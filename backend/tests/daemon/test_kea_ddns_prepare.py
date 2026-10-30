@@ -293,6 +293,11 @@ class SimpleReplay:
     def store(self) -> None:
         return None
 
+    def window(self, body: dict[str, Any]) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(source="default")  # no known outage
+
     def candidates(self, body: dict[str, Any]) -> Any:
         from pelagos.services.errors import ServiceError
 

@@ -47,7 +47,7 @@ function multipartFiles(raw) {
 
 export function updatesHandlers(state, { Problem, invalid, createPlan }) {
   state.updates ||= {
-    releases: [release('0.3.0')],
+    releases: [release('0.3.1')],
     rollout: null,
     history: [],
     github_repository: 'example/pelagos',

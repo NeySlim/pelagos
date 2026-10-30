@@ -478,7 +478,7 @@ describe('mock server updates', () => {
     const viewer = client(await login('viewer', 'viewer'))
     expect((await viewer('GET', '/admin/updates')).status).toBe(403)
     const overview = await admin('GET', '/admin/updates')
-    expect(overview.data.available[0]).toMatchObject({ version: '0.3.0', signature: 'valid', state_schema: 1 })
+    expect(overview.data.available[0]).toMatchObject({ version: '0.3.1', signature: 'valid', state_schema: 1 })
     const deb = 'pelagos_0.3.1-1_amd64.deb'
     const bad = await upload(session, { SHA256SUMS: 'x', 'SHA256SUMS.sig': 'tampered', [deb]: 'deb' })
     expect(bad).toMatchObject({ status: 422, data: { code: 'release_invalid', reason: 'signature_invalid' } })

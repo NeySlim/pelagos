@@ -65,7 +65,7 @@ function makeNodes(names) {
     peer: peer(name, NODE_IDS[name]),
     is_self: name === 'ns1',
     status: 'online',
-    version: '0.1.0',
+    version: '0.3.0',
     // ns4 has not pulled the last configuration change yet.
     config_version: name === 'ns4' ? 41 : 42,
     audit_count: name === 'ns4' ? 316 : 318,

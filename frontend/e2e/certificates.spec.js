@@ -40,6 +40,16 @@ test('applies one ACME source to all nodes and follows each node', async ({ page
   await expect(page.getByTestId('cert-cluster')).toContainText('every node')
 })
 
+test('links the UCM source to its repository', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/admin/certificates')
+  await page.getByTestId('cert-apply-all').click()
+  const dialog = page.getByTestId('cert-source-dialog')
+  await dialog.getByRole('combobox', { name: /^Source/ }).click()
+  await page.getByRole('option', { name: 'UCM', exact: true }).click()
+  await expect(dialog.getByTestId('cert-ucm-link')).toHaveAttribute('href', 'https://github.com/NeySlim/ultimate-ca-manager')
+})
+
 test('checks a manual certificate before installing it', async ({ page }) => {
   await signIn(page)
   await page.goto('/admin/certificates')

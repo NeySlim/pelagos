@@ -21,6 +21,7 @@
     "manual": "Un certificat que vous déposez : signé à partir d'une demande faite sur le nœud, ou certificat, chaîne et clé. Pas de renouvellement automatique : l'alerte d'expiration vous le rappelle.",
     "acme": "Let's Encrypt, un serveur ACME privé (step-ca, UCM) ou une URL ACME quelconque. Le nœud crée sa clé, prouve ses noms et renouvelle quand il reste un tiers de la durée.",
     "ucm": "UCM signe par son API une demande faite sur le nœud. Renouvelé avant l'échéance (réglage ucm_renew_days).",
+    "ucmLink": "Ultimate CA Manager (UCM) sur GitHub",
     "inherit": "Suivre la source définie pour tous les nœuds."
   },
   "node": {

@@ -21,6 +21,7 @@
     "manual": "A certificate you upload: signed from a request made on the node, or certificate, chain and key. No automatic renewal: the expiry alert reminds you.",
     "acme": "Let's Encrypt, a private ACME server (step-ca, UCM) or any ACME URL. The node makes its key, proves its names and renews when a third of the lifetime is left.",
     "ucm": "UCM signs a request made on the node through its API. Renewed before the end (settings: ucm_renew_days).",
+    "ucmLink": "Ultimate CA Manager (UCM) on GitHub",
     "inherit": "Follow the source set for all nodes."
   },
   "node": {

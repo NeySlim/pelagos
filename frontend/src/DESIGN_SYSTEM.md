@@ -1,6 +1,6 @@
 # Pelagos Design System
 
-Copied from the UCM design system (relicensed Apache-2.0 by its author) with the
+Copied from the [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) design system (relicensed Apache-2.0 by its author) with the
 Pelagos families added: Instrument (the default), Mission Control and Pelagic.
 
 > Source of truth: `src/index.css` (tokens, component classes) and

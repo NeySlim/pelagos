@@ -1320,7 +1320,7 @@ function buildHandlers(state, emit) {
   const handlers = {
     // Meta
     'GET /health': () => ({ status: 'ok', replication: 'ready', node_id: state.selfId, time: iso(Date.now()) }),
-    'GET /version': () => ({ version: '0.1.0', api: 'v1', python: '3.12.11', build: 'mock' }),
+    'GET /version': () => ({ version: '0.3.0', api: 'v1', python: '3.12.11', build: 'mock' }),
     'GET /capabilities': () => capabilities(state),
 
     // Auth and account

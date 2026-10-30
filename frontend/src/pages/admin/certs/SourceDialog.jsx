@@ -11,6 +11,8 @@ import { errorMessage } from '../../../services/apiClient'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { ACME_PROFILES, KEY_TYPES, formErrors, formFromSource, sourceBody } from './certsForm'
 
+const UCM_REPO = 'https://github.com/NeySlim/ultimate-ca-manager'
+
 const setPath = (obj, path, value) => {
   const [head, ...rest] = path.split('.')
   return { ...obj, [head]: rest.length ? setPath(obj[head] || {}, rest.join('.'), value) : value }
@@ -94,7 +96,15 @@ export default function SourceDialog({ open, onClose, node, cluster, overview, o
     <FormModal open={open} onClose={onClose} title={isCluster ? t('source.titleCluster') : t('source.title', { node: node?.name })} size="lg" footer={footer} testId="cert-source-dialog">
       <div className="space-y-4">
         <Select label={t('source.source')} value={form.source} onChange={set('source')} options={sources.map((s) => ({ value: s, label: t(`sources.${s}`) }))} />
-        <p className="text-xs text-text-secondary">{t(`sourceHelp.${form.source}`)}</p>
+        <p className="text-xs text-text-secondary">
+          {t(`sourceHelp.${form.source}`)}
+          {form.source === 'ucm' && (
+            <>
+              {' '}
+              <a href={UCM_REPO} target="_blank" rel="noreferrer noopener" className="text-accent-primary hover:underline" data-testid="cert-ucm-link">{t('sourceHelp.ucmLink')}</a>
+            </>
+          )}
+        </p>
 
         {isCluster && (
           <div className="space-y-2" data-testid="cert-cluster-nodes">

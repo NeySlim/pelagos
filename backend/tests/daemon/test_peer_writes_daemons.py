@@ -131,7 +131,8 @@ def test_rndc_operations_on_the_peer(pair, named_server):
     assert "notify" in out["output"].lower(), out
     out = ops.run_bind("sync", {"zone": "example.lan"}, pair.peer_id, False, "alice", None)
     assert out["node_id"] == pair.peer_id
-    peer = [e for e in pair.peer_ctx.audit_log.read() if e.action == "dns.ops"]
+    # The web node's own remote entries replicate to the peer's log too: keep the peer's.
+    peer = [e for e in pair.peer_ctx.audit_log.read() if e.action == "dns.ops" and e.node_id == pair.peer_id]
     assert [e.request["op"] for e in peer] == ["notify", "sync"]
     assert all(e.user == f"node:{pair.web.node.id}" and e.result is AuditResult.OK for e in peer)
     # A zone operation through the zone endpoints' path (a plan applied on the peer).

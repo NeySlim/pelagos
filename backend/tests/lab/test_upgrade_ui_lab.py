@@ -490,6 +490,8 @@ class TestDebianPair:
         assert set(versions.values()) == {NEXT}, versions
 
     def test_03_broken_unsigned_release_rolls_back(self, deb_releases, test_key, tmp_path):
+        for address in (A1, A2):
+            install_key(address, test_key[1])  # known key: the tampered signature is checked, not unknown
         tampered_signature_refused(A1, deb_releases["broken"], test_key[0], tmp_path)
         broken_release_rolls_back(A1, [A1, A2], deb_releases["broken"])
 

@@ -282,6 +282,23 @@ def upgrade_through_the_ui(web: str, nodes: list[str], folder: Path, rpm: bool =
     return entry
 
 
+def tampered_signature_refused(web: str, folder: Path, private: Path, tmp: Path) -> None:
+    """A copy of `folder` whose SHA256SUMS.sig signs other bytes: refused (422 signature_invalid),
+    nothing kept, so the same version uploads cleanly afterwards."""
+    copy = tmp / f"{folder.name}-tampered"
+    shutil.rmtree(copy, ignore_errors=True)
+    shutil.copytree(folder, copy)
+    sig = rel.sign_checksums(b"not the checksums of this release\n", rel.load_private_key(private))
+    (copy / rel.SIGNATURE).write_text(sig.to_text())
+    with pytest.raises(ApiError) as refused:
+        upload(api(web), copy)
+    assert refused.value.status == 422, refused.value.body
+    assert "signature_invalid" in json.dumps(refused.value.body), refused.value.body
+    shutil.rmtree(copy)
+    overview = api(web).get("/admin/updates")
+    assert not any(a["version"] == folder.name for a in overview["available"]), overview["available"]
+
+
 def broken_release_rolls_back(web: str, nodes: list[str], folder: Path, rpm: bool = False) -> None:
     client = api(web)
     up = upload(client, folder)
@@ -469,7 +486,8 @@ class TestDebianPair:
         versions = {n["node_id"]: n["version"] for n in api(A2).get("/admin/updates")["nodes"]}
         assert set(versions.values()) == {NEXT}, versions
 
-    def test_03_broken_unsigned_release_rolls_back(self, deb_releases):
+    def test_03_broken_unsigned_release_rolls_back(self, deb_releases, test_key, tmp_path):
+        tampered_signature_refused(A1, deb_releases["broken"], test_key[0], tmp_path)
         broken_release_rolls_back(A1, [A1, A2], deb_releases["broken"])
 
     def test_04_bind_from_the_distribution(self, deb_releases):
@@ -590,7 +608,8 @@ class TestRocky:
         ].strip()
         assert denials in ("", "0"), ssh(RPM_HOST, "sudo ausearch -m AVC -ts recent", check=False)[1][-3000:]
 
-    def test_02_broken_rpm_rolls_back(self, rpm_releases):
+    def test_02_broken_rpm_rolls_back(self, rpm_releases, test_key, tmp_path):
+        tampered_signature_refused(RPM_HOST, rpm_releases["broken"], test_key[0], tmp_path)
         broken_release_rolls_back(RPM_HOST, [RPM_HOST], rpm_releases["broken"], rpm=True)
 
     def test_03_bind_from_rocky(self, rpm_releases):

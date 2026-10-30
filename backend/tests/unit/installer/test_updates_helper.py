@@ -474,11 +474,13 @@ def test_journal_errors(node: Any) -> None:
             entry("2026-10-30 10:00:00,000 INFO pelagos.app: started"),
             entry("2026-10-30 10:00:01,000 ERROR pelagos.collector: boom"),
             entry("segfault", 2, "pelagos-collector.service"),
+            entry("WARNING pelagos.collector: Cannot open netlink socket: Address family not supported", 4),
             "not json",
         ]
     )
     out = updates.journal_errors(env, {"since": "2026-10-30T09:00:00Z"})
-    assert out["count"] == 2 and [line["priority"] for line in out["lines"]] == [6, 2]
+    assert out["count"] == 3 and [line["priority"] for line in out["lines"]] == [6, 2, 4]
+    assert [line["denied"] for line in out["lines"]] == [False, False, True]
     assert out["lines"][0]["invocation_id"] == "abc" and out["lines"][0]["time"].startswith("2026-10-30")
     argv = env.runner.log[-1]
     assert argv[argv.index("--since") + 1] == "@1793350800"

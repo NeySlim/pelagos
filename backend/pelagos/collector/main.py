@@ -77,6 +77,7 @@ IPV6_SECONDS = 60.0
 PERMISSIONS_SECONDS = 600.0
 PERMISSIONS_AFTER_WRITE = 5.0
 PERMISSIONS_STATE = "permissions.json"
+ROLLOUT_SECONDS = 5.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -268,6 +269,14 @@ class Collector:
             (lambda: _all_leases(kea6, self.node_id, self.backend_lock)) if kea6 is not None else None,
         )
         self.ipv6.kea6_unavailable = self._kea6_unavailable
+        # Updates from the UI (section 29): this node's turn runs on its own thread once run()
+        # sets `rollout_background`; `replication_client` (set by run()) reaches the peers.
+        self.replication_client: Callable[[Any], Any] | None = None
+        self.rollout_driver: Any = None
+        self.rollout_background = False
+        self._rollout_thread: threading.Thread | None = None
+        self._github_thread: threading.Thread | None = None
+        self._github_checked_at = 0.0
 
     def _kea6_unavailable(self) -> bool:
         """Kea DHCPv6 of this node has an open daemon_down or an engine write in progress."""
@@ -1071,18 +1080,7 @@ class Collector:
         from pelagos.collector.rules import path_not_writable
         from pelagos.core import permguard
 
-        b = self.backends
-        targets: list[Any] = []
-        for backend in (b.dns, b.kea4, b.kea6, b.d2):
-            fn = getattr(backend, "permission_targets", None)
-            if not callable(fn):
-                continue
-            try:
-                with self.backend_lock:
-                    targets += fn(None)
-            except Exception as exc:
-                log.warning("permission targets of %s not built: %s", type(backend).__name__, exc)
-        checks = [c.to_dict() for c in permguard.run(targets)]
+        checks = self.permission_checks()
         try:
             permguard.save_state(self.ctx.paths.var / PERMISSIONS_STATE, self.node_id, checks)
         except OSError as exc:
@@ -1097,6 +1095,103 @@ class Collector:
                 where=lambda a: a.node_id == node_id,
             )
         )
+        return alerts
+
+    def permission_checks(self) -> list[dict[str, Any]]:
+        """The permission guard's probes of this node's writers, in this unit's sandbox."""
+        from pelagos.core import permguard
+
+        b = self.backends
+        targets: list[Any] = []
+        for backend in (b.dns, b.kea4, b.kea6, b.d2):
+            fn = getattr(backend, "permission_targets", None)
+            if not callable(fn):
+                continue
+            try:
+                with self.backend_lock:
+                    targets += fn(None)
+            except Exception as exc:
+                log.warning("permission targets of %s not built: %s", type(backend).__name__, exc)
+        return [c.to_dict() for c in permguard.run(targets)]
+
+    def _rollout_driver(self) -> Any:
+        if self.rollout_driver is None:
+            from pelagos.collector.rollout import LiveView, RolloutDriver
+
+            def ha_backends() -> list[Any]:
+                return [b for b in (self.backends.kea4, self.backends.kea6) if b is not None]
+
+            def permissions() -> list[str]:
+                return [
+                    str(c.get("text") or f"{c['path']}: {c.get('problem') or 'not writable'}")
+                    for c in self.permission_checks()
+                    if not c["ok"]
+                ]
+
+            view = LiveView(self.ctx, self.replication_client, ha_backends, permissions, self.backend_lock)
+            self.rollout_driver = RolloutDriver(self.ctx, view)
+        return self.rollout_driver
+
+    def _rollout_tick(self) -> None:
+        try:
+            done = self._rollout_driver().tick()
+            if done not in ("idle", "not in the rollout", "waiting for its turn"):
+                log.info("rollout: %s", done)
+        except Exception:
+            log.exception("rollout turn failed")
+
+    def _check_github(self, repository: str) -> None:
+        from pelagos.core import update_sources as src
+
+        try:
+            token = self.ctx.get_secret("updates/github_token")
+        except Exception:
+            token = None
+        record = src.check_github(self.ctx.paths.var, repository, token, datetime.now(UTC).isoformat())
+        if record.get("error"):
+            log.warning("update check on GitHub failed: %s", record["error"])
+
+    def rollout(self) -> list[Alert]:
+        """This node's turn of the rollout (section 29); on the service node, the cluster's
+        `update_failed`, `update_stalled` and `update_available` alerts."""
+        from pelagos import __version__
+        from pelagos.collector.rollout import available_alert, rollout_alerts
+        from pelagos.core import update_sources as src
+
+        if not self.rollout_background:
+            self._rollout_tick()
+        elif self._rollout_thread is None or not self._rollout_thread.is_alive():
+            self._rollout_thread = threading.Thread(target=self._rollout_tick, name="rollout", daemon=True)
+            self._rollout_thread.start()
+        settings = self.ctx.settings()
+        alerts: list[Alert] = []
+        if self._is_service_node(settings):
+            cfg = reg.domain(settings, "updates")
+            repo = str((settings.get("updates") or {}).get("github_repository") or "")
+            period = float(cfg["check_interval_hours"]) * 3600.0
+            due = time.monotonic() - self._github_checked_at >= period or not self._github_checked_at
+            if cfg["check_enabled"] and cfg["source"] == "github" and repo and due:
+                self._github_checked_at = time.monotonic()
+                if self.rollout_background:
+                    if self._github_thread is None or not self._github_thread.is_alive():
+                        self._github_thread = threading.Thread(
+                            target=self._check_github, args=(repo,), name="update-check", daemon=True
+                        )
+                        self._github_thread.start()
+                else:
+                    self._check_github(repo)
+            names = {n.id: n.name for n in self.ctx.cluster().nodes}
+            alerts = rollout_alerts(settings, datetime.now(UTC), names)
+            if cfg["check_enabled"]:
+                for entry in src.read_available(self.ctx.paths.var).get("available") or []:
+                    found = available_alert(entry, __version__)
+                    if found is not None:
+                        alerts.append(found)
+                        break
+        kinds = frozenset(
+            k.value for k in (AlertKind.UPDATE_FAILED, AlertKind.UPDATE_STALLED, AlertKind.UPDATE_AVAILABLE)
+        )
+        self._finish(PollOutcome(alerts=alerts, kinds=kinds))
         return alerts
 
     def _renew_certificate(self) -> None:
@@ -1172,6 +1267,7 @@ class Collector:
             ("permissions", self.permissions),
             ("notify_alerts", self.notify_alerts),
             ("archive", self.archive),
+            ("rollout", self.rollout),
             ("observe_ipv6", self.observe_ipv6),
             ("retention", self.retention),
         ):
@@ -1215,6 +1311,7 @@ class Collector:
             Task("permissions", PERMISSIONS_SECONDS, self.permissions),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
+            Task("rollout", ROLLOUT_SECONDS, self.rollout),
             Task("retention", 3600.0, self.retention),
         ]
 
@@ -1690,8 +1787,10 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     replication = start_replication(ctx, listener, store, backends, collector.backend_lock)
     replicator = getattr(replication, "replicator", None)
     relay = None
+    collector.rollout_background = True
     if replicator is not None:
         collector.peers.liveness = replicator
+        collector.replication_client = replicator.client
         relay = start_relay(ctx, collector, replication)
     notify_thread = None
     try:

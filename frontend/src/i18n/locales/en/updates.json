@@ -122,6 +122,7 @@
     "convergence": "Convergence",
     "audit": "Audit count",
     "journal": "No new error in the journal",
+    "permissions": "Permission guard: every path writable",
     "ha": "Kea HA back to normal",
     "engine_checks": "Engine checks",
     "rollback": "Automatic rollback"

@@ -102,6 +102,7 @@ STEPS = (
     "convergence",
     "audit",
     "journal",
+    "permissions",
     "ha",
     "engine_checks",
     "rollback",
@@ -110,6 +111,9 @@ STEPS = (
 HELPER_OPERATIONS = ("update_verify", "update_start", "update_status", "journal_errors")
 # Units `journal_errors` may read: the node's own processes, nothing else.
 JOURNAL_UNITS = ("pelagos.service", "pelagos-collector.service", "pelagos-helper@*.service")
+# Messages of a call the unit sandbox refused (RestrictAddressFamilies), logged at any level:
+# `journal_errors` returns them too, and the rollout fails on any from the new processes.
+SANDBOX_DENIED = ("Cannot open netlink socket",)
 
 
 def valid_version(text: str) -> bool:
@@ -241,6 +245,8 @@ class RolloutNode(Model):
     error_message: dict[str, Any] | None = None
     from_version: str | None = None
     to_version: str | None = None
+    # When `step` last changed: `update_stalled` counts from it.
+    step_at: str | None = None
 
 
 @dataclass(slots=True)

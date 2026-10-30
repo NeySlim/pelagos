@@ -4860,7 +4860,8 @@ the screen (U6), daemon and lab tests (U7).
   "key_id","unsigned_accepted_by","unsigned_accepted_at","finished_at"}`;
   `RolloutNode`: `{"state": "pending"|"running"|"done"|"failed"|
   "rolled_back"|"skipped","step","started_at","finished_at","error",
-  "error_message","from_version","to_version"}`. TOML holds no null: absent
+  "error_message","from_version","to_version","step_at"}` (`step_at`: when
+  `step` last changed, what `update_stalled` counts from). TOML holds no null: absent
   keys read back as null (`Rollout.to_toml`, `from_toml`). The rollout is
   written once by the plan's apply; afterwards each node writes only its own
   `nodes.<node id>` table (the per-entry merge of section 13 never
@@ -4876,8 +4877,9 @@ the screen (U6), daemon and lab tests (U7).
   packages: `ha-maintenance-start` to the peer), `install` (transient unit),
   `version`, `restart` (invocation ids changed), `settle`
   (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`),
-  `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` from
-  the new processes), `ha` (Kea HA back to a normal state), `engine_checks`
+  `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` and no
+  sandbox refusal from the new processes), `permissions` (the permission
+  guard of the collector, probed in its own unit sandbox), `ha` (Kea HA back to a normal state), `engine_checks`
   (version reread, `rndc status`, zone transfers, `status-get`), `rollback`.
 - **Default order**: nodes that are neither an active DNS primary
   (`ddns.roles`, primary zones) nor the Kea HA primary, then those, the DNS
@@ -4969,7 +4971,9 @@ the screen (U6), daemon and lab tests (U7).
   `pelagos.service`, `pelagos-collector.service` and `pelagos-helper@*.service`
   (`domain.updates.JOURNAL_UNITS`) since then, of priority `err` or above or
   whose message holds ` ERROR ` (the units log on stderr, stored at `info`);
-  `{"lines": [{"time","unit","invocation_id","priority","message"}],
+  plus any line holding a sandbox refusal (`domain.updates.SANDBOX_DENIED`,
+  "Cannot open netlink socket", at any priority);
+  `{"lines": [{"time","unit","invocation_id","priority","message","denied"}],
   "count","truncated","since"}`, at most 200 lines, `count` all matches
   (the caller tells new processes from old ones by `invocation_id`).
 - **Replication** (section 13): `GET /repl/v1/releases/<version>` `{"version",
@@ -5004,6 +5008,55 @@ the screen (U6), daemon and lab tests (U7).
   `update.apply` (the plan), `update.unsigned_accepted`,
   `admin.update.resume|cancel|rollback`, `update.node.start|done|failed|
   rolled_back` (by `system`, from the node concerned).
+- **Turn of a node** (`collector.rollout.RolloutDriver`, on its own thread
+  every 5 s; pure rules in `core.update_rollout`): a `pending` node starts
+  when every node before it is `done` or `skipped`, the last `done` plus
+  `pause_seconds` has passed (the first node: the rollout's `created_at`)
+  and the rollout is `running`. It writes `update.node.start`, then `wait`
+  (its web `/api/v1/health` ok and every peer answering `/repl/v1/status`),
+  `fetch` (skipped when `packages/<version>/` or `incoming/<version>/` is
+  there; else from the first peer holding it, else GitHub for a rollout
+  whose `source` is `github`), `verify` (`update_verify`; the package's sum
+  must equal `artifacts.<format>/<arch>.sha256` when the rollout has one),
+  `precheck` (health, same `cluster.toml` digest and audit count on every
+  peer, local Kea HA in `hot-standby`, `load-balancing`, `backup` or
+  `passive-backup` without `communication-interrupted`; retried until
+  `timeout_seconds` from the step), records what the checks after the
+  install compare with in `/var/lib/pelagos/upgrade/rollouts/<rollout
+  id>.json` (service user: journal start, invocation ids of `pelagos` and
+  `pelagos-collector`, audit count), and calls `update_start`. The new
+  processes read `update_status`: a progress `failed` at `backup` or
+  `install` fails the node (the previous release still runs); `running`
+  with the unit gone fails it with the package audit; `installed` moves to
+  `restart` (both invocation ids changed), `settle`, `health`,
+  `convergence`, then `audit`, `journal`, `permissions` (fatal at once),
+  `ha`, each waited on until `settle_seconds + timeout_seconds` after the
+  install. Last: `done`, `update.node.done`, and the rollout `done` (moved
+  to `history`) when no node is left. A failure after the install (from
+  `version` on) rolls back when the rollout has `auto_rollback`, not
+  `state_schema_changed`, and `previous.json` names a release still held:
+  step `rollback`, `update.node.failed`, `update_start` of kind `rollback`;
+  the previous release's processes wait for its result, `settle_seconds`
+  and health, then write the node `rolled_back` (or `failed` at
+  `rollback`) and the rollout `failed`, with `update.node.rolled_back`.
+  Without it the node is `failed` at the step and the rollout `failed`.
+  Actions (`core.update_rollout.resume|cancel|rollback_of`): `cancel`
+  leaves a `running` node as it is (its unit ends on its own; its later
+  writes find no rollout). `default_order(nodes, dns_primaries,
+  ha_primaries)` gives the default order.
+- **Sources** in code (`core.update_sources`): `stage_upload(incoming,
+  files)` (sums checked against the uploaded `SHA256SUMS`, unlisted files
+  refused, version from `release.json` or the 0.2.x package names),
+  `fetch_from_peer`, `HeldReleases` (the `ReleaseStore` of `/repl/v1`,
+  signature state computed from the packaged keys), `GithubSource`
+  (`latest`, `release(version)` by tag `v<version>` or `<version>`,
+  `check` with the signature state, `download` of `SHA256SUMS`, its `.sig`
+  and every listed file; redirects followed by hand, the token sent only to
+  the API host), `check_github` writing `/var/lib/pelagos/upgrade/available.json`
+  (`{"available","checked_at","error"}`, read by `read_available`). The
+  service node runs it every `check_interval_hours` when `check_enabled` and
+  `source` is `github`, and raises `update_available`, `update_failed` and
+  `update_stalled` for the cluster.
 - **Mixed versions**: a node before 0.3.0 ignores `[settings.updates]` and
   is updated by hand or by `scripts/deploy-prod.sh`, which stays the
   fallback tool and the model of the checks. Docker: no update from the

@@ -32,6 +32,7 @@ from pelagos.domain.updates import (
     JOURNAL_UNITS,
     PACKAGE_NAME,
     ROLLOUT_ID_RE,
+    SANDBOX_DENIED,
     SIGNATURE,
     Rollout,
     RolloutKind,
@@ -667,7 +668,8 @@ def journal_errors(env: Any, request: dict[str, Any]) -> dict[str, Any]:
             priority = int(entry.get("PRIORITY", 6))
         except (TypeError, ValueError):
             priority = 6
-        if priority > 3 and " ERROR " not in msg and not msg.startswith("ERROR "):
+        denied = any(d in msg for d in SANDBOX_DENIED)
+        if priority > 3 and " ERROR " not in msg and not msg.startswith("ERROR ") and not denied:
             continue
         count += 1
         if len(lines) >= JOURNAL_MAX_LINES:
@@ -683,6 +685,7 @@ def journal_errors(env: Any, request: dict[str, Any]) -> dict[str, Any]:
                 "invocation_id": entry.get("_SYSTEMD_INVOCATION_ID"),
                 "priority": priority,
                 "message": msg[:2000],
+                "denied": denied,
             }
         )
     return {"lines": lines, "count": count, "truncated": count > len(lines), "since": since}

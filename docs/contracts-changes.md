@@ -2338,3 +2338,17 @@ WP-API-AUTH: `services/plan_targets.py`, `services/dhcp_service.py`, `services/d
 `api/models.py`, `api/dns.py`, `api/dhcp.py`. WP-BIND: `connectors/bind/rrset.py` (a malformed
 owner is an `RRsetError`). WP-FRONTEND: the record editor applies the host name rule and shows a
 negative TTL error; zone edit and reservation dialogs (E10, E11).
+
+## 2026-10-30, 0.3.0 (lot U3): rollout of updates from the UI
+Section 29, additive. `RolloutNode.step_at` (when `step` last changed; `update_stalled` counts
+from it), step `permissions` between `journal` and `ha` (`domain.updates.STEPS`), and
+`domain.updates.SANDBOX_DENIED`: `journal_errors` also returns a sandbox refusal line ("Cannot
+open netlink socket", item 73) at any priority, each line with `denied`. New modules:
+`core.update_rollout` (turns, default order, history, actions `resume`, `cancel`,
+`rollback_of`), `core.update_sources` (upload staging, peer fetch, `HeldReleases` served on
+`/repl/v1/releases`, GitHub source and the `available.json` record), `collector.rollout` (the
+node's turn, checks after the install, automatic rollback, alerts). The collector task
+`rollout` (5 s) runs the turn on its own thread; `Collector.permission_checks()` is the
+permission guard without the alerts. WP-INSTALLER: `installer/updates.py` (`journal_errors`).
+WP-FRONTEND: step `permissions` in `updatesLib.js` and the `updates` catalogs (en, fr).
+Affects U5 (the routes call `core.update_rollout` and `core.update_sources`), U6, U7.

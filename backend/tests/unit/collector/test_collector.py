@@ -335,6 +335,7 @@ def test_tasks_and_retention(rig):
         "permissions": 600.0,
         "notify_alerts": 10.0,
         "archive": 60.0,
+        "rollout": 5.0,
         "observe_ipv6": 60.0,
         "retention": 3600.0,
     }

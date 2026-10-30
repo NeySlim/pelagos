@@ -48,6 +48,7 @@ from pelagos.core.repl_http import ConnectFailed, TransportError, request_json, 
 from pelagos.core.retention import purge_backups
 from pelagos.core.secrets import SecretBox
 from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
+from pelagos.core.update_sources import HeldReleases
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import Peer
 from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
@@ -82,7 +83,7 @@ EVENT_AUDIT_MERGED = "audit_merged"
 
 
 class ReleaseStore(Protocol):
-    """Releases this node can hand to its peers (batch U3 provides it)."""
+    """Releases this node can hand to its peers (`core.update_sources.HeldReleases`)."""
 
     def listing(self, version: str) -> dict[str, Any] | None:
         """{"version", "files": [{"name", "size", "sha256"}], "signature"} or None when not held."""
@@ -1443,6 +1444,7 @@ class ReplicationService:
             actions=actions,
             archives=ArchiveInbox(ctx.paths.archives_dir, ctx.node.id, ctx.settings),
             var_dir=ctx.paths.var,
+            releases=HeldReleases(ctx.paths.upgrade_dir / "packages"),
         )
         self.app.on_peer_seen = self._on_peer_seen
         self.on_audit_merged = on_audit_merged

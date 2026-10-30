@@ -3,7 +3,7 @@
 // actions, version order, reconnection errors, the order editor and the release notes.
 
 // Steps of each rollout kind, in the order a node walks them (domain.updates.STEPS).
-export const PELAGOS_STEPS = ['wait', 'fetch', 'verify', 'precheck', 'backup', 'install', 'version', 'restart', 'settle', 'health', 'convergence', 'audit', 'journal', 'ha']
+export const PELAGOS_STEPS = ['wait', 'fetch', 'verify', 'precheck', 'backup', 'install', 'version', 'restart', 'settle', 'health', 'convergence', 'audit', 'journal', 'permissions', 'ha']
 export const ENGINE_STEPS = ['wait', 'precheck', 'ha_maintenance', 'install', 'version', 'restart', 'engine_checks', 'ha']
 export const ACTIVE_STATES = ['running', 'failed']
 export const FINAL_NODE_STATES = ['done', 'rolled_back', 'skipped']

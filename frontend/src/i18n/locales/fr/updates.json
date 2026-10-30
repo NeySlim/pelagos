@@ -122,6 +122,7 @@
     "convergence": "Convergence",
     "audit": "Compte d'audit",
     "journal": "Aucune erreur nouvelle dans le journal",
+    "permissions": "Garde des permissions : tous les chemins accessibles en écriture",
     "ha": "HA Kea revenue à la normale",
     "engine_checks": "Contrôles des moteurs",
     "rollback": "Retour arrière automatique"

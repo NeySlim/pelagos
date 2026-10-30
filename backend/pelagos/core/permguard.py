@@ -11,6 +11,7 @@ writes (`permission_targets`); this module only probes and words the findings (s
 from __future__ import annotations
 
 import errno
+import fnmatch
 import grp
 import os
 import pwd
@@ -35,6 +36,8 @@ DAEMON = "daemon"
 KINDS = (DIR, FILE, READ, DAEMON)
 
 PROBE_PREFIX = ".pelagos-probe."
+PROC = Path("/proc")
+APPARMOR_LOCAL = Path("/etc/apparmor.d/local")
 UNITS = "pelagos.service pelagos-collector.service"
 
 
@@ -261,11 +264,10 @@ def _probe_dir_create(parent: Path, group: str | None) -> None:
             pass
 
 
-def daemon_ids(name: str, path: Path) -> tuple[int, set[int], str] | None:
-    """uid, groups and group name of the running daemon `name` loaded from `path` (else of any
-    `name`), read from /proc; None when it does not run or cannot be seen."""
-    found: list[tuple[bool, int, set[int], int]] = []
-    for status in Path("/proc").glob("[0-9]*/status"):
+def _daemon(name: str, path: Path) -> tuple[int, int, set[int], int] | None:
+    """pid, uid, groups and gid of the running daemon `name` loaded from `path` (else of any `name`)."""
+    found: list[tuple[bool, int, int, set[int], int]] = []
+    for status in PROC.glob("[0-9]*/status"):
         try:
             if (status.parent / "comm").read_text().strip() != name[:15]:
                 continue
@@ -276,15 +278,58 @@ def daemon_ids(name: str, path: Path) -> tuple[int, set[int], str] | None:
         uid = int(fields["Uid"].split()[1])
         gid = int(fields["Gid"].split()[1])
         groups = {gid, *(int(g) for g in fields.get("Groups", "").split())}
-        found.append((str(path).encode() in cmdline, uid, groups, gid))
+        found.append((str(path).encode() in cmdline, int(status.parent.name), uid, groups, gid))
     if not found:
         return None
-    _match, uid, groups, gid = max(found, key=lambda f: f[0])
+    _match, pid, uid, groups, gid = max(found, key=lambda f: f[0])
+    return pid, uid, groups, gid
+
+
+def daemon_ids(name: str, path: Path) -> tuple[int, set[int], str] | None:
+    """uid, groups and group name of the running daemon `name` loaded from `path` (else of any
+    `name`), read from /proc; None when it does not run or cannot be seen."""
+    found = _daemon(name, path)
+    if found is None:
+        return None
+    _pid, uid, groups, gid = found
     try:
         group = grp.getgrgid(gid).gr_name
     except KeyError:
         group = str(gid)
     return uid, groups, group
+
+
+def apparmor_profile(name: str, path: Path) -> str | None:
+    """The AppArmor profile that confines the running daemon in enforce mode, else None."""
+    found = _daemon(name, path)
+    if found is None:
+        return None
+    for attr in ("attr/apparmor/current", "attr/current"):
+        try:
+            label = (PROC / str(found[0]) / attr).read_text().strip("\0\n ")
+        except OSError:
+            continue
+        if label.endswith("(enforce)"):
+            return label.removesuffix("(enforce)").strip()
+        return None
+    return None
+
+
+_AA_RULE = re.compile(r"^\s*(?:owner\s+)?(\S+)\s+([a-z]+)\s*,")
+
+
+def apparmor_allows_write(profile: str, path: Path) -> bool:
+    """Whether the profile's local override grants writing `path` (Debian's kea-* profiles give
+    /etc/kea read only; their local/usr.sbin.<profile> include is where a site adds a rule)."""
+    try:
+        text = (APPARMOR_LOCAL / f"usr.sbin.{profile}").read_text()
+    except OSError:
+        return False
+    for line in text.splitlines():
+        m = _AA_RULE.match(line.split("#", 1)[0])
+        if m and "w" in m.group(2) and fnmatch.fnmatchcase(str(path), m.group(1).replace("**", "*")):
+            return True
+    return False
 
 
 def _file_writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
@@ -299,7 +344,8 @@ def _file_writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
 
 
 def _probe_daemon(target: Target, check: Check) -> None:
-    """Whether the daemon's own user may rewrite the file (mode bits: it is another process)."""
+    """Whether the daemon may rewrite the file: its user's mode bits (it is another process), then
+    its AppArmor profile (Debian 13 confines Kea 2.6.3 to read-only /etc/kea, enforced)."""
     path = Path(target.path)
     ids = daemon_ids(target.daemon or "", path)
     if ids is None:
@@ -309,13 +355,25 @@ def _probe_daemon(target: Target, check: Check) -> None:
     st = path.stat() if path.exists() else path.parent.stat()
     ok = _file_writable(st, uid, groups) if path.exists() else writable(st, uid, groups)
     check.route = "daemon"
+    commands: list[str] = []
+    d = path if path.exists() else path.parent
     if not ok:
-        check.ok = False
         check.problem = "daemon_denied"
         check.error = f"{target.daemon} runs as uid {uid}"
-        d = path if path.exists() else path.parent
-        check.command = f"chgrp {group} {d} && chmod g+w {d}" if check.group != group else f"chmod g+w {d}"
+        commands.append(f"chgrp {group} {d} && chmod g+w {d}" if check.group != group else f"chmod g+w {d}")
         check.fix = {"action": "daemon_write", "path": str(d), "group": group}
+    profile = apparmor_profile(target.daemon or "", path)
+    if profile and not apparmor_allows_write(profile, path):
+        check.problem = "daemon_apparmor" if ok else "daemon_denied_apparmor"
+        check.error = "; ".join(e for e in (check.error, f"AppArmor profile {profile} (enforce)") if e)
+        local = APPARMOR_LOCAL / f"usr.sbin.{profile}"
+        commands.append(
+            f"echo '{path} rw,' >> {local} && apparmor_parser -r {APPARMOR_LOCAL.parent}/usr.sbin.{profile}"
+        )
+        check.fix = {**check.fix, "action": "daemon_write", "path": str(d), "apparmor": profile}
+    if commands:
+        check.ok = False
+        check.command = " && ".join(commands)
 
 
 def _probe_file_create(directory: Path, mode: int | None, group: str | None) -> None:
@@ -485,17 +543,28 @@ def summary(checks: list[Check], node: str) -> Message:
     )
 
 
+# Apply-time errnos worded for the operator; any other one is not blamed on permissions.
+_APPLY_REASONS = {
+    errno.EACCES: "denied",
+    errno.EPERM: "refused",
+    errno.EROFS: "read_only",
+    errno.ENOENT: "missing_parent",
+    errno.ENOSPC: "no_space",
+    errno.EDQUOT: "no_space",
+    errno.EIO: "io_error",
+}
+
+
 def apply_error(exc: OSError | LookupError, what: str = "") -> Message:
     """An error raised at apply time, worded for the UI: never the raw English errno alone."""
     if not isinstance(exc, OSError):
         return msg(
             "permission.apply_error", path=what or "?", reason=msg("permission.errno.denied"), error=str(exc)
         )
-    problem = "missing_parent" if exc.errno == errno.ENOENT else _problem(exc)
     return msg(
         "permission.apply_error",
         path=str(exc.filename or what or "?"),
-        reason=msg(f"permission.errno.{problem}"),
+        reason=msg(f"permission.errno.{_APPLY_REASONS.get(exc.errno or 0, 'other')}"),
         error=exc.strerror or str(exc),
     )
 

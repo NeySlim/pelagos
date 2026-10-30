@@ -273,3 +273,45 @@ def test_a_file_the_daemon_cannot_rewrite_is_refused_with_its_fix(tmp_path, monk
     conf.chmod(0o600)
     absent = permguard.probe(target)
     assert absent.ok and absent.route == "absent"
+
+
+def _fake_proc(root: Path, pid: int, comm: str, label: str | None) -> None:
+    d = root / str(pid)
+    (d / "attr" / "apparmor").mkdir(parents=True)
+    (d / "comm").write_text(comm + "\n")
+    (d / "status").write_text(f"Name:\t{comm}\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nGroups:\t\n")
+    (d / "cmdline").write_bytes(b"/usr/sbin/" + comm.encode() + b"\0-c\0/etc/kea/x.conf\0")
+    if label is not None:
+        (d / "attr" / "apparmor" / "current").write_text(label + "\n")
+
+
+def test_an_enforced_apparmor_profile_refuses_the_daemon_write(tmp_path, monkeypatch) -> None:
+    proc, local = tmp_path / "proc", tmp_path / "apparmor.d" / "local"
+    local.mkdir(parents=True)
+    _fake_proc(proc, 812, "kea-dhcp4", "kea-dhcp4 (enforce)")
+    monkeypatch.setattr(permguard, "PROC", proc)
+    monkeypatch.setattr(permguard, "APPARMOR_LOCAL", local)
+    conf = tmp_path / "kea-dhcp4.conf"
+    conf.write_text("{}")
+    conf.chmod(0o666)
+    monkeypatch.setattr(permguard, "daemon_ids", lambda name, path: (os.geteuid() + 4242, set(), "_kea"))
+    target = permguard.Target(conf, permguard.DAEMON, "kea-dhcp4", "kea_config", daemon="kea-dhcp4")
+    check = permguard.probe(target)
+    assert not check.ok and check.problem == "daemon_apparmor" and check.fix["apparmor"] == "kea-dhcp4"
+    profile = "usr.sbin.kea-dhcp4"
+    assert check.command == (
+        f"echo '{conf} rw,' >> {local}/{profile} && apparmor_parser -r {local.parent}/{profile}"
+    )
+    assert "AppArmor" in check.to_dict()["text"] and "include files" in check.to_dict()["text"]
+    conf.chmod(0o640)
+    both = permguard.probe(target)
+    assert both.problem == "daemon_denied_apparmor" and both.command.startswith("chgrp _kea")
+    # A local override that grants the write, or a complain-mode profile, lets it through.
+    conf.chmod(0o666)
+    (local / "usr.sbin.kea-dhcp4").write_text(f"# site rules\n  {conf} rw,\n")
+    assert permguard.probe(target).ok
+    (local / "usr.sbin.kea-dhcp4").unlink()
+    (proc / "812" / "attr" / "apparmor" / "current").write_text("kea-dhcp4 (complain)\n")
+    assert permguard.probe(target).ok
+    (proc / "812" / "attr" / "apparmor" / "current").write_text("unconfined\n")
+    assert permguard.probe(target).ok

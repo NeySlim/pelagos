@@ -290,10 +290,13 @@ def tampered_signature_refused(web: str, folder: Path, private: Path, tmp: Path)
     shutil.copytree(folder, copy)
     sig = rel.sign_checksums(b"not the checksums of this release\n", rel.load_private_key(private))
     (copy / rel.SIGNATURE).write_text(sig.to_text())
-    with pytest.raises(ApiError) as refused:
+    import urllib.error
+
+    with pytest.raises(urllib.error.HTTPError) as refused:
         upload(api(web), copy)
-    assert refused.value.status == 422, refused.value.body
-    assert "signature_invalid" in json.dumps(refused.value.body), refused.value.body
+    body = refused.value.read().decode()
+    assert refused.value.code == 422, body
+    assert "signature_invalid" in body, body
     shutil.rmtree(copy)
     overview = api(web).get("/admin/updates")
     assert not any(a["version"] == folder.name for a in overview["available"]), overview["available"]

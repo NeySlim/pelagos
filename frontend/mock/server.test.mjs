@@ -93,6 +93,9 @@ const BODIES = {
   'POST /install/kea-migration/analyze': { series: '3.2', source: 'isc' },
   'POST /install/kea-migration/{id}/plan': { phase: 'migrate' },
   'PUT /admin/ipv6': { prefixes: ['2001:db8:1::/64'] },
+  'PUT /admin/updates/settings': { check_interval_hours: 12 },
+  'POST /admin/updates/plan': { kind: 'engine_packages' },
+  'POST /admin/updates/rollout/{id}/action': { action: 'resume' },
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
@@ -194,6 +197,8 @@ const EXPECTED = {
   'PUT /dns/resolver/fallback': 409, // no fallback is active
   'GET /install/kea-migration/{id}': 404, // no migration prepared
   'POST /install/kea-migration/{id}/plan': 404, // no migration prepared
+  'POST /admin/updates/upload': 400, // a JSON body, not multipart
+  'POST /admin/updates/rollout/{id}/action': 404, // no rollout of that id
 }
 
 describe('mock server PTR and exceptions', () => {
@@ -415,6 +420,69 @@ describe('mock server resolver, Kea migration and IPv6', () => {
     expect(saved.data.effective_prefixes).toContainEqual({ prefix: '2001:db8:5::/64', from: 'setting' })
     expect((await admin('PUT', '/admin/ipv6', { sources: [] })).status).toBe(400)
     expect((await admin('POST', '/admin/ipv6/sources/test', { source_id: 'src-router' })).status).toBe(404)
+  })
+})
+
+describe('mock server updates', () => {
+  const upload = async (session, files) => {
+    const form = new FormData()
+    for (const [name, text] of Object.entries(files)) form.append('files', new Blob([text]), name)
+    const res = await fetch(`${base}/admin/updates/upload`, { method: 'POST', headers: { cookie: session.cookie, 'x-csrf-token': session.csrf }, body: form })
+    return { status: res.status, data: await res.json() }
+  }
+
+  it('refuses an altered release, takes an unsigned one only after the extra confirmation', async () => {
+    const session = await login('admin', 'admin')
+    const admin = client(session)
+    const viewer = client(await login('viewer', 'viewer'))
+    expect((await viewer('GET', '/admin/updates')).status).toBe(403)
+    const overview = await admin('GET', '/admin/updates')
+    expect(overview.data.available[0]).toMatchObject({ version: '0.3.0', signature: 'valid', state_schema: 1 })
+    const deb = 'pelagos_0.3.1-1_amd64.deb'
+    const bad = await upload(session, { SHA256SUMS: 'x', 'SHA256SUMS.sig': 'tampered', [deb]: 'deb' })
+    expect(bad).toMatchObject({ status: 422, data: { code: 'release_invalid', reason: 'signature_invalid' } })
+    const up = await upload(session, { SHA256SUMS: 'x', [deb]: 'deb' })
+    expect(up).toMatchObject({ status: 201, data: { version: '0.3.1', signature: 'unsigned', signed: false } })
+    const refused = await admin('POST', '/admin/updates/plan', { kind: 'pelagos', version: '0.3.1' })
+    expect(refused.status).toBe(400)
+    expect(refused.data.errors[0].field).toBe('accept_unsigned')
+    const plan = await admin('POST', '/admin/updates/plan', { kind: 'pelagos', version: '0.3.1', accept_unsigned: true, confirm_version: '0.3.1' })
+    expect(plan.data).toMatchObject({ scope: 'update', requires_confirmation: true, update: { signature: 'unsigned' } })
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true })).status).toBe(400)
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true, password: 'nope' })).status).toBe(401)
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true, password: 'admin' })).status).toBe(200)
+    const rollout = (await admin('GET', '/admin/updates/rollout')).data
+    expect(rollout).toMatchObject({ kind: 'pelagos', version: '0.3.1', state: 'done', unsigned_accepted_by: 'admin' })
+    expect(rollout.nodes.every((n) => n.state === 'done')).toBe(true)
+    expect(rollout.order.at(-1)).toBe(mock.state.selfId)
+    const audit = mock.state.audit.map((e) => e.action)
+    expect(audit).toContain('update.unsigned_accepted')
+    expect((await admin('GET', '/admin/updates/history')).data.items[0]).toMatchObject({ id: rollout.id, state: 'done' })
+    expect((await admin('GET', '/admin/updates')).data.nodes.every((n) => n.version === '0.3.1' && n.previous_kept)).toBe(true)
+  })
+
+  it('stops at the first failing node, rolls it back, resumes and cancels', async () => {
+    const session = await login('admin', 'admin')
+    const admin = client(session)
+    const deb = 'pelagos_0.4.0-1_amd64-broken.deb'
+    expect((await upload(session, { SHA256SUMS: 'x', 'SHA256SUMS.sig': '{"key_id": "a1b2c3d4e5f60718"}', 'pelagos_0.4.0-1_amd64.deb': 'deb', [deb]: 'deb' })).status).toBe(201)
+    mock.state.updates.releases.find((r) => r.version === '0.4.0').broken = true
+    const plan = await admin('POST', '/admin/updates/plan', { kind: 'pelagos', version: '0.4.0' })
+    expect((await admin('POST', '/admin/updates/plan', { kind: 'pelagos', version: '0.4.0' })).status).toBe(200)
+    await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true, password: 'admin' })
+    const failed = (await admin('GET', '/admin/updates/rollout')).data
+    expect(failed.state).toBe('failed')
+    expect(failed.nodes[1]).toMatchObject({ state: 'rolled_back', step: 'health' })
+    expect(mock.state.alerts.find((a) => a.kind === 'update_failed')?.subject).toBe(`update:${failed.id}`)
+    expect((await admin('POST', '/admin/updates/plan', { kind: 'pelagos', version: '0.4.0' })).status).toBe(409)
+    const resumed = await admin('POST', `/admin/updates/rollout/${failed.id}/action`, { action: 'resume' })
+    expect(resumed.data.state).toBe('done')
+    expect((await admin('POST', `/admin/updates/rollout/${failed.id}/action`, { action: 'cancel' })).status).toBe(409)
+    expect((await admin('POST', `/admin/updates/rollout/${failed.id}/action`, { action: 'rollback' })).status).toBe(400)
+    const back = await admin('POST', `/admin/updates/rollout/${failed.id}/action`, { action: 'rollback', password: 'admin' })
+    expect(back.data).toMatchObject({ kind: 'rollback', version: '0.3.1', state: 'done' })
+    const engines = await admin('POST', '/admin/updates/plan', { kind: 'engine_packages', packages: ['bind9'] })
+    expect(engines.data.update.packages).toEqual({ bind9: '1:9.20.15-1~deb13u1' })
   })
 })
 

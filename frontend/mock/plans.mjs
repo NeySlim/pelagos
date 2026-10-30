@@ -164,6 +164,7 @@ export const SCOPE_PERMISSIONS = {
   install: 'admin:install',
   import: 'admin:install',
   security: 'admin:install',
+  update: 'admin:updates',
 }
 
 function can(user, permission) {

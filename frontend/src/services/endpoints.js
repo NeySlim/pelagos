@@ -261,6 +261,15 @@ export const ENDPOINTS = [
   'GET /hosts/ipv6',
   'GET /admin/ipv6',
   'PUT /admin/ipv6',
+  // Administration > Updates (section 29)
+  'GET /admin/updates',
+  'POST /admin/updates/check',
+  'POST /admin/updates/upload',
+  'PUT /admin/updates/settings',
+  'POST /admin/updates/plan',
+  'GET /admin/updates/rollout',
+  'POST /admin/updates/rollout/{id}/action',
+  'GET /admin/updates/history',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

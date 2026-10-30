@@ -200,7 +200,8 @@
       "archives": "archives",
       "milliseconds": "ms",
       "answers": "réponses",
-      "names": "noms"
+      "names": "noms",
+      "packages": "paquets"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -276,6 +277,13 @@
       "ipv6": {
         "title": "Observations IPv6",
         "help": "Où les adresses IPv6 sont observées et quand une adresse est stable (Administration, Observation IPv6)"
+      },
+      "updates": {
+        "title": "Mises à jour",
+        "help": {
+          "source": "upload (un répertoire de release envoyé depuis l'écran Mises à jour), github (la dernière release du dépôt réglé dans cet écran) ou repository (le dépôt apt ou dnf de Pelagos).",
+          "auto_rollback_enabled": "Seulement quand la release garde le schéma d'état de la version installée ; sinon le déroulé s'arrête et affiche la procédure manuelle."
+        }
       }
     },
     "groups": {
@@ -484,6 +492,16 @@
         "stable_min_days": "Stable après",
         "stale_days": "AAAA obsolète après",
         "auto_apply_enabled": "Créer AAAA et PTR automatiquement"
+      },
+      "updates": {
+        "check_enabled": "Rechercher les nouvelles releases",
+        "check_interval_hours": "Intervalle de recherche",
+        "source": "Source des releases",
+        "settle_seconds": "Délai de stabilisation après installation",
+        "timeout_seconds": "Délai maximal de santé et de convergence",
+        "pause_seconds": "Pause entre deux nœuds",
+        "auto_rollback_enabled": "Retour arrière automatique en cas d'échec",
+        "keep_packages_count": "Paquets et sauvegardes d'état gardés"
       }
     },
     "help": {
@@ -559,6 +577,10 @@
       "kea": {
         "migration_response_delay_milliseconds": "max-response-delay du standby pendant qu'il attend de servir seul ; remis à la fin de la migration.",
         "migration_outage_max_seconds": "Au-delà, la paire revient en Kea 2.6 si le retour arrière automatique est actif."
+      },
+      "updates": {
+        "source": "upload (un répertoire de release envoyé depuis l'écran Mises à jour), github (la dernière release du dépôt réglé dans cet écran) ou repository (le dépôt apt ou dnf de Pelagos).",
+        "auto_rollback_enabled": "Seulement quand la release garde le schéma d'état de la version installée ; sinon le déroulé s'arrête et affiche la procédure manuelle."
       }
     }
   },

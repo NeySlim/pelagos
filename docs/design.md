@@ -1059,7 +1059,7 @@ Mettre à jour un cluster demande aujourd'hui `scripts/deploy-prod.sh` depuis un
    - dépôt de release téléversé : l'administrateur dépose les fichiers d'un répertoire de release (paquets, `SHA256SUMS`, `SHA256SUMS.sig`, `NOTES.md`) ; marche sans accès Internet et avec un dépôt privé ;
    - URL de releases : l'API des releases GitHub (`GET /repos/{owner}/{repo}/releases/latest`), jeton optionnel pour un dépôt privé, rangé en secret ; vérifiée tous les `check_interval_hours` par le nœud de service (13.1, décision 1) ;
    - dépôt apt ou dnf de Pelagos, quand il existera : lu par `apt-cache policy pelagos`, installé par le gestionnaire de paquets.
-2. Signature obligatoire : `make release` signe `SHA256SUMS` par une clé Ed25519 de release (`SHA256SUMS.sig`) ; les clés publiques acceptées sont livrées dans le paquet (`pelagos/data/release-keys/`, propriété de root) ; la vérification se fait dans l'assistant privilégié, jamais seulement dans le processus web : sinon le groupe `pelagos` pourrait faire installer un paquet quelconque par root. L'assistant refuse aussi tout paquet qui ne s'appelle pas `pelagos`, une architecture différente, ou une version qui n'est ni plus récente que l'installée ni la précédente notée pour un retour. Une nouvelle clé est livrée dans une release signée par l'ancienne. Pas d'installation non signée depuis l'interface ; `pelagos upgrade --allow-unsigned` en ligne de commande pour le développement seulement.
+2. Signature vérifiée, release non signée acceptée sur confirmation (décision de l'utilisateur du 2026-10-30, qui remplace « signature obligatoire ») : `make release` signe `SHA256SUMS` par une clé Ed25519 de release (`SHA256SUMS.sig`) quand une clé est disponible, sans erreur sinon ; les clés publiques acceptées sont livrées dans le paquet (`pelagos/data/release-keys/`, propriété de root) ; la vérification se fait dans l'assistant privilégié, jamais seulement dans le processus web : sinon le groupe `pelagos` pourrait faire installer un paquet quelconque par root. L'assistant refuse aussi tout paquet qui ne s'appelle pas `pelagos`, une architecture différente, ou une version qui n'est ni plus récente que l'installée ni la précédente notée pour un retour. Une nouvelle clé est livrée dans une release signée par l'ancienne. Une release sans signature, ou signée par une clé inconnue, s'installe depuis l'interface après un avertissement clair dans l'aperçu (« release non signée : son origine n'est pas vérifiée ») et une confirmation explicite en plus de la confirmation normale (case cochée et version saisie), avec l'entrée d'audit `update.unsigned_accepted` au nom de l'utilisateur. Les sommes de `SHA256SUMS` sont toujours vérifiées ; une signature présente mais invalide reste un refus (fichier altéré). Formats et règles : architecture, section 29.
 3. Le déroulé est tiré, pas poussé : le plan « Mettre à jour vers 0.2.4 » écrit un déroulé dans `cluster.toml` (`updates.rollout` : identifiant, version, sommes des paquets par architecture, ordre des nœuds, état de chaque nœud, auteur, options). Le collecteur de chaque nœud regarde ce déroulé ; quand vient son tour (tous ceux d'avant `done`, cluster sain), il récupère les paquets chez le nœud qui les a (`GET /repl/v1/releases/<version>/<fichier>`, mTLS), les vérifie, et demande à son assistant privilégié de faire sa mise à jour. Aucun nœud ne pilote les autres : le redémarrage du nœud où l'administrateur a cliqué ne casse rien.
 4. Survivre à son propre redémarrage : l'assistant lance la mise à jour dans une unité transitoire (`systemd-run --unit=pelagos-upgrade-<id> pelagos upgrade apply --rollout <id>`), indépendante de `pelagos.service`, `pelagos-collector.service` et de la connexion à l'assistant. Elle écrit sa progression dans `/var/lib/pelagos/upgrade/<id>/<nœud>.json` (root, lisible par le groupe `pelagos`) : arrêt des services, sauvegarde de l'état, installation, version vérifiée. Les nouveaux processus relisent ce fichier, font les contrôles d'après installation et écrivent l'état du nœud dans `updates.rollout`. L'interface perd sa connexion quelques secondes, se reconnecte (`/health`), redemande la session si elle a été perdue, et reprend l'affichage depuis l'état répliqué.
 5. Contrôles par nœud, repris de `deploy-prod.sh` : avant (santé de tout le cluster, empreinte de `cluster.toml`, compte d'audit, HA Kea), sauvegarde (`/var/lib/pelagos/upgrade/backups/pelagos-state-<date>-<ancienne version>.tar.gz`, 0600 root, plus une archive 13.2 si une destination existe), installation, version installée, attente de `settle_seconds` puis jusqu'à `timeout_seconds` de la santé et de la convergence, audit jamais en baisse, unités relancées, aucune ligne `ERROR` des nouveaux processus (lue par l'assistant, opération `journal_errors`). Le nœud suivant attend `pause_seconds` (défaut 60) après le `done` du précédent.
@@ -1087,13 +1087,14 @@ Mettre à jour un cluster demande aujourd'hui `scripts/deploy-prod.sh` depuis un
 | --- | --- | --- | --- |
 | `GET /admin/updates` | `admin:updates` | | `{"nodes": [{"node_id","version","arch","package_format","previous_kept"}],"available": [{"version","source","published_at","notes","signed","state_schema"}],"rollout": Rollout|null,"settings","engines": [{"node_id","engine","package","installed","candidate","cves"}]}` |
 | `POST /admin/updates/check` | `admin:updates` | | `{"available"}` (vérification immédiate) |
-| `POST /admin/updates/upload` | `admin:updates` | multipart : fichiers d'un répertoire de release | `{"version","files","signed": true}` ou `422` (signature, somme, nom) |
-| `POST /admin/updates/plan` | `admin:updates` | `{"kind": "pelagos"|"engine_packages"|"rollback","version"?,"packages"?,"order"?,"auto_rollback"?}` | `Plan` (scope `update`, `requires_confirmation`, mot de passe exigé à l'application) |
+| `POST /admin/updates/upload` | `admin:updates` | multipart : fichiers d'un répertoire de release | `{"version","files","signature","signed"}` (`signature` : `valid`, `unsigned` ou `unknown_key`) ou `422 release_invalid` (signature invalide, somme, nom) |
+| `PUT /admin/updates/settings` | `admin:updates` | `[settings.updates]` partiel, `github_repository`, `github_token` | `{"settings"}` |
+| `POST /admin/updates/plan` | `admin:updates` | `{"kind": "pelagos"|"engine_packages"|"rollback","version"?,"packages"?,"order"?,"auto_rollback"?,"accept_unsigned"?,"confirm_version"?}` | `Plan` (scope `update`, `requires_confirmation`, mot de passe exigé à l'application) |
 | `GET /admin/updates/rollout` | `admin:updates` | | `Rollout` : `{"id","kind","version","state","order","nodes": [{"node_id","state","step","started_at","finished_at","error"}],"created_by"}` |
 | `POST /admin/updates/rollout/{id}/action` | `admin:updates` | `{"action": "resume"|"cancel"|"rollback"}` | `Rollout` |
 | `GET /admin/updates/history?page=&per_page=` | `admin:updates` | | paginé |
 
-Nouvelle permission `admin:updates` (rôle administrateur), nouveau scope de plan `update`. Réplication : `GET /repl/v1/releases/<version>/<fichier>` (mTLS, fichiers d'une release téléversée). Assistant privilégié, opérations nouvelles : `update_verify` (signature, sommes, nom, version), `update_start` (unité transitoire), `update_status`, `journal_errors`. Audit : `admin.update.plan|resume|cancel|rollback`, `update.node.start|done|failed|rolled_back`.
+Nouvelle permission `admin:updates` (rôle administrateur), nouveau scope de plan `update`. Réplication : `GET /repl/v1/releases/<version>/<fichier>` (mTLS, fichiers d'une release téléversée). Assistant privilégié, opérations nouvelles : `update_verify` (signature, sommes, nom, version), `update_start` (unité transitoire), `update_status`, `journal_errors`. Audit : `admin.update.plan|resume|cancel|rollback`, `update.unsigned_accepted`, `update.node.start|done|failed|rolled_back`.
 
 **Réglages**
 
@@ -1105,7 +1106,7 @@ Le déroulé et les états sont dans `cluster.toml`, répliqués ; chaque nœud 
 
 **Sécurité**
 
-- Signature et règles vérifiées par root dans l'assistant (décision 2) ; paquets rangés en 0600 root ; jamais d'installation depuis une URL donnée par le client.
+- Signature et règles vérifiées par root dans l'assistant (décision 2) ; accepter une release non signée revient à laisser un administrateur (et le groupe `pelagos`, qui écrit `cluster.toml`) faire installer par root n'importe quel paquet nommé `pelagos` : compromis choisi par l'utilisateur le 2026-10-30, rendu explicite par l'avertissement, la version saisie, le mot de passe et l'audit ; paquets rangés en 0600 root ; jamais d'installation depuis une URL donnée par le client.
 - `admin:updates` plus le mot de passe de l'utilisateur à la confirmation ; audit complet ; un seul déroulé actif à la fois.
 - Les sauvegardes d'état contiennent la clé maître et la CA : 0600 root, jamais copiées vers un pair, purgées après `keep_packages_count` mises à jour.
 - Jeton GitHub stocké chiffré, lecture seule recommandée (permission Contents en lecture).
@@ -1114,7 +1115,8 @@ Le déroulé et les états sont dans `cluster.toml`, répliqués ; chaque nœud 
 
 | Panne | Comportement |
 | --- | --- |
-| Signature ou somme invalide | Refus avant tout changement, alerte, audit |
+| Signature invalide ou somme invalide | Refus avant tout changement, alerte, audit |
+| Release non signée ou clé inconnue | Avertissement, confirmation supplémentaire, audit `update.unsigned_accepted` |
 | Installation en échec | Nœud `failed` ; paquet précédent toujours en place (le gestionnaire n'a rien changé) ou retour automatique |
 | Nouveaux processus en échec (santé, `ERROR`, convergence) | Retour automatique si `state_schema` identique, sinon arrêt et procédure affichée |
 | Coupure de l'interface pendant le redémarrage | Reconnexion, état relu depuis `updates.rollout` ; rien ne dépend de la page |
@@ -1307,7 +1309,7 @@ Ordre et releases proposés (la 0.2.1 en cours garde les correctifs des points 6
 
 Décidé le 2026-10-28 : chaque défaut recommandé est retenu tel quel.
 
-Action de l'utilisateur avant la 0.2.3 (point 61) : générer la clé Ed25519 de signature des releases et la garder hors du dépôt ; seule la clé publique entre dans le paquet. Sans elle, le lot U1 ne peut pas signer et l'interface refuse toute mise à jour.
+Action de l'utilisateur avant la 0.3.0 (point 61) : générer la clé Ed25519 de signature des releases et la garder hors du dépôt ; seule la clé publique entre dans le paquet. Sans elle, `make release` produit une release non signée, que l'interface installe seulement après l'avertissement et la confirmation supplémentaire (décision du 2026-10-30).
 
 | Point | Question | Décision |
 | --- | --- | --- |
@@ -1322,7 +1324,7 @@ Action de l'utilisateur avant la 0.2.3 (point 61) : générer la clé Ed25519 de
 | 60 | Retour du repli | Automatique à l'échéance (24 h par défaut, fixée dans le plan confirmé), proposé dès 15 min de sondes saines |
 | 60 | Forwarders proposés | Préréglage Quad9 avec filtrage et DNSSEC (`9.9.9.9`, `149.112.112.112`, `2620:fe::fe`, `2620:fe::9`), `forward first` ; Quad9 sans filtrage, Cloudflare et liste libre en option |
 | 61 | Source des versions | Dépôt de release téléversé dans l'interface et releases GitHub (jeton en lecture seule) ; dépôt apt ou dnf de Pelagos plus tard |
-| 61 | Signature des releases | Ed25519 sur `SHA256SUMS`, clé privée générée et gardée par l'utilisateur hors du dépôt, lue par `make release` ; aucune installation non signée depuis l'interface |
+| 61 | Signature des releases | Ed25519 sur `SHA256SUMS`, clé privée générée et gardée par l'utilisateur hors du dépôt, lue par `make release` quand elle existe. Changé le 2026-10-30 : une release non signée (ou signée par une clé inconnue) s'installe depuis l'interface avec un avertissement, une confirmation explicite en plus de la normale (case et version saisie) et l'audit `update.unsigned_accepted` ; `SHA256SUMS` toujours vérifié ; signature présente mais invalide toujours refusée |
 | 61 | Retour arrière | Automatique sur le nœud en échec quand `state_schema` ne change pas ; sinon arrêt et procédure guidée |
 | 61 | Paquets BIND et Kea de la distribution | Même écran, onglet « Paquets des moteurs », même déroulé, sans changement de série |
 | 62 | Sources des adresses observées | Table des voisins des nœuds, active ; baux DHCPv6 si le module est actif (source OPNsense retirée en 0.2.3, point 71) |

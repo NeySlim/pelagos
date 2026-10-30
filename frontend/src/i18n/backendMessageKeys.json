@@ -447,6 +447,14 @@
     "fields",
     "zone"
   ],
+  "alert.update_available": [
+    "installed",
+    "version"
+  ],
+  "alert.update_available_unsigned": [
+    "installed",
+    "version"
+  ],
   "alert.update_denied": [
     "count",
     "hours",
@@ -455,6 +463,18 @@
   "alert.update_denied_set": [
     "count",
     "hours"
+  ],
+  "alert.update_failed": [
+    "error",
+    "node",
+    "step",
+    "version"
+  ],
+  "alert.update_stalled": [
+    "minutes",
+    "node",
+    "step",
+    "version"
   ],
   "alert.version_mismatch": [
     "engine",
@@ -1384,6 +1404,21 @@
   "plan.security": [
     "count"
   ],
+  "plan.update.engine_packages": [
+    "nodes",
+    "packages"
+  ],
+  "plan.update.pelagos": [
+    "nodes",
+    "version"
+  ],
+  "plan.update.rollback": [
+    "nodes",
+    "version"
+  ],
+  "plan.update.unsigned": [
+    "version"
+  ],
   "plan.zone.added": [
     "command",
     "op",
@@ -1443,6 +1478,7 @@
   "problem.precondition_failed": [],
   "problem.preflight_failed": [],
   "problem.rate_limited": [],
+  "problem.release_invalid": [],
   "problem.replication_syncing": [],
   "problem.second_factor_required": [],
   "problem.totp_required": [],
@@ -1452,5 +1488,33 @@
   "problem.zone_without_records": [],
   "rpz.dir_missing": [
     "path"
+  ],
+  "update.refused.arch": [
+    "arch",
+    "format"
+  ],
+  "update.refused.checksum": [
+    "file"
+  ],
+  "update.refused.manifest": [
+    "problems"
+  ],
+  "update.refused.missing": [
+    "file"
+  ],
+  "update.refused.name": [
+    "file",
+    "package"
+  ],
+  "update.refused.signature_invalid": [],
+  "update.refused.unlisted": [
+    "file"
+  ],
+  "update.refused.unsigned_not_accepted": [
+    "version"
+  ],
+  "update.refused.version": [
+    "installed",
+    "version"
   ]
 }

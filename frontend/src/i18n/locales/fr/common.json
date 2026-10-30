@@ -184,7 +184,8 @@
       "restore": "Restauration",
       "dns.failover": "Reprise DDNS",
       "dns.resolver": "Repli du résolveur",
-      "kea.migration": "Migration Kea"
+      "kea.migration": "Migration Kea",
+      "update": "Mise à jour"
     },
     "steps": {
       "apply": "Revérifier les préconditions et appliquer sur {{node}}",

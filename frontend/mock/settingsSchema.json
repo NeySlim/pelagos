@@ -14,7 +14,8 @@
     "archives",
     "ddns",
     "resolver",
-    "ipv6"
+    "ipv6",
+    "updates"
   ],
   "settings": [
     {
@@ -1275,6 +1276,62 @@
       "key": "ipv6.auto_apply_enabled",
       "type": "boolean",
       "default": false
+    },
+    {
+      "key": "updates.check_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "updates.check_interval_hours",
+      "type": "integer",
+      "default": 24,
+      "min": 1,
+      "max": 720,
+      "unit": "hours"
+    },
+    {
+      "key": "updates.source",
+      "type": "string",
+      "default": "upload",
+      "pattern": "^(upload|github|repository)$"
+    },
+    {
+      "key": "updates.settle_seconds",
+      "type": "integer",
+      "default": 30,
+      "min": 0,
+      "max": 3600,
+      "unit": "seconds"
+    },
+    {
+      "key": "updates.timeout_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 30,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "updates.pause_seconds",
+      "type": "integer",
+      "default": 60,
+      "min": 0,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "updates.auto_rollback_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "updates.keep_packages_count",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 20,
+      "unit": "packages"
     }
   ],
   "pairs": [

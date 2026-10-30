@@ -207,7 +207,10 @@
     "root_hints_stale": "stale root hints",
     "api_token_expiry": "API token expiry",
     "ipv6_source_failed": "IPv6 source failing",
-    "path_not_writable": "path not writable"
+    "path_not_writable": "path not writable",
+    "update_available": "update available",
+    "update_failed": "update failed",
+    "update_stalled": "update stalled"
   },
   "live": {
     "label": "Live",

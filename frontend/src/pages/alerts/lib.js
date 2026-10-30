@@ -20,6 +20,7 @@ export const KINDS = [
   'kea_series_obsolete', 'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa', 'root_hints_stale', 'api_token_expiry',
   'ipv6_source_failed',
   'path_not_writable',
+  'update_available', 'update_failed', 'update_stalled',
 ]
 export { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS }
 

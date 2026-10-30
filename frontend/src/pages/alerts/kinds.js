@@ -8,4 +8,5 @@ export const EXCEPTABLE_KINDS = new Set([
   'declined_addresses', 'resolver_health', 'delegation_issue', 'version_mismatch', 'pool_forecast',
   'security_advisory', 'clock_unsynchronized', 'cert_expiry', 'archive_incomplete', 'kea_series_obsolete',
   'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa',
+  'update_available',
 ])

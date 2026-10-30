@@ -2190,3 +2190,26 @@ K5; `POST /plans/{id}/apply` of a `kea.migration` plan needs `ops:dhcp.ha`; K5 a
 phases as jobs with labelled steps, moves the HA states and the record, returns automatically when
 a step of time 1 or 2 fails (`POST /_mock/kea-migration {"fail_at": step}`), labels of the settings
 and the scope in en and fr. Affects K3 to K7.
+## 2026-10-30, contract C3: updates from the UI
+Additive, release 0.3.0. Architecture section 29 and its rows in sections 3, 4, 13, 15, 16, 17 and
+19; design 13.6 and decision 61 of 13.11 follow the user's change of 2026-10-30: an unsigned release,
+or one signed by an unknown key, installs from the UI after a warning, `accept_unsigned` plus the
+typed `confirm_version`, the password, and the audit entry `update.unsigned_accepted`; `SHA256SUMS`
+is always checked and a present but invalid signature is always refused. Contract:
+`domain/updates.py` (formats of `SHA256SUMS`, `SHA256SUMS.sig` and `release.json`, signature
+states, `Rollout` and `RolloutNode` as stored in `[settings.updates.rollout]`, steps, helper
+operation names), `PlanScope.UPDATE` (`admin:updates`), alert kinds `update_available`
+(exceptable), `update_failed`, `update_stalled`, message keys `alert.update_*`, `plan.update.*`,
+`update.refused.*`, `problem.release_invalid`. WP-CORE: settings domain `updates` (screen entries
+`github_repository`, `rollout`, `history`), `GET /repl/v1/releases/<version>[/<file>]` served from
+`ReplicationApp.releases` (a `ReleaseStore`, `404` until U3 provides one) and the client calls
+`release_listing`, `fetch_release_file`. WP-API-AUTH: permission `admin:updates` (admin role
+only), error code `release_invalid` 422, `api/updates.py` with every `/admin/updates*` route in
+`501` until U5; `POST /plans/{id}/apply` of an `update` plan takes `password` (U5). WP-INSTALLER:
+helper operations `update_verify`, `update_start`, `update_status`, `journal_errors` registered
+and refused as not implemented until U2. WP-FRONTEND: endpoints, `api.updates`,
+`plans.apply(id, confirm, extra)`, alert kinds, settings labels, scope label, messages (en, fr)
+and the mock server (`mock/updates.mjs`: signed, unsigned, unknown-key and altered uploads, plans
+with the extra confirmation and the password, a rollout that advances with `updateStepMs`, a
+failing node rolled back, resume, cancel, rollback, history, engine packages) for U6. WP-PACKAGING
+(U1): `make release` writes `release.json` and signs only when `PELAGOS_RELEASE_KEY` names a key.

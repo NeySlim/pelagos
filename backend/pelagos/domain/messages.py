@@ -351,6 +351,31 @@ CATALOG: dict[str, str] = {
     "alert.ipv6_missing_aaaa": "zone {zone}: {count} hosts have a stable IPv6 address and no AAAA record",
     "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {prefix}",
     "alert.ipv6_source_failed": "IPv6 source {source} fails on {node}: {error}",
+    # Updates from the UI (section 29).
+    "alert.update_available": "Pelagos {version} is available (installed: {installed})",
+    "alert.update_available_unsigned": (
+        "Pelagos {version} is available (installed: {installed}); it is not signed:"
+        " its origin is not verified"
+    ),
+    "alert.update_failed": "update to {version} failed on {node} at step {step}: {error}",
+    "alert.update_stalled": "update to {version}: {node} has not moved for {minutes} minutes (step {step})",
+    "plan.update.pelagos": "update Pelagos to {version} on {nodes}, in this order",
+    "plan.update.engine_packages": "update {packages} on {nodes}, in this order",
+    "plan.update.rollback": "go back to Pelagos {version} on {nodes}, in this order",
+    "plan.update.unsigned": "release {version} is not signed: its origin is not verified",
+    "update.refused.signature_invalid": "SHA256SUMS.sig does not verify SHA256SUMS: the release was altered",
+    "update.refused.checksum": "{file}: its sha256 does not match SHA256SUMS",
+    "update.refused.missing": "{file} is missing from the release",
+    "update.refused.unlisted": "{file} is not listed in SHA256SUMS",
+    "update.refused.name": "{file} is not a {package} package",
+    "update.refused.arch": "the release has no {format} package for {arch}",
+    "update.refused.version": (
+        "{version} is neither newer than the installed {installed} nor the kept previous version"
+    ),
+    "update.refused.manifest": "release.json: {problems}",
+    "update.refused.unsigned_not_accepted": (
+        "release {version} is not signed: accept the unsigned release and type its version to go on"
+    ),
     # Permission guard (core.permguard).
     "alert.path_not_writable": "{node} cannot write {path}",
     "permission.finding": "{what} {path}: {missing} (now {owner}:{group} {mode} on {probed}); fix: {command}",
@@ -797,6 +822,7 @@ CATALOG: dict[str, str] = {
     "problem.replication_syncing": "Replication in progress",
     "problem.zone_without_records": "Zone holds no records",
     "problem.zone_too_large": "Zone too large to read here",
+    "problem.release_invalid": "Release refused",
     "problem.detail.unexpected": "unexpected error; see the server log",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
     "problem.detail.zone_too_large": (

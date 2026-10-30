@@ -200,7 +200,8 @@
       "archives": "archives",
       "milliseconds": "ms",
       "answers": "answers",
-      "names": "names"
+      "names": "names",
+      "packages": "packages"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -276,6 +277,13 @@
       "ipv6": {
         "title": "IPv6 observations",
         "help": "Where IPv6 addresses are observed and when one counts as stable (Administration, IPv6 observation)"
+      },
+      "updates": {
+        "title": "Updates",
+        "help": {
+          "source": "upload (a release folder sent from the Updates screen), github (the latest release of the repository set on that screen) or repository (the apt or dnf repository of Pelagos).",
+          "auto_rollback_enabled": "Only when the release keeps the state schema of the installed one; otherwise the rollout stops and shows the manual procedure."
+        }
       }
     },
     "groups": {
@@ -484,6 +492,16 @@
         "stable_min_days": "Stable after",
         "stale_days": "AAAA stale after",
         "auto_apply_enabled": "Create AAAA and PTR automatically"
+      },
+      "updates": {
+        "check_enabled": "Check for new releases",
+        "check_interval_hours": "Check interval",
+        "source": "Release source",
+        "settle_seconds": "Settle time after the install",
+        "timeout_seconds": "Health and convergence timeout",
+        "pause_seconds": "Pause between nodes",
+        "auto_rollback_enabled": "Roll back automatically on failure",
+        "keep_packages_count": "Packages and state backups kept"
       }
     },
     "help": {
@@ -559,6 +577,10 @@
       "kea": {
         "migration_response_delay_milliseconds": "max-response-delay of the standby while it waits to serve alone; restored after the migration.",
         "migration_outage_max_seconds": "Past this, the pair goes back to Kea 2.6 when automatic rollback is on."
+      },
+      "updates": {
+        "source": "upload (a release folder sent from the Updates screen), github (the latest release of the repository set on that screen) or repository (the apt or dnf repository of Pelagos).",
+        "auto_rollback_enabled": "Only when the release keeps the state schema of the installed one; otherwise the rollout stops and shows the manual procedure."
       }
     }
   },

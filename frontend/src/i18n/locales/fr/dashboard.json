@@ -207,7 +207,10 @@
     "root_hints_stale": "indices racine anciens",
     "api_token_expiry": "expiration de jeton d'API",
     "ipv6_source_failed": "source IPv6 en échec",
-    "path_not_writable": "chemin non inscriptible"
+    "path_not_writable": "chemin non inscriptible",
+    "update_available": "mise à jour disponible",
+    "update_failed": "mise à jour en échec",
+    "update_stalled": "mise à jour bloquée"
   },
   "live": {
     "label": "Direct",

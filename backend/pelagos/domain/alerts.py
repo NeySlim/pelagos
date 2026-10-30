@@ -74,6 +74,9 @@ class AlertKind(enum.StrEnum):
     API_TOKEN_EXPIRY = "api_token_expiry"  # noqa: S105 (an alert kind)
     IPV6_SOURCE_FAILED = "ipv6_source_failed"
     PATH_NOT_WRITABLE = "path_not_writable"
+    UPDATE_AVAILABLE = "update_available"
+    UPDATE_FAILED = "update_failed"
+    UPDATE_STALLED = "update_stalled"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:
@@ -127,6 +130,7 @@ EXCEPTABLE_KINDS = frozenset(
         AlertKind.IPV6_MISSING_AAAA,
         AlertKind.IPV6_REVERSE_MISSING,
         AlertKind.IPV6_STALE_AAAA,
+        AlertKind.UPDATE_AVAILABLE,
     }
 )
 

@@ -42,6 +42,7 @@ class PlanScope(enum.StrEnum):
     DNS_FAILOVER = "dns.failover"
     DNS_RESOLVER = "dns.resolver"
     KEA_MIGRATION = "kea.migration"
+    UPDATE = "update"
 
 
 # Permission needed to apply a plan of a given scope (section 16).
@@ -74,6 +75,8 @@ SCOPE_PERMISSIONS: dict[PlanScope, str] = {
     PlanScope.DNS_RESOLVER: "write:dns.config",
     # Kea 2.6 to 3.x migration composite; its apply also needs ops:dhcp.ha (section 28).
     PlanScope.KEA_MIGRATION: "admin:install",
+    # Pelagos or engine package rollout written to updates.rollout (section 29).
+    PlanScope.UPDATE: "admin:updates",
 }
 
 

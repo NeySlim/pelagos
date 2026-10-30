@@ -546,6 +546,21 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         None,
         "admin:users",
     ),
+    # Updates from the UI (section 29): 501 until batch U5.
+    ("GET", "/admin/updates", "/admin/updates", None, "admin:updates"),
+    ("POST", "/admin/updates/check", "/admin/updates/check", {}, "admin:updates"),
+    ("POST", "/admin/updates/upload", "/admin/updates/upload", {}, "admin:updates"),
+    ("PUT", "/admin/updates/settings", "/admin/updates/settings", {}, "admin:updates"),
+    ("POST", "/admin/updates/plan", "/admin/updates/plan", {"kind": "pelagos"}, "admin:updates"),
+    ("GET", "/admin/updates/rollout", "/admin/updates/rollout", None, "admin:updates"),
+    (
+        "POST",
+        "/admin/updates/rollout/<string:rollout_id>/action",
+        "/admin/updates/rollout/r1/action",
+        {"action": "resume"},
+        "admin:updates",
+    ),
+    ("GET", "/admin/updates/history", "/admin/updates/history", None, "admin:updates"),
     # Endpoints that end or reshape the session run last.
     ("POST", "/auth/totp/enroll", "/auth/totp/enroll", None, ANY),
     ("POST", "/auth/login", "/auth/login", {"username": "nobody", "password": "x"}, ANON),

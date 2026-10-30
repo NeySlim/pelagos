@@ -48,7 +48,9 @@ DOMAINS = (
     "ddns",
     "resolver",
     "ipv6",
+    "updates",
 )
+UPDATE_SOURCE_PATTERN = r"^(upload|github|repository)$"
 TIME_OF_DAY_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
@@ -289,6 +291,15 @@ REGISTRY: tuple[Setting, ...] = (
     S("ipv6.stable_min_days", "integer", 8, 1, 365, "days"),
     S("ipv6.stale_days", "integer", 14, 1, 365, "days"),
     S("ipv6.auto_apply_enabled", "boolean", False),
+    # Updates from the UI (section 29)
+    S("updates.check_enabled", "boolean", True),
+    S("updates.check_interval_hours", "integer", 24, 1, 720, "hours"),
+    S("updates.source", "string", "upload", pattern=UPDATE_SOURCE_PATTERN),
+    S("updates.settle_seconds", "integer", 30, 0, 3600, "seconds"),
+    S("updates.timeout_seconds", "integer", 300, 30, DAY, "seconds"),
+    S("updates.pause_seconds", "integer", 60, 0, DAY, "seconds"),
+    S("updates.auto_rollback_enabled", "boolean", True),
+    S("updates.keep_packages_count", "integer", 2, 1, 20, "packages"),
 )
 
 BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
@@ -303,6 +314,7 @@ MANAGED: dict[str, tuple[str, ...]] = {
     "resolver": ("fallback", "presets"),
     "ipv6": ("prefixes",),
     "kea": ("migration",),
+    "updates": ("github_repository", "rollout", "history"),
 }
 
 # (lower, higher, strict): `lower` must stay below `higher` (or at most equal when not strict).

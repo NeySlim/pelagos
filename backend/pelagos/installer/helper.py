@@ -31,6 +31,7 @@ from pelagos.core.kea_ha_tls import ALL_STEPS as HA_TLS_STEPS
 from pelagos.core.kea_ha_tls import KEY_SECRET as HA_TLS_KEY
 from pelagos.core.kea_migration import HELPER_STEPS as KEA_MIGRATION_STEPS
 from pelagos.domain import Change, Job, Plan, PlanScope
+from pelagos.domain.updates import HELPER_OPERATIONS as HELPER_UPDATE_OPERATIONS
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,13 @@ OPERATIONS = (
     "kea_file_write",
     "kea_dry_run",
     "apply",
+    # Updates from the UI (section 29): contract C3, built by batch U2.
+    "update_verify",
+    "update_start",
+    "update_status",
+    "journal_errors",
 )
+UPDATE_OPERATIONS = frozenset(HELPER_UPDATE_OPERATIONS)
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
 MAX_REQUEST = 4 << 20
 
@@ -98,6 +105,8 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
         raise HelperError(f"unknown operation {op!r}", "value")
     env = env_factory()
     created_by = str(request.get("created_by") or "")
+    if op in UPDATE_OPERATIONS:
+        raise HelperError(f"operation {op} is not implemented yet (batch U2)")
     try:
         if op == "detect":
             from pelagos.installer.detect import detect_env

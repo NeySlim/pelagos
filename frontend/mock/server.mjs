@@ -25,6 +25,7 @@ import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
 import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
+import { updatesHandlers } from './updates.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
 import { tokenHandlers } from './tokens.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
@@ -101,6 +102,7 @@ for (const spec of ENDPOINTS) {
   if (spec.includes(' /admin/certificates')) PERMISSIONS[spec] = 'admin:certificates'
   if (spec.includes(' /admin/notifications')) PERMISSIONS[spec] = 'admin:notifications'
   if (spec.includes(' /admin/archives')) PERMISSIONS[spec] = 'admin:archives'
+  if (spec.includes(' /admin/updates')) PERMISSIONS[spec] = 'admin:updates'
 }
 // The DDNS failover endpoints need two permissions: the first here, the second in the handler.
 Object.assign(PERMISSIONS, {
@@ -2377,6 +2379,11 @@ function buildHandlers(state, emit) {
     // With applyNodeMs set, a plan takes time like the real one: this node applies (its audit
     // entry goes out), then each peer, then the ApplyResult. A rollback runs peers first.
     'POST /plans/{id}/apply': async ({ params, body, user, res }) => {
+      // Plans of scope update also take the user's password (section 29).
+      if (state.plans.get(params.id)?.plan.scope === 'update' && body.confirm) {
+        if (!body.password) throw invalid('password', 'the password of the user is required')
+        if (state.users.find((u) => u.id === user.id)?.password !== body.password) throw new Problem(401, 'invalid_credentials', 'password is wrong')
+      }
       const pace = state.applyNodeMs || 0
       const job = Boolean(state.plans.get(params.id)?.job)
       const queued = []
@@ -2794,6 +2801,7 @@ function buildHandlers(state, emit) {
     ...resolverHandlers(state, { Problem, invalid, createPlan }),
     ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...ipv6Handlers(state, { Problem, invalid }),
+    ...updatesHandlers(state, { Problem, invalid, createPlan }),
   }
 }
 
@@ -2819,11 +2827,12 @@ function readBody(req) {
 
 // `live` paces the mock like a cluster: plans take time per node, secondaries transfer after
 // a change, HA servers report a heartbeat every haBeatMs. Off by default for unit tests.
-export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0, scenario = 'pair' } = {}) {
+export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0, updateStepMs = live ? 1500 : 0, scenario = 'pair' } = {}) {
   const state = createState(scenario)
   state.ptr = ptrHelpers(state, { reverseToIp, v6Nibbles, canonicalV6 })
   if (jobStepMs !== undefined) state.jobStepMs = jobStepMs
   state.applyNodeMs = applyNodeMs
+  state.updateStepMs = updateStepMs
   state.transferMs = transferMs
 
   const sessionOf = (req) => {
@@ -2910,7 +2919,7 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         const raw = await readBody(req)
         const name = (raw ? JSON.parse(raw) : {}).name
         if (!SCENARIOS[name]) throw new Problem(404, 'not_found', `unknown scenario ${name}`)
-        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, transferMs: state.transferMs, ptr: state.ptr }
+        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, updateStepMs: state.updateStepMs, transferMs: state.transferMs, ptr: state.ptr }
         for (const k of Object.keys(state)) delete state[k]
         Object.assign(state, createState(name), keep)
         hub.emit('nodes', 'status', state.nodes.find((n) => !n.is_self) || state.nodes[0])
@@ -2947,7 +2956,7 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
           throw new Problem(403, 'forbidden', 'requires any read permission')
         }
       }
-      const result = await handlers[route.spec]({ req, res, params: route.params, query: url.searchParams, body, user, session, sid })
+      const result = await handlers[route.spec]({ req, res, raw, params: route.params, query: url.searchParams, body, user, session, sid })
       if (result && typeof result === 'object' && 'raw' in result && Object.keys(result).length === 1) {
         res.statusCode = 200
         res.end(result.raw)

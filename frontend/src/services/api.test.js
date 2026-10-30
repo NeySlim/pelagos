@@ -113,6 +113,9 @@ const invocations = [
   () => api.keaMigration.overview(), () => api.keaMigration.analyze({ series: '3.2', source: 'isc' }),
   () => api.keaMigration.get('m1'), () => api.keaMigration.plan('m1', { phase: 'prepare' }),
   () => api.ipv6.hosts({ filter: 'missing_aaaa' }), () => api.ipv6.settings(), () => api.ipv6.update({ prefixes: [] }),
+  () => api.updates.overview(), () => api.updates.check(), () => api.updates.upload([new File(['x'], 'SHA256SUMS')]),
+  () => api.updates.saveSettings({ source: 'upload' }), () => api.updates.plan({ kind: 'pelagos', version: '0.3.0' }),
+  () => api.updates.rollout(), () => api.updates.action('r1', 'resume'), () => api.updates.history({ page: 1 }),
 ]
 
 describe('api.js', () => {

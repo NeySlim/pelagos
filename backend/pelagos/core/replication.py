@@ -22,7 +22,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Protocol
 
 from pelagos import __version__
 from pelagos.archives.inbox import ArchiveInbox, InboxError
@@ -71,10 +71,25 @@ SNAPSHOT_ENGINES = frozenset({"bind", "kea4", "kea6", "d2"})
 _ACTION_RE = re.compile(r"^/actions/([a-z0-9][a-z0-9_.-]{0,63})$")
 _ARCHIVE_RE = re.compile(r"^/archives/([A-Za-z0-9_-]{1,64})$")
 _KEA_LEASES_RE = re.compile(r"^/kea/leases/([46])$")
+# Files of a release this node holds for its peers (section 29): /releases/<version>[/<file>].
+_RELEASE_RE = re.compile(
+    r"^/releases/([0-9][A-Za-z0-9.~+-]{0,63})(?:/([A-Za-z0-9][A-Za-z0-9._+~-]{0,127}))?$"
+)
 # Per socket operation: an archive transfer moves up to `archives.max_archive_mb`.
 ARCHIVE_TIMEOUT = 120.0
 # Event the collector receives when entries from a peer were merged into the local audit log.
 EVENT_AUDIT_MERGED = "audit_merged"
+
+
+class ReleaseStore(Protocol):
+    """Releases this node can hand to its peers (batch U3 provides it)."""
+
+    def listing(self, version: str) -> dict[str, Any] | None:
+        """{"version", "files": [{"name", "size", "sha256"}], "signature"} or None when not held."""
+
+    def path(self, version: str, name: str) -> Path | None:
+        """The file when it is held and listed in the release's SHA256SUMS, else None."""
+
 
 SnapshotProvider = Callable[[str, str, dict[str, str]], dict[str, Any]]
 # (action name, request body, caller node id) -> result of POST /repl/v1/actions/<name>.
@@ -388,6 +403,20 @@ class ReplicationClient:
         query = urllib.parse.urlencode({"migration": migration_id})
         self._stream("GET", f"/kea/leases/{family}?{query}", timeout, sink=sink)
 
+    def release_listing(self, version: str) -> dict[str, Any]:
+        """GET /releases/<version>: the files of a release the peer holds (section 29)."""
+        data = self._call("GET", f"/releases/{urllib.parse.quote(version, safe='')}")
+        if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+            raise ReplicationError(f"GET /releases on {self.peer.name}: malformed answer")
+        return data
+
+    def fetch_release_file(
+        self, version: str, name: str, sink: BinaryIO, timeout: float = ARCHIVE_TIMEOUT
+    ) -> None:
+        """GET /releases/<version>/<file>, written into `sink`; the caller checks its sum."""
+        path = f"/releases/{urllib.parse.quote(version, safe='')}/{urllib.parse.quote(name, safe='')}"
+        self._stream("GET", path, timeout, sink=sink)
+
     def fetch_archive(self, archive_id: str, sink: BinaryIO, timeout: float = ARCHIVE_TIMEOUT) -> None:
         """GET /archives/<id>: the encrypted file, written into `sink`."""
         self._stream("GET", f"/archives/{urllib.parse.quote(archive_id, safe='')}", timeout, sink=sink)
@@ -419,10 +448,13 @@ class ReplicationApp:
         actions: ActionHandler | None = None,
         archives: ArchiveInbox | None = None,
         var_dir: Path | None = None,
+        releases: ReleaseStore | None = None,
     ) -> None:
         self.node = node
         # The node's var dir: the lease copy of a Kea migration is served from it (section 28).
         self.var_dir = var_dir
+        # Releases uploaded to this node, served to peers for their turn of a rollout; None: not served.
+        self.releases = releases
         # Archives peers send this node and the ones it serves (section 23); None: not served.
         self.archives = archives
         # Writes a peer asks this node to build or run (services.peer_actions); None: not served.
@@ -524,6 +556,9 @@ class ReplicationApp:
         m = _KEA_LEASES_RE.match(route)
         if m and method == "GET":
             return self._kea_leases(m.group(1), environ.get("QUERY_STRING", ""), caller)
+        m = _RELEASE_RE.match(route)
+        if m and method == "GET":
+            return self._get_release(m.group(1), m.group(2))
         raise _Refused(404, "not_found", f"{method} {route}")
 
     # Archives (section 23) ---------------------------------------------------------------
@@ -609,6 +644,24 @@ class ReplicationApp:
         except OverflowError as exc:
             raise _Refused(413, "too_large", str(exc)) from None
         return 200, FileBody(fd)
+
+    def _get_release(self, version: str, name: str | None) -> tuple[int, Any]:
+        if self.releases is None:
+            raise _Refused(404, "not_found", "releases are not served by this node")
+        if ".." in version or (name and ".." in name):
+            raise _Refused(404, "not_found", "no such release file")
+        if name is None:
+            listing = self.releases.listing(version)
+            if listing is None:
+                raise _Refused(404, "not_found", f"release {version} is not held by this node")
+            return 200, listing
+        path = self.releases.path(version, name)
+        if path is None:
+            raise _Refused(404, "not_found", f"{name} of release {version} is not held by this node")
+        try:
+            return 200, FileBody(path)
+        except OSError:
+            raise _Refused(404, "not_found", f"{name} of release {version} is gone") from None
 
     def _snapshot(self, engine: str, query: str) -> tuple[int, Any]:
         params = dict(urllib.parse.parse_qsl(query, keep_blank_values=True))

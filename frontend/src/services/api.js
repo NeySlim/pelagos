@@ -182,7 +182,8 @@ export const hosts = {
 
 export const plans = {
   get: (id) => apiClient.get(`/plans/${enc(id)}`),
-  apply: (id, confirm = false) => apiClient.post(`/plans/${enc(id)}/apply`, { confirm }),
+  // extra: {password} for a plan of scope update (section 29)
+  apply: (id, confirm = false, extra = {}) => apiClient.post(`/plans/${enc(id)}/apply`, { confirm, ...extra }),
   rollback: (id) => apiClient.post(`/plans/${enc(id)}/rollback`),
   remove: (id) => apiClient.delete(`/plans/${enc(id)}`),
 }
@@ -375,10 +376,31 @@ export const ipv6 = {
   update: (body) => apiClient.put('/admin/ipv6', body),
 }
 
+// Updates of Pelagos and of the engine packages (Administration > Updates, section 29).
+export const updates = {
+  overview: () => apiClient.get('/admin/updates'),
+  check: () => apiClient.post('/admin/updates/check', {}),
+  // The files of a release directory: packages, SHA256SUMS, SHA256SUMS.sig, release.json, NOTES.md.
+  upload: (files) => {
+    const form = new FormData()
+    for (const file of files || []) form.append('files', file, file.name)
+    return apiClient.post('/admin/updates/upload', form)
+  },
+  // partial [settings.updates], github_repository, github_token (null removes it)
+  saveSettings: (body) => apiClient.put('/admin/updates/settings', body),
+  // {kind: pelagos|engine_packages|rollback, version?, packages?, order?, node_ids?, auto_rollback?,
+  //  accept_unsigned?, confirm_version?}; apply with plans.apply(id, true, { password })
+  plan: (body) => apiClient.post('/admin/updates/plan', body),
+  rollout: () => apiClient.get('/admin/updates/rollout'),
+  // action: resume|cancel|rollback; rollback takes the user's password
+  action: (id, action, password) => apiClient.post(`/admin/updates/rollout/${enc(id)}/action`, password ? { action, password } : { action }),
+  history: (params) => apiClient.get(`/admin/updates/history${buildQueryString(params)}`),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
   alerts, series, audit, advanced, install, admin, certs, ops, notifications, archives, ddnsFailover,
-  resolverHealth, keaMigration, ipv6,
+  resolverHealth, keaMigration, ipv6, updates,
 }
 
 export default api

@@ -6,7 +6,7 @@ import { defaultsOf, translateLegacy, unknownKeys, validateSettings } from '../s
 
 export const SETTINGS_SCHEMA = JSON.parse(readFileSync(new URL('./settingsSchema.json', import.meta.url), 'utf8'))
 
-const MANAGED = { rpz: ['categories', 'subscriptions', 'order', 'allow', 'exempt_clients'], certificates: ['cluster', 'nodes'], archives: ['destinations', 'recipients'] }
+const MANAGED = { rpz: ['categories', 'subscriptions', 'order', 'allow', 'exempt_clients'], certificates: ['cluster', 'nodes'], archives: ['destinations', 'recipients'], updates: ['github_repository', 'rollout', 'history'] }
 
 export function makeSettings() {
   return defaultsOf(SETTINGS_SCHEMA)

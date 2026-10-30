@@ -227,6 +227,7 @@ Pelagos paths (identical on every distro, overridable in `node.toml`
 | `/var/lib/pelagos/plans/` | one encrypted file per plan built on this node, `<id>.plan` (section 6) | 0700, files 0600 |
 | `/var/lib/pelagos/webcert/` | web certificate state of this node: `state.json` (renewal, log), `pending.key` (key of a request made here) | 0700, files 0600 |
 | `/var/lib/pelagos/archives/` | scheduled archives (section 23): `local/` (this node's, with `.sha256` and `.json` sidecars), `peers/<origin>/`, `state.json` | 0700, files 0600 |
+| `/var/lib/pelagos/upgrade/` | updates from the UI (section 29): `incoming/` (pelagos, 0750), `packages/` and `backups/` (root, 0700, files 0600), progress files `<rollout id>/<node id>.json` (root, 0640 group pelagos) | see section 29 |
 | `/var/lib/pelagos/plan_tombstones.json` | ids of plans built here and when they expire (section 6) | pelagos, 0600 |
 | `/run/pelagos/` | pid files, Unix socket of the web process when used behind a proxy | pelagos, 0750 |
 
@@ -700,6 +701,7 @@ class AlertKind(str, Enum):
     IPV6_MISSING_AAAA="ipv6_missing_aaaa"; IPV6_REVERSE_MISSING="ipv6_reverse_missing"; IPV6_STALE_AAAA="ipv6_stale_aaaa"
     ROOT_HINTS_STALE="root_hints_stale"; IPV6_SOURCE_FAILED="ipv6_source_failed"
     PATH_NOT_WRITABLE="path_not_writable"
+    UPDATE_AVAILABLE="update_available"; UPDATE_FAILED="update_failed"; UPDATE_STALLED="update_stalled"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -737,6 +739,7 @@ class PlanScope(str, Enum):
     DHCP_HA="dhcp.ha"; DHCP_DDNS="dhcp.ddns"; D2_CONFIG="d2.config"
     HOST="host"; INSTALL="install"; IMPORT="import"; SECURITY="security"; ADMIN="admin"
     RESTORE="restore"; DNS_FAILOVER="dns.failover"; DNS_RESOLVER="dns.resolver"; KEA_MIGRATION="kea.migration"
+    RESTORE="restore"; DNS_FAILOVER="dns.failover"; DNS_RESOLVER="dns.resolver"; UPDATE="update"
 class PlanState(str, Enum): DRAFT="draft"; VALIDATED="validated"; APPLYING="applying"; APPLIED="applied"; FAILED="failed"; ROLLED_BACK="rolled_back"; EXPIRED="expired"
 class PreconditionKind(str, Enum): CONFIG_HASH="config_hash"; SOA_SERIAL="soa_serial"; RRSET_EXISTS="rrset_exists"; RRSET_ABSENT="rrset_absent"; FILE_SHA256="file_sha256"; HA_STATE="ha_state"
 
@@ -1759,6 +1762,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null, "permissions"?: [check]}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict). `permissions` (0.2.5): the permission guard's checks of the plan on this node, run in its collector (section 7); absent from an older peer, which is then not checked |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
+| `GET /repl/v1/releases/<version>[/<file>]` | | listing `{"version","files": [{"name","size","sha256"}],"signature"}`, or the file's bytes | a release this node holds in `upgrade/packages/` (section 29); `404` when not held or from an older node |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on every node" without a second code path |
 | `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
 | `GET /repl/v1/ca` | | `{"ca_pem","ca_fingerprint","node_id","name"}` | no client certificate; the enrolling node checks the fingerprint before sending its token |
@@ -2278,6 +2282,9 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
 | `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`, `daemon`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`, `daemon_denied`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
+| `update_available` | info | a newer Pelagos release is available from `updates.source` (section 29); cluster-wide from the service node, subject `update:pelagos`; details `version`, `installed`, `source`, `signature`; exceptable |
+| `update_failed` | critical | a node of a rollout failed (subject `update:<rollout id>`; details `rollout_id`, `node_id`, `step`, `version`, `error`, `rolled_back`) |
+| `update_stalled` | warning | a node of a rollout has not moved for 2 x `updates.timeout_seconds` (subject `update:<rollout id>`; details `node_id`, `step`, `minutes`) |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
 for each relationship, the second one and later with subject
@@ -2502,7 +2509,7 @@ read:dhcp  write:dhcp.subnets  write:dhcp.reservations  write:dhcp.classes  writ
 read:hosts write:hosts         (write:hosts is checked as the union of the dns/dhcp writes a host plan expands into)
 read:alerts  write:alerts (ack, exceptions)   read:series   read:audit   read:nodes   read:advanced
 admin:nodes  admin:users  admin:roles  admin:settings  admin:install  admin:modules  admin:certificates
-admin:notifications  admin:archives
+admin:notifications  admin:archives  admin:updates
 ```
 
 Built-in roles (code, `auth/rbac.py`; not stored):
@@ -3107,6 +3114,21 @@ only, never sent out of the cluster.
 | `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?,"view"?,"reverse_view"?}` | `Plan` (`requires_confirmation`) |
 | `POST /hosts/ipv6/reverse-zone/plan` | `write:dns.zones` | `{"prefix","view"?,"node_ids"?}` | `Plan` (a dynamic primary `ip6.arpa` zone) |
 
+### Updates
+
+Section 29. Every route takes `admin:updates`.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /admin/updates` | `admin:updates` | | `{"nodes": [{"node_id","name","version","arch","package_format","previous_kept","state_schema","reachable"}],"available": [{"version","source","published_at","notes","signature","signed","key_id","state_schema","min_upgrade_from"}],"rollout": Rollout|null,"settings": {...[settings.updates],"github_repository","github_token_stored"},"engines": [{"node_id","engine","package","installed","candidate","cves"}],"checked_at","docker": {"image","version","command"}|null}` (`signed` is `signature == "valid"`) |
+| `POST /admin/updates/check` | `admin:updates` | `{}` | `{"available","checked_at","error"}`; `409` with the `github` source and no repository; audited `admin.update.check` |
+| `POST /admin/updates/upload` | `admin:updates` | multipart, fields `files` (the files of a release directory) | `201 {"version","files","signature","signed","key_id","state_schema"}`; `422 release_invalid` (`reason`: `signature_invalid`, `checksum`, `missing`, `unlisted`, `name`, `arch`, `manifest`); an unsigned release is accepted here and flagged |
+| `PUT /admin/updates/settings` | `admin:updates` | partial `[settings.updates]`, `github_repository`, `github_token` (string, or null to remove) | `{"settings"}`; `400` on a bad value or `source: "github"` without a repository |
+| `POST /admin/updates/plan` | `admin:updates` | `{"kind": "pelagos"|"engine_packages"|"rollback","version"?,"packages"?: [name],"order"?: [node id],"node_ids"?,"auto_rollback"?,"accept_unsigned"?,"confirm_version"?}` | `Plan` (scope `update`, `requires_confirmation`) with the member `update` (section 29); apply with `{"confirm": true, "password"}`; `400` for an unsigned release without `accept_unsigned` and `confirm_version`, an unknown version, or a version every node already runs; `409 conflict` while a rollout is active |
+| `GET /admin/updates/rollout` | `admin:updates` | | `Rollout` (wire form) or null |
+| `POST /admin/updates/rollout/{id}/action` | `admin:updates` | `{"action": "resume"|"cancel"|"rollback","password"?}` (`password` for `rollback`) | `Rollout` (the new one after `rollback`); `404` for another id, `409` when the action does not fit the state |
+| `GET /admin/updates/history?page=&per_page=` | `admin:updates` | | paginated summaries `{"id","kind","version","state","created_by","created_at","finished_at","nodes": [{"node_id","state","from_version","to_version","error"}]}` |
+
 ## 18. WebSocket
 
 `GET /api/v1/ws` upgrades to a WebSocket on the same origin, authenticated
@@ -3185,6 +3207,7 @@ Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 `method_not_allowed` 405, `conflict` 409, `config_divergence` 409,
 `precondition_failed` 409, `preflight_failed` 409,
 `plan_expired` 410, `plan_state` 409, `zone_without_records` 409, `zone_too_large` 409,
+`release_invalid` 422 (members `reason`, `detail_message` `update.refused.<reason>`, section 29),
 `confirmation_required` 428,
 `rate_limited` 429, `engine_unavailable` 503, `replication_syncing` 503,
 `not_supported` 501 (engine lacks the feature), `not_implemented` 501
@@ -4622,3 +4645,203 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
 - **Takeover**: a driver that restarts or stops answering leaves the record as it is; any node then
   shows it and may plan the next phase allowed by its state (`failed` after a step that never
   finished is set by the new driver, which becomes `driver`).
+## 29. Updates from the UI
+
+Design: `design.md` 13.6 (point 61) and the decision of 2026-10-30 in 13.11
+(unsigned releases accepted with a warning and an extra confirmation).
+Contract C3. Code: the formats in `domain/updates.py`, the signature
+check (`cryptography` Ed25519) and `make release` signing (U1), the helper
+operations in `installer/helper.py` and `pelagos upgrade apply` (U2), the
+rollout state machine, sources and distribution between nodes in the
+collector (U3), engine packages (U4), the routes in `api/updates.py` (U5),
+the screen (U6), daemon and lab tests (U7).
+
+- **Release directory** (`make release`, then attached to the GitHub
+  release or uploaded from the screen): `pelagos_<version>-1_<arch>.deb`
+  (and `.rpm` when built), `release.json`, `NOTES.md`, `SHA256SUMS`
+  (`sha256sum` output over every other file, `release.json` and `NOTES.md`
+  included), `SHA256SUMS.sig` when a key is available. Only files listed in
+  `SHA256SUMS` are ever read; a listed file that is missing, or whose sum
+  differs, refuses the whole release.
+- **`release.json`** (`ReleaseManifest`): `{"format": 1, "name": "pelagos",
+  "version", "state_schema": int, "published_at", "notes": "NOTES.md",
+  "min_upgrade_from"|absent, "packages": [{"file","format": "deb"|"rpm",
+  "arch","version"}]}`; at most one package per format and architecture.
+  `state_schema` (`domain.updates.STATE_SCHEMA`, 1 from 0.3.0) changes only
+  when a release migrates `/etc/pelagos` or `/var/lib/pelagos` in a way the
+  previous package cannot read: a rollout between two releases with the same
+  value may roll back automatically, otherwise not. A release without
+  `release.json` (0.2.x) has an unknown schema: no automatic rollback.
+- **`SHA256SUMS.sig`** (`ReleaseSignature`): one JSON object
+  `{"format": "pelagos-release-signature-v1", "algorithm": "ed25519",
+  "key_id", "signature"}`, `signature` the base64 of the 64 byte Ed25519
+  signature of the exact bytes of `SHA256SUMS`, `key_id` the first 16 hex
+  digits of sha256 of the 32 raw bytes of the public key. Verified with
+  `Ed25519PublicKey.from_public_bytes(raw).verify(signature, data)`, which
+  raises `InvalidSignature` on failure (cryptography.io, Ed25519 page, read
+  on 2026-10-30). Accepted public keys: `pelagos/data/release-keys/<key
+  id>.pub` (PEM SubjectPublicKeyInfo, installed by the package, owned by
+  root); a new key is shipped in a release signed by the previous one.
+  `make release` signs only when a private key is available (path in
+  `PELAGOS_RELEASE_KEY`, outside the repository); without one it writes no
+  `.sig` and does not fail.
+- **Signature state** (`SignatureState`, computed by the helper, never only
+  by the web process): `valid` (known key, signature verifies), `unsigned`
+  (no `.sig`), `unknown_key` (well-formed `.sig`, key id not in
+  `release-keys/`), `invalid` (malformed `.sig`, or a known key whose
+  signature does not verify: the file was altered). `invalid` is always
+  refused (`422 release_invalid`, reason `signature_invalid`). `unsigned`
+  and `unknown_key` install only after the extra confirmation: the screen
+  shows `plan.update.unsigned` ("release <v> is not signed: its origin is
+  not verified"), the plan request carries `accept_unsigned: true` and
+  `confirm_version` equal to the version (else `400 validation_error`, field
+  `accept_unsigned`, message `update.refused.unsigned_not_accepted`), the
+  normal confirmation with the password follows, and the apply writes the
+  audit entry `update.unsigned_accepted` (user, `version`, `signature`,
+  `key_id`, sha256 of `SHA256SUMS`) before the rollout. `SHA256SUMS` is
+  always checked whatever the signature state. The helper then accepts the
+  release only with `allow_unsigned: true` from a rollout that records
+  `unsigned_accepted_by`.
+- **Helper rules** (root, before any change): package name `pelagos`, the
+  node's architecture and package format, a version newer than the
+  installed one (the package manager's own comparison: `dpkg
+  --compare-versions`, `rpmdev-vercmp` semantics) or exactly the kept
+  previous version for a rollback, the file read from its own verified copy
+  (never a path or URL from the client), `min_upgrade_from` at most the
+  installed version when present.
+- **Settings** `[settings.updates]`: `check_enabled` (true),
+  `check_interval_hours` (24), `source` (`upload`, `github` or
+  `repository`), `settle_seconds` (30), `timeout_seconds` (300),
+  `pause_seconds` (60), `auto_rollback_enabled` (true),
+  `keep_packages_count` (2). Screen entries (refused by `PUT
+  /admin/settings`): `github_repository` (`owner/name`, empty for none),
+  `rollout` (`Rollout`, absent when none), `history` (`{<rollout id>:
+  summary}`, the last 20 kept). Secret `updates/github_token` (section 12),
+  write only.
+- **Sources**: `upload` (`POST /admin/updates/upload`: the files go to
+  `incoming/<version>/` of this node, the helper verifies them); `github`
+  (the service node of section 22 calls `GET
+  https://api.github.com/repos/{owner}/{repo}/releases/latest` every
+  `check_interval_hours`, headers `Accept: application/vnd.github+json` and
+  `Authorization: Bearer <token>` when a token is stored; that route returns
+  the latest non-draft, non-prerelease release; assets are downloaded from
+  `GET /repos/{owner}/{repo}/releases/assets/{asset_id}` with `Accept:
+  application/octet-stream`, which answers 200 or a 302 redirect to follow;
+  docs.github.com REST "Releases" and "Release assets", read on
+  2026-10-30); `repository` (later: `apt-cache policy pelagos` or `dnf`,
+  installed by the package manager, signature by the repository).
+- **Rollout** (`Rollout`, `[settings.updates.rollout]`, replicated): `{"id":
+  ULID,"kind": "pelagos"|"engine_packages"|"rollback","state":
+  "running"|"failed"|"done"|"cancelled","version"|absent,"order": [node
+  id],"nodes": {node id: RolloutNode},"created_by","created_at","plan_id",
+  "source","artifacts": {"<format>/<arch>": {"file","sha256"}},"packages":
+  {package: version},"auto_rollback","state_schema_changed","signature",
+  "key_id","unsigned_accepted_by","unsigned_accepted_at","finished_at"}`;
+  `RolloutNode`: `{"state": "pending"|"running"|"done"|"failed"|
+  "rolled_back"|"skipped","step","started_at","finished_at","error",
+  "error_message","from_version","to_version"}`. TOML holds no null: absent
+  keys read back as null (`Rollout.to_toml`, `from_toml`). The rollout is
+  written once by the plan's apply; afterwards each node writes only its own
+  `nodes.<node id>` table (the per-entry merge of section 13 never
+  conflicts), and the actions write `state`. A rollout is active while
+  `running` or `failed`; one at a time (`409 conflict`). On `done` or
+  `cancelled` its summary moves to `history` and `rollout` is removed. On the
+  wire (`Rollout.to_api`), `nodes` is a list in `order`.
+- **Steps** (`domain.updates.STEPS`, `step` of a failed node names the one
+  that failed): `wait` (previous node `done` for `pause_seconds`, every node
+  healthy), `fetch` (`/repl/v1/releases` from a node holding it), `verify`
+  (helper `update_verify`), `precheck` (cluster health, `cluster.toml`
+  digest, audit count, Kea HA), `backup`, `ha_maintenance` (engine
+  packages: `ha-maintenance-start` to the peer), `install` (transient unit),
+  `version`, `restart` (invocation ids changed), `settle`
+  (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`),
+  `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` from
+  the new processes), `ha` (Kea HA back to a normal state), `engine_checks`
+  (version reread, `rndc status`, zone transfers, `status-get`), `rollback`.
+- **Default order**: nodes that are neither an active DNS primary
+  (`ddns.roles`, primary zones) nor the Kea HA primary, then those, the DNS
+  primary last; the plan request may give another `order`.
+- **Actions** (`POST /admin/updates/rollout/{id}/action`): `resume` (on
+  `failed`: the failed or rolled back node starts again from `wait`),
+  `cancel` (on an active rollout: pending nodes `skipped`, done nodes stay
+  on the new version), `rollback` (takes the user's password: a new rollout
+  of kind `rollback` toward the previous version over the done nodes in
+  reverse order; the current one ends `cancelled`). Automatic rollback of
+  the failing node when `auto_rollback` and not `state_schema_changed`: the
+  previous package from `packages/`, `series.sqlite` deleted, same checks,
+  node `rolled_back`, rollout `failed`.
+- **Files** on each node, under `/var/lib/pelagos/upgrade/`:
+  `incoming/<version>/` (pelagos, 0750: uploads and fetched files, never
+  trusted), `packages/<version>/` (root, 0700, files 0600: the helper's
+  verified copy, the source of every install and of `/repl/v1/releases`;
+  the last `keep_packages_count` versions kept), `<rollout id>/<node
+  id>.json` (root, 0640 group pelagos: progress written by the transient
+  unit: `{"rollout_id","node_id","from_version","to_version","started_at",
+  "finished_at","result": "running"|"installed"|"failed","steps": [{"step",
+  "state","started_at","finished_at","output"}],"backup","error"}`),
+  `backups/pelagos-state-<date>-<old version>.tar.gz` (root, 0600:
+  `/etc/pelagos` and `/var/lib/pelagos` without `series.sqlite` and
+  `upgrade/`; holds the master key and the CA, never sent to a peer).
+- **Helper operations** (`installer.helper`, `domain.updates.HELPER_OPERATIONS`):
+  `update_verify` `{"version","allow_unsigned"}`: copies
+  `incoming/<version>/` into `packages/<version>/`, checks sums, signature,
+  manifest and the rules above on the copy, answers `{"version","package",
+  "sha256","signature","key_id","state_schema","arch","package_format"}`
+  or a `value` error whose message starts with the reason
+  (`signature_invalid`, `checksum`, `missing`, `unlisted`, `name`, `arch`,
+  `version`, `manifest`, `unsigned_not_accepted`); `update_start`
+  `{"rollout_id","kind","version"|"packages","allow_unsigned"}`: verifies
+  again, refuses while a `pelagos-upgrade-*` unit is active, runs
+  `systemd-run --unit=pelagos-upgrade-<id> pelagos upgrade apply --rollout
+  <id>` and answers `{"unit","progress"}`; `update_status`
+  `{"rollout_id"}`: the progress file, the unit state (`active`,
+  `inactive`, `failed`, `gone`) and, for an unfinished file without its
+  unit, the package audit (`dpkg --audit`, `rpm -V pelagos`);
+  `journal_errors` `{"since"}`: at most 200 lines of priority `err` or
+  above since `since` from `pelagos.service`, `pelagos-collector.service`
+  and `pelagos-helper@*.service` only (`domain.updates.JOURNAL_UNITS`),
+  `{"lines","count"}`. Until U2 they answer `operation ... is not
+  implemented yet`.
+- **Replication** (section 13): `GET /repl/v1/releases/<version>` `{"version",
+  "files": [{"name","size","sha256"}],"signature"}` and `GET
+  /repl/v1/releases/<version>/<file>` (the bytes) serve `packages/<version>/`
+  of a node that holds the release (`ReplicationApp.releases`, a
+  `ReleaseStore`; `404` otherwise); the fetching node checks every sum
+  against `SHA256SUMS` and the helper verifies again. Client:
+  `ReplicationClient.release_listing`, `fetch_release_file`.
+- **Plan** (scope `update`, permission `admin:updates`, `requires_confirmation`):
+  one change per node (`node/<id>/pelagos`, before the installed version,
+  after the target; `node/<id>/packages` for engine packages), summary
+  `plan.update.pelagos|engine_packages|rollback`, plus a member `update`
+  next to the plan fields: `{"kind","version","order","packages",
+  "signature","key_id","unsigned_warning": message|null,
+  "state_schema_changed","auto_rollback","checks": [step],
+  "estimated_seconds","requires_password": true}`. `POST
+  /plans/{id}/apply` of an `update` plan needs `{"confirm": true,
+  "password"}` (`400 validation_error` field `password` without it, `401
+  invalid_credentials` when wrong). The apply writes the rollout
+  (`cluster_parts[PlanScope.UPDATE]`), nothing else.
+- **Alerts**: `update_available` (info, cluster-wide from the service
+  node, subject `update:pelagos`; details `version`, `installed`,
+  `source`, `signature`; title `alert.update_available` or
+  `alert.update_available_unsigned`; exceptable), `update_failed`
+  (critical, subject `update:<rollout id>`; details `rollout_id`,
+  `node_id`, `step`, `version`, `error`, `rolled_back`), `update_stalled`
+  (warning: a node has not moved for 2 x `timeout_seconds`, subject
+  `update:<rollout id>`; details `node_id`, `step`, `minutes`).
+  `version_mismatch` sends no notification while a rollout is active.
+- **Audit**: `admin.update.check|upload|settings|plan` (web process),
+  `update.apply` (the plan), `update.unsigned_accepted`,
+  `admin.update.resume|cancel|rollback`, `update.node.start|done|failed|
+  rolled_back` (by `system`, from the node concerned).
+- **Mixed versions**: a node before 0.3.0 ignores `[settings.updates]` and
+  is updated by hand or by `scripts/deploy-prod.sh`, which stays the
+  fallback tool and the model of the checks. Docker: no update from the
+  UI; the screen shows the image version and `docker compose pull &&
+  docker compose up -d`.
+- **Security**: accepting an unsigned release lets an `admin:updates` user
+  (and anyone in the `pelagos` group, who can write `cluster.toml`) have
+  root install any package named `pelagos`: that is the trade-off the user
+  chose on 2026-10-30; the warning, the typed version, the password and the
+  audit entry make it explicit. With a key configured, signed releases stay
+  the normal path and an altered one is always refused.

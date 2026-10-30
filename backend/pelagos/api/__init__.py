@@ -55,6 +55,7 @@ def register_api(app: Flask) -> Api:
         plans,
         resolver_health,
         series,
+        updates,
     )
     from pelagos.api.ws import register_ws
 
@@ -137,6 +138,7 @@ def register_api(app: Flask) -> Api:
         ddns_failover,
         resolver_health,
         kea_migration,
+        updates,
     ):
         api.add_namespace(module.ns)
     for extra in (resolver_health.series_ns, ipv6.hosts_ns, ipv6.admin_ns):

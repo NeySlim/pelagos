@@ -41,12 +41,13 @@ from pelagos.services.peer_actions import PeerActions
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry, replication_registry
+from tests.conftest import ADMIN_PASSWORD
 from tests.fixtures.ports import free_port
 from tests.unit.services.fakes import FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend, fake_context
 
 pytestmark = pytest.mark.unit
 
-PW = "Fixture-Admin-Password-1"
+PW = ADMIN_PASSWORD
 
 
 class Rndc:

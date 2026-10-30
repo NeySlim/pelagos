@@ -8,6 +8,7 @@ import time
 import pyotp
 import pytest
 
+from tests.conftest import ADMIN_PASSWORD
 from tests.unit.api.conftest import USER_PASSWORD
 
 pytestmark = pytest.mark.unit
@@ -35,9 +36,7 @@ def test_password_change(login, app):
     bad = app.test_client().post("/api/v1/auth/login", json={"username": "vera", "password": USER_PASSWORD})
     assert bad.status_code == 401
     assert login("vera", NEW_PASSWORD).login_answer["restriction"] is None
-    audit = (
-        login("admin", "Fixture-Admin-Password-1").get("/api/v1/audit?action=auth.op&user=vera").get_json()
-    )
+    audit = login("admin", ADMIN_PASSWORD).get("/api/v1/audit?action=auth.op&user=vera").get_json()
     assert {e["result"] for e in audit["items"]} == {"ok", "denied"}
 
 

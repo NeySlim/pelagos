@@ -28,12 +28,13 @@ from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanError, PlanService
 from pelagos.services.registry import ConnectorRegistry, replication_registry
 from pelagos.services.snapshot import engine_snapshot
+from tests.conftest import ADMIN_PASSWORD
 from tests.fixtures.ports import free_port
 from tests.unit.services.fakes import FakeDhcpBackend, fake_context
 
 pytestmark = pytest.mark.unit
 
-PW = "Fixture-Admin-Password-1"
+PW = ADMIN_PASSWORD
 NAMES = ("ns1", "ns2", "ns3", "ns4")
 ROLES = ("primary", "standby", "backup", "backup")
 

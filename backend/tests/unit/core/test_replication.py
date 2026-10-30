@@ -42,11 +42,12 @@ from pelagos.core.replication import (
 )
 from pelagos.domain import AuditEntry, Change, ChangeOp, Engine, NodeApplyResult, Plan, PlanScope, Role, User
 from pelagos.domain.common import new_id, utcnow
+from tests.conftest import ADMIN_PASSWORD
 from tests.fixtures.ports import free_port, wait_for
 
 pytestmark = pytest.mark.unit
 
-PW = "Fixture-Admin-Password-1"
+PW = ADMIN_PASSWORD
 
 
 @dataclass

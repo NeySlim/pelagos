@@ -16,20 +16,21 @@ from pelagos.core.config_store import (
     ConfigStore,
 )
 from pelagos.domain import User
+from tests.conftest import ADMIN_PASSWORD
 
 pytestmark = pytest.mark.unit
 
 
 def test_bootstrap_creates_everything(tmp_root):
     paths = dev_paths(tmp_root / "n")
-    result = bootstrap_first_node(paths, name="ns1", admin_password="Fixture-Admin-Password-1")
+    result = bootstrap_first_node(paths, name="ns1", admin_password=ADMIN_PASSWORD)
     assert paths.node_toml.exists() and paths.cluster_toml.exists() and paths.master_key.exists()
     assert (paths.pki_dir / "ca.crt").exists() and (paths.pki_dir / "node.key").exists()
     assert oct(paths.master_key.stat().st_mode & 0o777) == "0o600"
     assert result.cluster.version == 1
     assert result.cluster.nodes[0].name == "ns1"
     with pytest.raises(FileExistsError):
-        bootstrap_first_node(paths, name="ns1", admin_password="Fixture-Admin-Password-1")
+        bootstrap_first_node(paths, name="ns1", admin_password=ADMIN_PASSWORD)
 
 
 def test_update_bumps_version_and_round_trips(node_paths):

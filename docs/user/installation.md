@@ -261,139 +261,14 @@ See [Troubleshooting: SELinux](troubleshooting.md#selinux).
 
 ## Docker
 
-Two images, built from the repository with the same `/opt/pelagos` payload
-as the packages (`make docker`, `make docker-allinone`). No image is
-published to a registry yet: build them, or push them to your own registry.
-
-### Compose: the node next to the ISC images
-
-`docker/compose.yaml` runs the node beside the official ISC BIND and Kea
-images:
-
-| Service | Image | Role |
-| --- | --- | --- |
-| `pelagos-init` | node image | one shot: seeds the BIND and Kea configuration volumes, generates the rndc key, runs `pelagos init` with `PELAGOS_ADMIN_PASSWORD` on first start, and exits (nothing else starts) when it is absent or too weak |
-| `pelagos` | node image | web process, HTTPS on `:8443` |
-| `pelagos-collector` | node image | collector, replication and enrollment on `:8444` |
-| `bind` | `internetsystemsconsortium/bind9:9.20` | DNS on host port `${BIND_DNS_PORT:-53}`; rndc and statistics stay on the compose network |
-| `kea-dhcp4`, `kea-dhcp-ddns` | `docker.cloudsmith.io/isc/docker/kea-dhcp4`, `kea-dhcp-ddns` (`${KEA_VERSION:-3.2.1}`) | host network (DHCP needs the LAN broadcasts); sockets shared in the `kea-run` volume |
-| `kea-dhcp6` | `docker.cloudsmith.io/isc/docker/kea-dhcp6` | profile `dhcpv6` |
-
-`PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
-strong one (at least 12 characters mixing three of: lowercase, uppercase,
-digits, symbols). Choose your own or generate one, and keep it: it is the
-first admin sign-in.
-
-```sh
-make docker
-cd docker
-export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
-echo "admin password: $PELAGOS_ADMIN_PASSWORD"
-PELAGOS_IMAGE=pelagos:latest docker compose up -d
-curl -k https://127.0.0.1:8443/api/v1/health
-```
-
-`make docker` runs on the Docker host from a checkout of the repository
-(it needs `make`; `docker build -f docker/Dockerfile -t pelagos:latest .`
-does the same). DNS is published on host port 53: where `systemd-resolved`
-holds it with its stub listener (the default on many distributions), the
-`bind` container fails with "address already in use". Set
-`BIND_DNS_PORT=5300` (or another free port) on the `docker compose` line,
-or turn the stub listener off (`DNSStubListener=no` in
-`/etc/systemd/resolved.conf`).
-
-The node starts with every engine off. Adopt the BIND and Kea containers:
-
-```sh
-docker compose exec pelagos pelagos import --engines bind,kea4,d2 --dry-run
-docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
-```
-
-Then add the LAN interface of the Docker host to `interfaces-config` of
-`kea-dhcp4.conf` (the seeded file has `"interfaces": []`), from the Kea
-editor or the volume.
-
-The seeded `named.conf` opens rndc and the statistics channel to the
-compose network (`inet 0.0.0.0 ... allow { any; }`), since Pelagos reaches
-BIND there. The security audit reports them (`rndc_nonlocal`,
-`stats_nonlocal`) without an automatic remediation: moving them to
-`127.0.0.1` would cut Pelagos off. Neither port is published on the host;
-to narrow them further, replace `any` with the compose network's prefix in
-`named.conf` of the `bind-etc` volume.
-
-Variables (environment or a `.env` file next to `compose.yaml`):
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `PELAGOS_IMAGE` | `pelagos:latest` | node image |
-| `PELAGOS_ADMIN_PASSWORD` | none, required | first admin password, given to `pelagos-init` only; absent or too weak on first start: `pelagos-init` exits 78 and the stack does not start |
-| `PELAGOS_ADMIN_PASSWORD_FILE` | empty | path, inside `pelagos-init`, of a file holding that password (a compose secret; see the commented example in `compose.yaml`) |
-| `PELAGOS_NODE_NAME` | `pelagos` | node name for `init` |
-| `PELAGOS_WEB_URL`, `PELAGOS_REPLICATION_URL` | empty | advertised URLs for `init` (`--web-url`, `--replication-url`) |
-| `PELAGOS_HTTPS_PORT`, `PELAGOS_REPL_PORT` | `8443`, `8444` | published host ports |
-| `BIND_IMAGE`, `BIND_DNS_PORT` | `internetsystemsconsortium/bind9:9.20`, `53` | BIND container |
-| `KEA_VERSION` | `3.2.1` | tag of the ISC Kea images |
-| `PELAGOS_KEA_GID` | `8450` | group of the Kea sockets, joined by the `pelagos` user |
-
-Volumes: `pelagos-etc` (`/etc/pelagos`), `pelagos-var` (`/var/lib/pelagos`),
-`pelagos-run`, `bind-etc`, `bind-cache`, `bind-lib`, `kea-etc`,
-`kea-leases`, `kea-run`. Back up `pelagos-etc` and `pelagos-var` like
-`/etc/pelagos` and `/var/lib/pelagos` on a host
-([Backup and restore](operations.md#backup-and-restore)).
-
-`PELAGOS_EXTERNAL_ENGINES=1` (set in the compose file) tells the installer
-that the engines are other containers: it reloads `named` over rndc, checks
-Kea files with `config-test` over the sockets, and never starts or restarts
-a daemon. The BIND connection keys of `node.toml [engines.bind]`
-(`rndc_address = "bind"`, `statistics_url = "http://bind:8053/json/v1"`,
-`query_address` = the address of `bind`) are written by the entrypoint.
-
-### All-in-one image
-
-Debian 13 with `bind9`, Kea 3.2 from ISC (`--build-arg KEA_SOURCE=isc`,
-default) or Debian's Kea 2.6 (`KEA_SOURCE=distro`), and supervisord running
-`named`, `kea-dhcp4`, `kea-dhcp-ddns`, `kea-dhcp6` (when `KEA_DHCP6=true`),
-the web process and the collector.
-
-```sh
-export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
-echo "admin password: $PELAGOS_ADMIN_PASSWORD"
-docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD \
-  -p 8443:8443 -p 8444:8444 -p 53:53/udp -p 53:53/tcp pelagos-allinone:latest
-docker exec pelagos pelagos import --engines bind,kea4,d2 --yes
-```
-
-Use `--network host` to serve DHCP on the LAN. Volumes: `/etc/pelagos`,
-`/var/lib/pelagos`, `/etc/bind`, `/var/cache/bind`, `/etc/kea`,
-`/var/lib/kea`.
-
-### Entrypoint modes
-
-The images' entrypoint prepares the volumes as root, then drops to the
-`pelagos` user: `init` (prepare and exit), `serve` (web), `collector`,
-`allinone`, `pelagos <arguments>` (the CLI as `pelagos`), or any other
-command run as given. `docker compose exec pelagos pelagos ...` runs the CLI
-wrapper as root inside the container, like `sudo pelagos` on a host.
-
-Besides the compose variables above, the entrypoint reads these (set them
-with `docker run -e` or in the `environment` of the compose file):
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `PELAGOS_ADMIN_USER` | `admin` | first user name for `init` |
-| `PELAGOS_BIND_HOST` | `127.0.0.1` (`bind` in compose) | address of `named` for rndc, written to `node.toml [engines.bind]` |
-| `PELAGOS_BIND_GID`, `PELAGOS_BIND_UID` | `53`, `53` | group and user of `named` in the BIND container: group of `/etc/bind`, owner of `/var/cache/bind` and `/var/lib/bind` |
-
-To enroll a container node in an existing cluster, leave
-`PELAGOS_ADMIN_PASSWORD` unset, then run the enrollment once with the
-volumes of the stack before starting it:
-
-```sh
-docker compose run --rm pelagos-init pelagos enroll --url https://ns1.example.lan:8444 \
-  --token <token> --ca-fingerprint sha256:<fingerprint> --name ns2 \
-  --replication-url https://ns2.example.lan:8444 --web-url https://ns2.example.lan:8443
-docker compose up -d
-```
+The node image `ghcr.io/neyslim/pelagos` and the all-in-one image
+`ghcr.io/neyslim/pelagos-allinone` (BIND, Kea and the node in one
+container) are published for `amd64` and `arm64`, tagged `<version>` and
+`latest`. [Docker](docker.md) has one compose file per scenario (all-in-one,
+the node next to the ISC images, a two-node HA pair, the node driving the
+host's BIND and Kea), the environment variables and the day-to-day
+operations. `make docker` and `make docker-allinone` build the same images
+from a checkout.
 
 ## An already busy server
 

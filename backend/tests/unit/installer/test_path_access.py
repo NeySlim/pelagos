@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from pelagos.core import permguard
 from pelagos.installer import path_access, security_audit
 from tests.unit.installer.fakes import make_env
 
@@ -83,7 +84,7 @@ def test_apply_creates_the_folder_and_undoes_on_failure(
     cache = env.paths.named_conf.parent / "cache"
     os.chmod(cache, 0o755)
     # The service account cannot write `cache` in the audit's eyes; the test process (root-like) can.
-    monkeypatch.setattr(path_access, "_writable", lambda st, uid, groups: False)
+    monkeypatch.setattr(permguard, "writable", lambda st, uid, groups: False)
     items = [f.to_dict() for f in path_access.fixes(env) if f.purpose == "zone_dir"]
     assert items and items[0]["action"] == "create_dir"
     out = path_access.apply(env, items)
@@ -117,3 +118,41 @@ def test_ensure_creates_missing_folders_only_and_is_idempotent(tmp_path: Path, i
     assert first == [f"created {cache / 'pelagos'}: absent -> {path_access._describe(cache / 'pelagos')}"]
     assert stat.S_IMODE(cache.stat().st_mode) == 0o755  # named's directory itself untouched
     assert path_access.ensure(env) == []
+
+
+@pytest.mark.parametrize(("purpose", "mode"), [("include_dir", 0o2750), ("backup_dir", 0o750)])
+def test_created_folder_keeps_the_mode_of_its_target(
+    tmp_path: Path, ids: None, monkeypatch: pytest.MonkeyPatch, purpose: str, mode: int
+) -> None:
+    env = bind_tree(tmp_path)
+    base = env.paths.named_conf.parent
+    target = permguard.Target(
+        base / "private", permguard.DIR, "bind", purpose, "pelagos", owner="pelagos", dir_mode=mode
+    )
+    monkeypatch.setattr(path_access, "targets", lambda _env: [target])
+    monkeypatch.setattr(permguard, "writable", lambda st, uid, groups: False)
+    (fix,) = path_access.fixes(env)
+    assert fix.mode == mode and fix.after == f"{mode:04o} pelagos:pelagos"
+    assert fix.command() == f"install -d -o pelagos -g pelagos -m {mode:04o} {base / 'private'}"
+    path_access.apply(env, [fix.to_dict()])
+    assert stat.S_IMODE((base / "private").stat().st_mode) == mode
+
+
+@as_user
+def test_every_finding_id_of_the_guard_is_a_helper_fix(tmp_path: Path) -> None:
+    """The Fix button sends the guard's finding ids to the security plan: each must be a known finding."""
+    env = bind_tree(tmp_path)
+    cache = env.paths.named_conf.parent / "cache"
+    other = tmp_path / "foreign"
+    other.mkdir()
+    os.chmod(other, 0o755)
+    os.chmod(cache, 0o555)
+    try:
+        extra = permguard.Target(other, permguard.DIR, "bind", "zone_dir", group="nogroup-x")
+        targets = [*path_access.targets(env), extra]
+        checks = [c.to_dict() for c in permguard.run(targets, helper_available=False)]
+        known = {f.finding_id() for f in path_access.fixes(env)}
+    finally:
+        os.chmod(cache, 0o755)
+    published = {c["finding_id"] for c in checks if "finding_id" in c}
+    assert published and published <= known

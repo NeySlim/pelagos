@@ -9,6 +9,7 @@ import errno
 import os
 import re
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -99,11 +100,67 @@ def test_eperm_on_the_probe_is_a_refusal(tmp_path: Path, monkeypatch: pytest.Mon
         tmp_path / "pelagos", permguard.DIR, "bind", "zone_dir", group=None, subdirs=True
     )
     (check,) = permguard.run([target])
-    assert not check.ok and check.problem == "refused" and check.remediable
+    # The parent is writable: the helper's audit has no fix for it, so no finding id is published.
+    assert not check.ok and check.problem == "refused" and not check.remediable
     assert check.command == f"install -d -o {check.group} -g {check.group} -m 2775 {tmp_path / 'pelagos'}"
     data = check.to_dict()
-    assert data["finding_id"] == f"bind:path_access:{tmp_path / 'pelagos'}"
+    assert "finding_id" not in data
     assert "the service is refused the operation (EPERM)" in data["text"]
+
+
+def test_eperm_on_an_existing_folder_never_changes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refused(*_a, **_kw):  # type: ignore[no-untyped-def]
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(permguard.tempfile, "mkstemp", refused)
+    (check,) = permguard.run([permguard.Target(tmp_path, permguard.DIR, "bind", "zone_dir", group="bind")])
+    assert not check.ok and check.problem == "refused" and not check.remediable
+    assert check.command.startswith("usermod -aG bind pelagos && systemctl restart ")
+    assert "install -d" not in check.command and "chmod" not in check.command
+    assert "finding_id" not in check.to_dict()
+
+
+def test_probe_folder_removed_when_its_chown_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def chown(*_a, **_kw):  # type: ignore[no-untyped-def]
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(permguard, "_gid", lambda _g: os.getgid() + 1)
+    monkeypatch.setattr(permguard.os, "chown", chown)
+    (check,) = permguard.run(
+        [permguard.Target(tmp_path / "zones", permguard.DIR, "bind", "zone_dir", group="x")]
+    )
+    assert not check.ok
+    assert list(tmp_path.iterdir()) == []  # no .pelagos-probe.* left behind
+
+
+def test_mkdir_errno_read_under_a_french_locale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """mkdir(1) runs under LC_ALL=C whatever the unit's LANG: EROFS stays a sandbox finding."""
+    seen: dict[str, str] = {}
+
+    def run(*_a, **kw):  # type: ignore[no-untyped-def]
+        seen.update(kw["env"])
+        lang = kw["env"].get("LC_ALL") or kw["env"].get("LANG")
+        text = (
+            "mkdir: Read-only file system"
+            if lang == "C"
+            else "mkdir: Système de fichiers accessible en lecture seulement"
+        )
+        return subprocess.CompletedProcess(_a[0], 1, "", text)
+
+    monkeypatch.setenv("LANG", "fr_FR.UTF-8")
+    monkeypatch.setattr(permguard.subprocess, "run", run)
+    with pytest.raises(OSError) as exc:
+        permguard._mkdir(tmp_path / "zones")
+    assert exc.value.errno == errno.EROFS and seen["LC_ALL"] == "C"
+
+    def slow(*_a, **_kw):  # type: ignore[no-untyped-def]
+        raise subprocess.TimeoutExpired("mkdir", 30)
+
+    monkeypatch.setattr(permguard.subprocess, "run", slow)
+    with pytest.raises(OSError):
+        permguard._mkdir(tmp_path / "zones")
 
 
 def test_read_only_mount_names_the_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

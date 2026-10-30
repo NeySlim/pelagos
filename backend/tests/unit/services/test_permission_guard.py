@@ -188,3 +188,22 @@ def test_raw_errno_of_a_node_result_gets_its_message() -> None:
     assert result.message_message["key"] == "permission.apply_failed"
     ok = permissions.translate_result(NodeApplyResult(node_id="n2", ok=True, message="[Errno 13] fine"))
     assert ok.message_message is None
+
+
+def test_composite_parts_are_checked_on_their_own_nodes(tmp_root: Path) -> None:
+    """register_composite stores the parts before the plan: put() checks each part on its nodes."""
+    backend = rpz_backend(tmp_root)
+    bad = {
+        "ok": False,
+        "path": "/var/cache/bind/pelagos",
+        "message": {"key": "permission.raw", "params": {"text": "x"}},
+    }
+    store = PlanStore(60)
+    store.guard = permissions.PermissionGuard(Ctx(), Registry(backend), Peers({"n2": [bad]}))  # type: ignore[arg-type]
+    merged = rpz_plan(backend)  # every node's changes, on this node: writable here
+    part = rpz_plan(backend)
+    part.target_node_ids = ["n2"]
+    store.set_parts(merged.id, [part])
+    stored = store.put(merged)
+    assert stored.state is PlanState.FAILED
+    assert [v.node_id for v in stored.validations if v.tool == "permissions"] == ["n2"]

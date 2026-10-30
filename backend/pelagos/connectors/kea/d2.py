@@ -495,8 +495,6 @@ class D2Backend(DdnsBackend):
 
     def permission_targets(self, plan: Plan | None = None) -> list[Any]:
         """Paths applying `plan` (any plan of this engine when None) reads and writes here."""
-        if False:
-            return []
         if plan is not None and any(c.target == ADOPT_FILE for c in plan.changes):
             return self.file.permission_targets(writes=False)
         return self.file.permission_targets()

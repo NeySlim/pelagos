@@ -85,7 +85,10 @@ class PlanStore:
 
     def put(self, plan: Plan) -> Plan:
         if self.guard is not None:
-            self.guard(plan, None)
+            # A composite registers its parts first: the guard checks each part on its own nodes.
+            with self._lock:
+                parts = self._parts.get(plan.id)
+            self.guard(plan, parts)
         plan.expires_at = utcnow() + self.ttl
         with self._lock:
             self._plans[plan.id] = plan

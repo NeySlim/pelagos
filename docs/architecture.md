@@ -1190,8 +1190,13 @@ as they will at apply time; `access(2)` alone would miss the last two. A `Check`
 unit may write; `refused`: EPERM from a filter; `denied`; `not_readable`), the owner, group and
 mode of the path that decides (`probed`: the nearest existing folder of a missing one), the exact
 `command` (`install -d -o bind -g bind -m 2775 <first missing folder>`, `chmod g+w <dir>`, a
-`ReadWritePaths=` drop-in, `chgrp <engine group> <file> && chmod g+r <file>`), `fix` and a
-translated `message` (`permission.finding`).
+`ReadWritePaths=` drop-in, `chgrp <engine group> <file> && chmod g+r <file>`; for EPERM on an
+existing path, the group membership `usermod -aG <group> pelagos` or the unit's drop-ins, never a
+change of that folder), `fix` and a translated `message` (`permission.finding`). `finding_id`
+(`<engine>:path_access:<path>`) is published only when `permguard.helper_fix`, the rule the
+`path_access` audit also uses, gives that same fix; the Permissions card sends only the ids
+`GET /install/security` lists. The mode of a folder the helper creates is the target's own (2775,
+2750 for the include folder, 0750 for backups).
 
 Writers in the units never pass `S_ISGID` or `S_ISUID` in a mode argument (`RestrictSUIDSGID=yes`
 refuses it with EPERM): `make_group_dir` creates each missing folder with `mkdir(2)` mode 0777
@@ -1200,7 +1205,8 @@ gives it the engine's group. A unit test fails on any such literal outside `inst
 only, in the helper or the CLI).
 
 Plans: `PlanStore.guard` (set by the web process to `services.permissions.PermissionGuard`) runs
-on every new plan and on a composite's parts, on every target node: locally in the web process,
+on every new plan, on each part of a composite (registered before the plan is stored, read by
+`put`) on that part's own target nodes: locally in the web process,
 on a peer in its collector over `POST /repl/v1/plans/preflight` (`permissions`, 10 s timeout; a
 peer that does not answer or predates it is not checked). Installer scopes (`install`, `import`,
 `security`, run as root by the helper) are skipped. A failed path refuses the plan: state

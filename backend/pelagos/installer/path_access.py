@@ -3,7 +3,8 @@
 the deb's postinst through `pelagos permissions ensure`).
 
 The paths come from the connectors' own `permission_targets` (core.permguard), never from a list
-kept here. The fix is narrow: a missing folder is created 2775 owned by the engine's user and group;
+kept here. The fix is narrow: a missing folder is created with its target's mode (2775 for the engine
+folders, 2750 or 0750 for the private ones) owned by the engine's user and group;
 an existing folder of the engine's group gets g+w. Nothing else is ever changed (no chown of an
 existing folder, no chmod outside the engine trees), and every change is undone when a step fails.
 """
@@ -163,17 +164,6 @@ def _owner_of(target: permguard.Target, env: Any) -> tuple[str, str]:
     return env.paths.kea_user, target.group or env.paths.kea_group
 
 
-def _writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
-    mode = st.st_mode
-    if uid == 0:
-        return True
-    if st.st_uid == uid:
-        return bool(mode & stat.S_IWUSR and mode & stat.S_IXUSR)
-    if st.st_gid in groups:
-        return bool(mode & stat.S_IWGRP and mode & stat.S_IXGRP)
-    return bool(mode & stat.S_IWOTH and mode & stat.S_IXOTH)
-
-
 def _describe(path: Path) -> str:
     st = path.stat()
     return f"{stat.S_IMODE(st.st_mode):04o} {_user(st.st_uid)}:{_group(st.st_gid)}"
@@ -195,41 +185,25 @@ def _group(gid: int) -> str:
 
 def fixes(env: Any) -> list[Fix]:
     """What the service account (by its uid and groups) cannot do on the standing folders, as fixes
-    root may make: create the first missing component, or give the engine's group write access."""
+    root may make: create the first missing component, or give the engine's group write access.
+    The rule is permguard.helper_fix, the one the guard's finding ids come from."""
     uid, groups = kea_modes.service_ids()
     out: dict[Path, Fix] = {}
     for t in targets(env):
-        if t.kind != permguard.DIR:
-            continue
         owner, group = _owner_of(t, env)
-        path = Path(t.path)
-        if not path.exists():
-            create = permguard.first_missing(path)
-            parent = create.parent
-            if parent.is_dir() and not _writable(parent.stat(), uid, groups):
-                after = f"{DIR_MODE:04o} {owner}:{group}"
-                out.setdefault(
-                    create, Fix("create_dir", create, owner, group, t.engine, t.purpose, "absent", after)
-                )
-            continue  # otherwise the service creates it itself
-        st = path.stat()
-        if not path.is_dir() or _writable(st, uid, groups):
+        found = permguard.helper_fix(t.kind, Path(t.path), group, uid, groups)
+        if found is None:
             continue
-        gid = _gid(group)
-        if gid is None or st.st_gid != gid or gid not in groups:
-            continue  # only g+w for the engine's group the service is in: anything else is manual
-        after = f"{stat.S_IMODE(st.st_mode) | stat.S_IWGRP:04o} {_user(st.st_uid)}:{group}"
-        out.setdefault(
-            path, Fix("group_write", path, owner, group, t.engine, t.purpose, _describe(path), after)
-        )
+        action, path = found
+        if action == "create_dir":
+            after = f"{t.dir_mode:04o} {owner}:{group}"
+            fix = Fix("create_dir", path, owner, group, t.engine, t.purpose, "absent", after, t.dir_mode)
+        else:
+            st = path.stat()
+            after = f"{stat.S_IMODE(st.st_mode) | stat.S_IWGRP:04o} {_user(st.st_uid)}:{group}"
+            fix = Fix("group_write", path, owner, group, t.engine, t.purpose, _describe(path), after)
+        out.setdefault(path, fix)
     return [f for f in out.values() if allowed(env, f.path)]
-
-
-def _gid(group: str) -> int | None:
-    try:
-        return grp.getgrnam(group).gr_gid
-    except KeyError:
-        return None
 
 
 def apply(env: Any, items: list[dict[str, Any]]) -> str:

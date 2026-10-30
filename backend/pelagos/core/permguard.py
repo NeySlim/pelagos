@@ -144,23 +144,61 @@ def _gid(group: str | None) -> int | None:
         return None
 
 
+def writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
+    """Whether `uid` with `groups` may create entries in a directory, by its mode bits alone."""
+    mode = st.st_mode
+    if uid == 0:
+        return True
+    if st.st_uid == uid:
+        return bool(mode & stat.S_IWUSR and mode & stat.S_IXUSR)
+    if st.st_gid in groups:
+        return bool(mode & stat.S_IWGRP and mode & stat.S_IXGRP)
+    return bool(mode & stat.S_IWOTH and mode & stat.S_IXOTH)
+
+
+def helper_fix(
+    kind: str, path: Path, group: str | None, uid: int, groups: set[int]
+) -> tuple[str, Path] | None:
+    """The one fix the privileged helper (installer.path_access) makes for a target, shared by the
+    guard's finding id and the helper's audit: create the first missing component of a folder whose
+    parent the service cannot write, or g+w on an existing folder of the engine's group it is in."""
+    if kind != DIR:
+        return None
+    if not path.exists():
+        create = first_missing(path)
+        parent = create.parent
+        if parent.is_dir() and not writable(parent.stat(), uid, groups):
+            return ("create_dir", create)
+        return None
+    st = path.stat()
+    if not path.is_dir() or writable(st, uid, groups):
+        return None
+    gid = _gid(group)
+    if gid is None or st.st_gid != gid or gid not in groups:
+        return None
+    return ("group_write", path)
+
+
 # Writers --------------------------------------------------------------------------------------
 
 
 def _mkdir(d: Path) -> None:
     """mkdir(2) with 0777 under umask 002: a setgid parent passes its bit on through the kernel. No
     mode argument of any call carries S_ISGID, which RestrictSUIDSGID=yes refuses with EPERM."""
-    proc = subprocess.run(
-        ["/bin/sh", "-c", 'umask 002 && exec mkdir -- "$1"', "sh", str(d)],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
+    try:
+        proc = subprocess.run(
+            ["/bin/sh", "-c", 'umask 002 && exec mkdir -- "$1"', "sh", str(d)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            env={**os.environ, "LC_ALL": "C"},  # stderr in English: the errno is read back from it
+        )
+    except subprocess.SubprocessError as exc:
+        raise OSError(errno.EIO, f"mkdir: {exc}", str(d)) from exc
     if proc.returncode != 0:
         if d.is_dir():
             return
-        # mkdir(1) words the errno; turn it back into an OSError for the callers.
         text = proc.stderr.strip()
         code = next(
             (c for c, word in _ERRNO_WORDS.items() if word in text),
@@ -210,8 +248,13 @@ def _problem(exc: OSError) -> str:
 
 def _probe_dir_create(parent: Path, group: str | None) -> None:
     name = parent / f"{PROBE_PREFIX}{secrets.token_hex(4)}"
-    make_group_dir(name, group)
-    os.rmdir(name)
+    try:
+        make_group_dir(name, group)
+    finally:
+        try:
+            os.rmdir(name)
+        except OSError:
+            pass
 
 
 def _probe_file_create(directory: Path, mode: int | None, group: str | None) -> None:
@@ -324,24 +367,30 @@ def _remedy(check: Check, target: Target) -> None:
         check.fix = {"action": "chgrp_read", "path": str(path), "group": group}
         check.remediable = True
         return
+    # remediable only when the helper's audit makes exactly this fix (same rule, same path).
+    uid, groups = service_ids()
+    helper = helper_fix(target.kind, path, target.group or target.owner, uid, groups)
     if (target.kind == DIR and not path.exists()) or (target.kind == FILE and not path.parent.exists()):
         create = first_missing(path if target.kind == DIR else path.parent)
         owner = target.owner or target.group or group
         group = target.group or target.owner or group
         check.command = f"install -d -o {owner} -g {group} -m {target.dir_mode:04o} {create}"
         check.fix = {"action": "create_dir", "path": str(create), "owner": owner, "group": group}
-        check.remediable = True
+        check.remediable = check.problem == "denied" and helper == ("create_dir", create)
         return
     d = path if target.kind == DIR else path.parent
     if check.problem == "refused":
-        # EPERM on an operation the permissions allow: something in the unit refuses it.
-        check.command = f"install -d -o {group} -g {group} -m 2775 {d}"
-        check.fix = {"action": "group_write", "path": str(d), "group": group}
-        check.remediable = target.kind == DIR
+        # EPERM on an operation the mode bits allow: the unit or the service's groups refuse it.
+        # The folder itself is left as it is.
+        check.command = (
+            f"usermod -aG {group} pelagos && systemctl restart {UNITS} "
+            f"(else check the units' drop-ins: systemctl cat {UNITS.split()[0]})"
+        )
+        check.fix = {"action": "membership", "path": str(d), "group": group}
         return
     check.command = f"chgrp {group} {d} && chmod g+w {d}" if check.group != group else f"chmod g+w {d}"
     check.fix = {"action": "group_write", "path": str(d), "group": group}
-    check.remediable = True
+    check.remediable = helper == ("group_write", d)
 
 
 def run(targets: list[Target], helper_available: bool | None = None) -> list[Check]:

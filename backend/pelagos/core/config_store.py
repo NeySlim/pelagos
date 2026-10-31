@@ -439,7 +439,7 @@ class ConfigStore:
             raw = json.loads(self.bases_path.read_text())
         except (OSError, ValueError):
             return {}
-        return parse_bases(raw)
+        return cm.bound_bases(parse_bases(raw))
 
     def _write_bases(self, bases: cm.Bases, previous: cm.Bases) -> None:
         if bases == previous:
@@ -507,7 +507,7 @@ class ConfigStore:
         local writes the merge dropped unseen, once, outside the lock, only when the file changed.
         """
         remote = ClusterConfig.from_toml(tomllib.loads(toml_text))
-        remote_bases = parse_bases(bases)
+        remote_bases = cm.bound_bases(parse_bases(bases))  # a peer's member gets the same cap
         discarded: list[cm.Discarded] = []
         with self.lock:
             previous = self.read_bases()

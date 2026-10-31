@@ -1,28 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
 # Every push and pull request runs one fast job (lint, unit tier in parallel, vitest, frontend
 # build). The heavy jobs run only when their inputs changed: the daemon tier for the connectors
-# and fixtures, a Playwright smoke for the frontend. Release tags, the nightly run (when main
-# moved in the last day) and a manual run take the full suite: unit tier on Python 3.12 too,
-# daemon tier, every Playwright spec.
+# and fixtures, a Playwright smoke for the frontend. The release workflow (workflow_call on the
+# tag), the nightly run (when main moved in the last day) and a manual run take the full suite:
+# unit tier on Python 3.12 too, daemon tier, every Playwright spec.
 name: ci
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Ref to test (the release tag)
+        type: string
+        required: true
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name }}
-  # A newer push supersedes the running one; release tags always run to the end.
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ci-${{ inputs.ref || github.ref }}-${{ github.event_name }}
+  # A newer push supersedes the running one; a release run always runs to the end.
+  cancel-in-progress: ${{ !inputs.ref }}
 
 jobs:
   scope:
@@ -35,18 +40,23 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
       - name: Commit messages (72 characters, one line, no trailer, no em dash)
-        if: github.event_name == 'push' && github.ref_type == 'branch' || github.event_name == 'pull_request'
+        if: ${{ !inputs.ref && (github.event_name == 'push' || github.event_name == 'pull_request') }}
         run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
       - name: Mode
         id: mode
+        env:
+          RELEASE_REF: ${{ inputs.ref }}
         run: |
           run=true full=false
-          case "$GITHUB_EVENT_NAME/$GITHUB_REF_TYPE" in
-            schedule/*) full=true; [ -n "$(git log -1 --since=25.hours --format=%h)" ] || run=false ;;
-            workflow_dispatch/*|push/tag) full=true ;;
+          case "$GITHUB_EVENT_NAME" in
+            schedule) full=true; [ -n "$(git log -1 --since=25.hours --format=%h)" ] || run=false ;;
+            workflow_dispatch) full=true ;;
           esac
+          # Called by the release workflow: the full suite on the tag.
+          [ -z "$RELEASE_REF" ] || full=true
           printf 'run=%s\nfull=%s\n' "$run" "$full" | tee -a "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: paths
@@ -82,6 +92,8 @@ jobs:
           apt-get update -q
           apt-get install -y -q --no-install-recommends ca-certificates curl git make zstd bind9-utils age
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:
           enable-cache: true
@@ -128,6 +140,8 @@ jobs:
           apt-get update -q
           apt-get install -y -q --no-install-recommends ca-certificates curl git make zstd bind9-utils age
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:
           enable-cache: true
@@ -165,6 +179,8 @@ jobs:
           named -V | head -n 1
           kea-dhcp4 -V | head -n 1
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:
           # uv runs under runuser with its own cache dir; the action's cache path never exists.
@@ -193,6 +209,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22

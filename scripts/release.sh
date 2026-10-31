@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# Cut a release: set the version, tag it, build the amd64 and arm64 debs from the tagged tree
-# (Debian 13 containers, arm64 through qemu binfmt), write release.json, short release notes and
-# SHA256SUMS over them all, then SHA256SUMS.sig when a release key is available.
+# Cut a release. Tagged (default): commit the version with its notes, tag it, open the next .dev0
+# version; the release workflow builds, tests and drafts the GitHub release from the pushed tag.
+# --no-tag: local build of HEAD for lab tests: amd64 and arm64 debs (Debian 13 containers, arm64
+# through qemu binfmt) in a release directory (scripts/release-assemble.sh). Never deploy it.
 #
 # Usage: release.sh [--no-tag] [--since REF] [--out DIR] VERSION
-#   VERSION   0.1.1, or a pre-release 0.1.1rc1 (0.1.1~rc1 is accepted too)
-#   --no-tag  throwaway build: HEAD with the version patched in a copy, no commit, no tag
-#   --since   start of the release notes (default: the previous v* tag)
-#   --out     parent of the release directory (default: build/release); files land in OUT/VERSION
-# Without --no-tag the tree must be clean: the script commits "chore(release): VERSION" when
-# backend/pelagos/__init__.py differs, tags vVERSION, then commits the next .dev0 version.
+#   VERSION   0.1.1 (tagged), or 0.1.1rc1 (0.1.1~rc1 is accepted too) for a local build
+#   --no-tag  local build: HEAD with the version patched in a copy, no commit, no tag
+#   --since   start of the commit list of a local build's notes (default: the previous v* tag)
+#   --out     parent of the local release directory (default: build/release); files in OUT/VERSION
+# Tagged, the tree must be clean except docs/releases/VERSION.md and CHANGELOG.md, which the
+# release commit "chore(release): VERSION" carries; scripts/release-check.sh must pass on it.
 # Nothing is pushed. Environment: DOCKER (default docker), ARCHES (default "amd64 arm64"),
 # PELAGOS_RELEASE_KEY (Ed25519 private key outside the repository; unset: unsigned release),
 # PELAGOS_RELEASE_KEY_PASSWORD (its passphrase, if any), PELAGOS_PYTHON (default backend/.venv).
@@ -24,7 +25,7 @@ while [[ $# -gt 0 ]]; do
     --no-tag) tag_it=0 ;;
     --since) since="${2:?--since needs a ref}"; shift ;;
     --out) out="${2:?--out needs a directory}"; shift ;;
-    -h|--help) sed -n '3,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,18p' "$0"; exit 0 ;;
     -*) echo "release: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -51,24 +52,35 @@ fi
 set_version() { sed -i "s/^__version__ = \".*\"/__version__ = \"$2\"/" "$1/$init"; }
 
 if [[ "$tag_it" == 1 ]]; then
-  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || { echo "release: the tree is not clean" >&2; exit 1; }
+  notes="docs/releases/$version.md"
+  dirty="$(git status --porcelain --untracked-files=all | cut -c4- | grep -Evx "$notes|CHANGELOG.md" || true)"
+  [[ -z "$dirty" ]] || { echo "release: the tree is not clean: $dirty" >&2; exit 1; }
   ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null || { echo "release: tag $tag exists" >&2; exit 1; }
-  if [[ "$(packaging/version.sh python)" != "$version" ]]; then
-    set_version . "$version"
-    git commit -q -m "chore(release): $version" -- "$init"
-  fi
+  set_version . "$version"
+  scripts/release-check.sh --tag "$tag" || {
+    git checkout -q -- "$init"
+    echo "release: fix the checks above, then run it again" >&2
+    exit 1
+  }
+  git add -- "$init" "$notes" CHANGELOG.md
+  git commit -q -m "chore(release): $version"
   git tag -a "$tag" -m "Pelagos $version"
-  ref="$tag"
-else
-  ref="HEAD"
+  IFS=. read -r major minor patch <<<"$version"
+  next="$major.$minor.$((patch + 1)).dev0"
+  set_version . "$next"
+  git commit -q -m "chore(release): open $next" -- "$init"
+  echo "release: tagged $tag, main moves to $next. Push both: git push origin main $tag" >&2
+  echo "release: the release workflow drafts the GitHub release; review it, then Publish" >&2
+  exit 0
 fi
+ref="HEAD"
 since="${since:-$(git describe --tags --abbrev=0 --match 'v*' "$ref^" 2>/dev/null || true)}"
 
 # Build from an export of the ref, never from the working tree.
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 git archive "$ref" | tar -C "$work" -xf -
-[[ "$tag_it" == 1 ]] || set_version "$work" "$version"
+set_version "$work" "$version"
 epoch="$(git log -1 --format=%ct "$ref")"
 echo "release: $version from $(git rev-parse --short "$ref^{commit}") in $work" >&2
 
@@ -89,23 +101,18 @@ done
 debver="$(packaging/version.sh deb "$work")-1"
 dest="$out/$version"
 rm -rf "$dest"
-mkdir -p "$dest"
+pkgs=()
 for arch in "${arches[@]}"; do
   deb="$work/out/pelagos_${debver}_$arch.deb"
   [[ "$(dpkg-deb -f "$deb" Version) $(dpkg-deb -f "$deb" Architecture)" == "$debver $arch" ]] ||
     { echo "release: $deb has unexpected control fields" >&2; exit 1; }
-  cp "$deb" "$dest/"
+  pkgs+=("$deb")
 done
-(cd "$dest" && sha256sum -- *.deb) > "$work/packages.sums"
 published="$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$ref")"
-# The tooling and the packaged public keys of the released tree, not of the working tree.
-release_py() { PYTHONPATH="$work/backend" "$PY" -m pelagos.core.release "$@"; }
-release_py manifest "$dest" "${debver%-1}" --published-at "$published"
-
 {
   echo "# Pelagos $version"
   echo
-  echo "Commit $(git rev-parse --short "$ref^{commit}"), $(git log -1 --format=%cs "$ref")${since:+, changes since $since}."
+  echo "Local build of commit $(git rev-parse --short "$ref^{commit}"), $(git log -1 --format=%cs "$ref")${since:+, changes since $since}."
   range="${since:+$since..}$ref"
   for kind in feat fix; do
     lines="$(git log --no-merges --format=%s "$range" | grep -E "^$kind(\(|:)" || true)"
@@ -115,18 +122,8 @@ release_py manifest "$dest" "${debver%-1}" --published-at "$published"
   done
   other="$(git log --no-merges --format=%s "$range" | grep -cvE '^(feat|fix)(\(|:)' || true)"
   echo -e "\n$other other commits (tests, docs, CI, refactoring)."
-  echo -e "\n## Files\n"
-  sed 's/^/    /' "$work/packages.sums"
-} > "$dest/NOTES.md"
-(cd "$dest" && sha256sum -- *.deb release.json NOTES.md > SHA256SUMS)
-release_py sign "$dest"
-release_py verify "$dest" >&2 || { echo "release: $dest does not verify" >&2; exit 1; }
-
-if [[ "$tag_it" == 1 ]]; then
-  IFS=. read -r major minor patch <<<"${version%%[abr]*}"
-  if [[ "$version" =~ (a|b|rc) ]]; then next="$major.$minor.$patch.dev0"; else next="$major.$minor.$((patch + 1)).dev0"; fi
-  set_version . "$next"
-  git commit -q -m "chore(release): open $next" -- "$init"
-  echo "release: tagged $tag, main moves to $next. Push main; the tag and any publication wait for the owner's approval." >&2
-fi
+} > "$work/notes.md"
+# The tooling and the packaged public keys of the built tree, not of the working tree.
+PELAGOS_PYTHON="$PY" "$work/scripts/release-assemble.sh" --notes "$work/notes.md" \
+  --published-at "$published" "$dest" "${debver%-1}" "${pkgs[@]}"
 ls -l "$dest" >&2

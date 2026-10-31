@@ -1,0 +1,181 @@
+# SPDX-License-Identifier: Apache-2.0
+# The release of a pushed v* tag (or of an existing tag given to a manual run): the full test
+# suite (ci.yml) and the packages with their tests (packages.yml) on the tag, the blocking checks
+# of scripts/release-check.sh, then a DRAFT GitHub release with the tested debs and rpms,
+# release.json, NOTES.md (docs/releases/<version>.md) and SHA256SUMS, and the tested images on
+# ghcr.io (<version> and latest). Publishing the draft stays a human click. A new run on the same
+# tag replaces the assets of the draft; a published release is never touched.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to (re)build, e.g. v0.3.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Tag
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG (vX.Y.Z)" >&2; exit 1; }
+          printf 'tag=%s\nversion=%s\n' "$TAG" "${TAG#v}" | tee -a "$GITHUB_OUTPUT"
+      # The notes, CHANGELOG and checks come from the workflow's commit (the tag itself on a tag
+      # push, main on a manual run); the packages and their version from the tag.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: tools
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          path: src
+      - name: Source checks (version, notes, CHANGELOG, README)
+        run: tools/scripts/release-check.sh --tag "${{ steps.tag.outputs.tag }}" --src tools --tree src
+
+  ci:
+    needs: prepare
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: refs/tags/${{ needs.prepare.outputs.tag }}
+
+  packages:
+    needs: prepare
+    uses: ./.github/workflows/packages.yml
+    with:
+      ref: refs/tags/${{ needs.prepare.outputs.tag }}
+      full: true
+
+  draft:
+    needs: [prepare, ci, packages]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: tools
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ needs.prepare.outputs.tag }}
+          path: src
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: packages
+          pattern: "{deb,rpm}-*"
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: tested
+          pattern: tested-*
+          merge-multiple: true
+      - name: Release tooling (runtime dependencies of the backend, hash-pinned)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet --require-hashes -r src/packaging/requirements.lock
+      - name: Release directory (signed when the PELAGOS_RELEASE_KEY secret exists)
+        env:
+          SIGNING_KEY: ${{ secrets.PELAGOS_RELEASE_KEY }}
+          PELAGOS_RELEASE_KEY_PASSWORD: ${{ secrets.PELAGOS_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$RUNNER_TEMP/release.key")
+            export PELAGOS_RELEASE_KEY="$RUNNER_TEMP/release.key"
+          fi
+          published="$(TZ=UTC0 git -C src log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd)"
+          PELAGOS_PYTHON="$RUNNER_TEMP/venv/bin/python" tools/scripts/release-assemble.sh \
+            --notes "tools/docs/releases/$VERSION.md" --published-at "$published" --tree src \
+            "dist/$VERSION" "$VERSION" packages/*.deb packages/*.rpm
+          ls -l "dist/$VERSION"
+      - name: Blocking checks
+        run: |
+          tested=()
+          for f in tested/*.sha256; do tested+=(--tested "$f"); done
+          tools/scripts/release-check.sh --tag "$TAG" --src tools --tree src \
+            --require deb:amd64,deb:arm64,rpm:el9,rpm:el10 "${tested[@]}" "dist/$VERSION"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: dist/${{ needs.prepare.outputs.version }}
+          if-no-files-found: error
+      - name: Draft GitHub release (never published here)
+        run: |
+          state="$(gh api --paginate "repos/$GH_REPO/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"")"
+          read -r id draft <<<"$state"
+          if [ -z "$state" ]; then
+            gh release create "$TAG" --draft --verify-tag --title "Pelagos $VERSION" \
+              --notes-file "dist/$VERSION/NOTES.md" "dist/$VERSION"/*
+          elif [ "$draft" = true ]; then
+            # Same tag again: notes and every asset of the draft are replaced.
+            for asset in $(gh api --paginate "repos/$GH_REPO/releases/$id/assets" --jq '.[].id'); do
+              gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset"
+            done
+            gh api -X PATCH "repos/$GH_REPO/releases/$id" -f name="Pelagos $VERSION" \
+              -F "body=@dist/$VERSION/NOTES.md" >/dev/null
+            gh release upload "$TAG" "dist/$VERSION"/*
+          else
+            echo "release $TAG is already published: left as it is" >&2
+            exit 1
+          fi
+          gh release view "$TAG" --json isDraft,assets --jq '{isDraft, assets: [.assets[].name]}'
+
+  images:
+    needs: [prepare, draft]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: images
+          pattern: images-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the tested images, then <version> and latest over both arches
+        run: |
+          for f in images/images-*.tar.gz; do docker load -i "$f"; done
+          # ghcr.io wants a lowercase repository path.
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          for image in pelagos pelagos-allinone; do
+            for arch in amd64 arm64; do
+              docker tag "$image:release-$arch" "$registry/$image:$VERSION-$arch"
+              docker push "$registry/$image:$VERSION-$arch"
+            done
+            docker buildx imagetools create -t "$registry/$image:$VERSION" -t "$registry/$image:latest" \
+              "$registry/$image:$VERSION-amd64" "$registry/$image:$VERSION-arm64"
+            docker buildx imagetools inspect "$registry/$image:$VERSION"
+          done

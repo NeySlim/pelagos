@@ -17,7 +17,7 @@ DOCKER    ?= docker
 
 .PHONY: dev venv npm lint lint-backend lint-frontend lint-commits fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e test-e2e-smoke
 .PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys settings-schema notify-catalogs
-.PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging release
+.PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging release release-check
 
 dev: venv npm
 
@@ -142,12 +142,16 @@ docker-allinone:
 
 packages: deb rpm docker docker-allinone
 
-# Release: make release VERSION=0.1.1 [SINCE=<ref>] [RELEASE_DIR=<dir>] [NO_TAG=1]. Commits the
-# version, tags vX.Y.Z (nothing is pushed), builds the amd64 and arm64 debs (Docker, qemu binfmt
-# for arm64) and writes RELEASE_DIR/<version>/ with SHA256SUMS and NOTES.md. See docs/user/upgrade.md.
+# Release: make release VERSION=0.1.1 commits the version with docs/releases/0.1.1.md and
+# CHANGELOG.md and tags v0.1.1 (nothing is pushed; CI builds the release, docs/dev/release.md).
+# NO_TAG=1 [SINCE=<ref>] [RELEASE_DIR=<dir>]: local debs of HEAD in RELEASE_DIR/<version>/ (lab).
 RELEASE_DIR ?= build/release
 release:
 	scripts/release.sh $(if $(NO_TAG),--no-tag) $(if $(SINCE),--since $(SINCE)) --out $(RELEASE_DIR) $(VERSION)
+
+# Blocking checks of the release workflow: make release-check VERSION=0.1.1 [DIR=<release dir>].
+release-check:
+	scripts/release-check.sh --tag v$(VERSION) $(DIR)
 
 # Pinned runtime dependencies (with hashes) installed by packaging/build-tree.sh.
 lock:

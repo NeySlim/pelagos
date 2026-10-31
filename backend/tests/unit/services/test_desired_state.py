@@ -175,17 +175,16 @@ def test_kea_objects():
     assert svc.converge_client_class(Family.V4, "voip", {"test": "member('ALL')"}, "u").build is None
     svc.converge_client_class(Family.V4, "voip", {"test": "member('KNOWN')"}, "u").build()
     after = dhcp.planned[-1][1]["change"]["after"]
-    assert after["name"] == "voip" and after["test"] == "member('KNOWN')" and "raw" not in after
+    assert after["name"] == "voip" and after["test"] == "member('KNOWN')" and not after["raw"]
 
     assert svc.converge_option(Family.V4, "dhcp4", "3", {"data": "192.0.2.1"}, "u").build is None
     assert svc.converge_option(Family.V4, "dhcp4", "routers", {"data": "192.0.2.1"}, "u").build is None
     svc.converge_option(Family.V4, "dhcp4", "6", {"data": "192.0.2.53"}, "u").build()
     kind, plan_body = dhcp.planned[-1]
-    assert kind == "options" and plan_body["changes"][0]["after"] == {
-        "data": "192.0.2.53",
-        "code": 6,
-        "space": "dhcp4",
-    }
+    added = plan_body["changes"][0]["after"]
+    assert kind == "options" and (added["data"], added["code"], added["space"]) == ("192.0.2.53", 6, "dhcp4")
+    # A whole domain object: the builder tells it from a Kea object by its snake_case keys.
+    assert "csv_format" in added and added["raw"] == {}
     with pytest.raises(ValidationError):
         svc.converge_option(Family.V4, "dhcp4", "6", {"code": 7, "data": "x"}, "u")
 

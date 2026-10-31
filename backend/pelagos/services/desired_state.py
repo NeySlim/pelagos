@@ -17,11 +17,12 @@ from pelagos.connectors.kea import config as kcfg
 from pelagos.domain import ClientClass, Family, OptionData, Plan, Reservation, RRset, Subnet, Zone
 from pelagos.domain.dns import normalize_name
 from pelagos.services.errors import NotFound, ValidationError, field_error
-from pelagos.services.plan_targets import check_dhcp_target, check_record_owner, check_ttl
+from pelagos.services.plan_targets import check_dhcp_target, check_record_owner, check_ttl, model_error
 
 # Fields a body never sets: the path names the object, the engine computes the rest.
 _ZONE_FIXED = frozenset({"name", "view", "role", "source", "config_path", "extra"})
 _RESERVATION_FIXED = frozenset({"id_type", "identifier", "raw"})
+_WHOLE_OBJECT: dict[str, type] = {"class": ClientClass, "options": OptionData}
 
 
 @dataclass(slots=True)
@@ -242,6 +243,13 @@ class DesiredStateService:
                 {} if kind in ("subnet", "reservation") else {k: v for k, v in current.items() if k != "raw"}
             )
             change = {"op": "replace", "target": target, "before": current, "after": {**base, **body}}
+        model = _WHOLE_OBJECT.get(kind)
+        if model is not None and isinstance(change.get("after"), dict):
+            # These builders take a whole domain object: snake_case keys tell it from a Kea one.
+            try:
+                change["after"] = model.from_dict(change["after"]).to_dict()
+            except (TypeError, ValueError, KeyError) as exc:
+                raise model_error(exc, "body") from None
         svc = self.dhcp(family)
         plan_body = {"changes": [change]} if kind == "options" else {"change": change}
         conv.build = lambda: svc.plan(kind, plan_body, user)

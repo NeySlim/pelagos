@@ -410,10 +410,40 @@ export const search = {
   query: (q, limit) => apiClient.get(`/search${buildQueryString({ q, limit })}`),
 }
 
+// Desired state verbs (F0-DESIRED, section 17): PUT converges the object to the body, DELETE removes it;
+// both answer {changed, etag?, plan?, plan_id?, result?}. `opts`: {dry_run, confirm, view, subnet_id, etag}
+// (etag goes out as If-Match).
+const desiredQuery = (opts = {}) => buildQueryString({
+  dry_run: opts.dry_run ? 1 : undefined, confirm: opts.confirm ? 1 : undefined, view: opts.view, subnet_id: opts.subnet_id,
+})
+const ifMatch = (opts = {}) => (opts.etag ? { headers: { 'If-Match': `"${opts.etag}"` } } : {})
+const rrsetPath = (zone, owner, type) => `/dns/zones/${zonePath(zone)}/rrsets/${enc(owner)}/${enc(type)}`
+export const desired = {
+  rrset: (zone, owner, type, view) => apiClient.get(`${rrsetPath(zone, owner, type)}${buildQueryString({ view })}`),
+  // body: {ttl?, records: [rdata...], ptr?}
+  putRrset: (zone, owner, type, body, opts) => apiClient.put(`${rrsetPath(zone, owner, type)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteRrset: (zone, owner, type, opts) => apiClient.delete(`${rrsetPath(zone, owner, type)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+  putZone: (zone, body, opts) => apiClient.put(`/dns/zones/${zonePath(zone)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteZone: (zone, opts) => apiClient.delete(`/dns/zones/${zonePath(zone)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+  // key: <id_type>=<identifier>; body carries subnet_id (absent: a global reservation)
+  reservation: (family, key, subnet_id) => apiClient.get(`/dhcp/${family}/reservations/${enc(key)}${buildQueryString({ subnet_id })}`),
+  putReservation: (family, key, body, opts) => apiClient.put(`/dhcp/${family}/reservations/${enc(key)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteReservation: (family, key, opts) => apiClient.delete(`/dhcp/${family}/reservations/${enc(key)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+  putSubnet: (family, id, body, opts) => apiClient.put(`/dhcp/${family}/subnets/${enc(id)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteSubnet: (family, id, opts) => apiClient.delete(`/dhcp/${family}/subnets/${enc(id)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+  clientClass: (family, name) => apiClient.get(`/dhcp/${family}/client-classes/${enc(name)}`),
+  putClientClass: (family, name, body, opts) => apiClient.put(`/dhcp/${family}/client-classes/${enc(name)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteClientClass: (family, name, opts) => apiClient.delete(`/dhcp/${family}/client-classes/${enc(name)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+  // code: option code or name
+  option: (family, space, code) => apiClient.get(`/dhcp/${family}/options/${enc(space)}/${enc(code)}`),
+  putOption: (family, space, code, body, opts) => apiClient.put(`/dhcp/${family}/options/${enc(space)}/${enc(code)}${desiredQuery(opts)}`, body, ifMatch(opts)),
+  deleteOption: (family, space, code, opts) => apiClient.delete(`/dhcp/${family}/options/${enc(space)}/${enc(code)}${desiredQuery(opts)}`, undefined, ifMatch(opts)),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
   alerts, series, audit, advanced, install, admin, certs, ops, notifications, archives, ddnsFailover,
-  resolverHealth, keaMigration, ipv6, updates, search,
+  resolverHealth, keaMigration, ipv6, updates, search, desired,
 }
 
 export default api

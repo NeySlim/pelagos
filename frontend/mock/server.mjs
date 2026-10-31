@@ -25,6 +25,7 @@ import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
 import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
+import { desiredHandlers } from './desired.mjs'
 import { updatesHandlers } from './updates.mjs'
 import { searchHandlers } from './search.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
@@ -118,6 +119,17 @@ Object.assign(PERMISSIONS, {
   'GET /hosts/ipv6': 'read:hosts', 'GET /admin/ipv6': 'admin:settings', 'PUT /admin/ipv6': 'admin:settings',
   'POST /hosts/ipv6/plan': 'write:dns.records', 'POST /hosts/ipv6/replace-prefix/plan': 'write:dns.records',
   'POST /hosts/ipv6/reverse-zone/plan': 'write:dns.zones',
+})
+
+// F0-DESIRED: desired state verbs (GET /dhcp/... reads default to read:dhcp above).
+Object.assign(PERMISSIONS, {
+  'GET /dns/zones/{zone}/rrsets/{owner}/{type}': 'read:dns',
+  'PUT /dns/zones/{zone}/rrsets/{owner}/{type}': 'write:dns.records', 'DELETE /dns/zones/{zone}/rrsets/{owner}/{type}': 'write:dns.records',
+  'PUT /dns/zones/{zone}': 'write:dns.zones', 'DELETE /dns/zones/{zone}': 'write:dns.zones',
+  'PUT /dhcp/{family}/reservations/{key}': 'write:dhcp.reservations', 'DELETE /dhcp/{family}/reservations/{key}': 'write:dhcp.reservations',
+  'PUT /dhcp/{family}/subnets/{id}': 'write:dhcp.subnets', 'DELETE /dhcp/{family}/subnets/{id}': 'write:dhcp.subnets',
+  'PUT /dhcp/{family}/client-classes/{name}': 'write:dhcp.classes', 'DELETE /dhcp/{family}/client-classes/{name}': 'write:dhcp.classes',
+  'PUT /dhcp/{family}/options/{space}/{code}': 'write:dhcp.options', 'DELETE /dhcp/{family}/options/{space}/{code}': 'write:dhcp.options',
 })
 
 class Problem extends Error {
@@ -2809,6 +2821,8 @@ function buildHandlers(state, emit) {
     ...ipv6Handlers(state, { Problem, invalid, createPlan, zonePlan: (args) => handlers['POST /dns/zones/plan'](args) }),
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
     ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),
+    // F0-DESIRED
+    ...desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, emit, call: (spec, args) => handlers[spec](args) }),
   }
   return handlers
 }

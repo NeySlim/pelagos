@@ -53,8 +53,16 @@ function concrete(spec, state) {
   const userId = state.users.find((u) => u.username === 'viewer')?.id
   const audit = state.audit[0].id
   const history = state.history[0].id
+  // F0-DESIRED: an existing class, option and reservation of the mock data.
+  const res4 = state.reservations.v4.find((r) => r.subnet_id != null)
+  if (spec.includes('/client-classes/{name}')) return `/dhcp/v4/client-classes/${state.classes.v4[0].name}`
+  if (spec.includes('/reservations/{key}')) return `/dhcp/v4/reservations/${res4.id_type || 'hw-address'}=${res4.identifier}?subnet_id=${res4.subnet_id}`
   return spec
     .split(' ')[1]
+    .replace('{owner}', 'mail')
+    .replace('{type}', 'A')
+    .replace('{space}', 'dhcp4')
+    .replace('{code}', 'domain-name-servers')
     .replace('{family}', 'v4')
     .replace('{category}', 'ads')
     .replace('{zone}', zone)
@@ -107,6 +115,8 @@ const BODIES = {
   'PUT /account/preferences': { language: 'fr' },
   'PUT /dashboard/layout': { layout: [{ i: 'ha', x: 0, y: 0, w: 4, h: 3 }] },
   'POST /dns/zones/plan': { change: { op: 'add', target: '_default/new.example.lan.', after: { name: 'new.example.lan.', kind: 'primary', file: 'db.new', ns: ['ns1.example.lan.'] } } },
+  'PUT /dns/zones/{zone}/rrsets/{owner}/{type}': { ttl: 300, records: ['192.0.2.91'] },
+  'PUT /dhcp/{family}/reservations/{key}': (state) => ({ subnet_id: state.reservations.v4.find((r) => r.subnet_id != null).subnet_id, hostname: 'renamed' }),
   'POST /dns/zones/{zone}/records/plan': { changes: [{ op: 'add', target: 'example.lan./api/A', after: { ttl: 300, rdata: ['192.0.2.90'] } }] },
   'POST /dns/zones/{zone}/retransfer': { node_id: 'x' },
   'POST /dns/config/plan': { changes: [{ op: 'replace', target: 'options/recursion', after: 'no' }] },
@@ -167,6 +177,9 @@ const QUERIES = {
   'GET /dns/rpz/why': '?domain=ads.example.com',
   'DELETE /dns/rpz/allow': '?domain=ok.example.com',
   'DELETE /dns/rpz/exempt': '?cidr=192.0.2.7/32',
+  // F0-DESIRED: the whole zone and subnet stay for the specs after them.
+  'DELETE /dns/zones/{zone}': '?dry_run=1',
+  'DELETE /dhcp/{family}/subnets/{id}': '?dry_run=1',
 }
 
 // Endpoints whose success status is not 200/201/202/204 with these inputs.

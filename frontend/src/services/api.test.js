@@ -119,6 +119,14 @@ const invocations = [
   () => api.ipv6.plan({ items: [] }), () => api.ipv6.replacePrefixPlan({ old_prefix: '2001:db8::/64', new_prefix: '2001:db8:1::/64' }),
   () => api.ipv6.reverseZonePlan({ prefix: '2001:db8:1::/64' }),
   () => api.search.query('aa:bb', 5),
+  // F0-DESIRED
+  () => api.desired.rrset('example.lan', 'www', 'A'), () => api.desired.putRrset('example.lan', 'www', 'A', { records: ['192.0.2.1'] }, { dry_run: true, etag: '1' }),
+  () => api.desired.deleteRrset('example.lan', 'www', 'A', { confirm: true }), () => api.desired.putZone('example.lan', { notes: 'x' }),
+  () => api.desired.deleteZone('example.lan'), () => api.desired.reservation('v4', 'hw-address=aa:bb:cc:dd:ee:01', 1),
+  () => api.desired.putReservation('v4', 'hw-address=aa:bb:cc:dd:ee:01', { subnet_id: 1 }), () => api.desired.deleteReservation('v4', 'hw-address=aa:bb:cc:dd:ee:01', { subnet_id: 1 }),
+  () => api.desired.putSubnet('v4', 1, { valid_lifetime: 900 }), () => api.desired.deleteSubnet('v4', 1),
+  () => api.desired.clientClass('v4', 'voip'), () => api.desired.putClientClass('v4', 'voip', {}), () => api.desired.deleteClientClass('v4', 'voip'),
+  () => api.desired.option('v4', 'dhcp4', '6'), () => api.desired.putOption('v4', 'dhcp4', '6', { data: '192.0.2.53' }), () => api.desired.deleteOption('v4', 'dhcp4', '6'),
 ]
 
 describe('api.js', () => {

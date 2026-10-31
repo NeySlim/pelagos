@@ -3,7 +3,7 @@
 // round a used pool to 0%.
 import { describe, it, expect, afterEach } from 'vitest'
 import i18n from '../i18n'
-import { formatDate, formatRelativeTime, formatPercent } from './utils'
+import { formatDate, formatRelativeTime, formatPercent, formatSize, formatNumber } from './utils'
 
 const ago = (ms) => new Date(Date.now() - ms).toISOString()
 
@@ -53,5 +53,34 @@ describe('plural forms', () => {
     expect(i18n.t('common:diff.lines', { count: 1 })).toBe('1 line')
     expect(i18n.getFixedT('fr')('common:diff.lines', { count: 1 })).toBe('1 ligne')
     expect(i18n.getFixedT('fr')('common:diff.lines', { count: 3 })).toBe('3 lignes')
+  })
+})
+
+describe('formatSize and formatNumber', () => {
+  afterEach(() => i18n.changeLanguage('en'))
+
+  it('use binary units with the separator of the language', async () => {
+    expect(formatSize(0)).toBe('0 B')
+    expect(formatSize(1023)).toBe('1,023 B')
+    expect(formatSize(1024)).toBe('1 KiB')
+    expect(formatSize(1.8 * 1024 ** 2)).toBe('1.8 MiB')
+    expect(formatSize(1.5 * 1024 ** 3)).toBe('1.5 GiB')
+    expect(formatSize(300 * 1024 ** 2)).toBe('300 MiB')
+    expect(formatSize(2 * 1024 ** 4)).toBe('2 TiB')
+    expect(formatSize(null)).toBe('')
+    expect(formatSize('x')).toBe('')
+    await i18n.changeLanguage('fr')
+    expect(formatSize(1.8 * 1024 ** 2)).toBe('1,8 Mio')
+    expect(formatSize(8.2 * 1024 ** 3)).toBe('8,2 Gio')
+    expect(formatSize(512)).toBe('512 o')
+  })
+
+  it('formatNumber groups digits and caps fraction digits per language', async () => {
+    expect(formatNumber(1234567)).toBe('1,234,567')
+    expect(formatNumber(3.14159, { digits: 2 })).toBe('3.14')
+    expect(formatNumber(undefined)).toBe('')
+    await i18n.changeLanguage('fr')
+    expect(formatNumber(3.14159, { digits: 2 })).toBe('3,14')
+    expect(formatNumber(1234567).replace(/\s/g, ' ')).toBe('1 234 567')
   })
 })

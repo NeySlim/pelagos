@@ -355,8 +355,9 @@
   },
   "units": {
     "B": "{{value}} o",
-    "kB": "{{value}} ko",
-    "MB": "{{value}} Mo",
-    "GB": "{{value}} Go"
+    "KiB": "{{value}} Kio",
+    "MiB": "{{value}} Mio",
+    "GiB": "{{value}} Gio",
+    "TiB": "{{value}} Tio"
   }
 }

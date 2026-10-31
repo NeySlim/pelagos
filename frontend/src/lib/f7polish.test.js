@@ -26,11 +26,11 @@ describe('page title', () => {
 
 describe('numbers and sizes in the UI language', () => {
   it('formats sizes with French units and decimal comma', async () => {
-    expect(formatMb(1520)).toBe('1.5 GB')
+    expect(formatMb(1520)).toBe('1.4 GiB')
     await i18n.changeLanguage('fr')
-    expect(formatMb(5900)).toBe('5,9 Go')
-    expect(formatMb(94.4)).toBe('94 Mo')
-    expect(formatSize(48_000)).toBe('48 ko')
+    expect(formatMb(5900)).toBe('5,5 Gio')
+    expect(formatMb(94.4)).toBe('90 Mio')
+    expect(formatSize(48_000)).toBe('47 Kio')
   })
 
   it('formats thresholds with the precision of the readings', () => {

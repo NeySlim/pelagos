@@ -80,17 +80,31 @@ export function formatRelativeTime(date, t) {
   return formatDate(date)
 }
 
-// A non-empty pool never reads 0%, a pool that is not full never reads 100%.
-// A size in bytes with decimal units in the app language (1,5 Go in French, 1.5 GB in English).
+// A size in bytes with binary units in the app language (1,8 Mio in French, 1.8 MiB in English).
+const SIZE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+
 export function formatSize(bytes) {
-  if (bytes === null || bytes === undefined || !Number.isFinite(Number(bytes))) return ''
-  const n = Number(bytes)
-  const [value, unit] = n >= 1e9 ? [n / 1e9, 'GB'] : n >= 1e6 ? [n / 1e6, 'MB'] : n >= 1e3 ? [n / 1e3, 'kB'] : [n, 'B']
-  const digits = unit === 'B' || unit === 'kB' || (unit === 'MB' && value >= 10) ? 0 : 1
+  if (bytes === null || bytes === undefined || bytes === '' || !Number.isFinite(Number(bytes))) return ''
+  let value = Number(bytes)
+  let step = 0
+  while (Math.abs(value) >= 1024 && step < SIZE_UNITS.length - 1) {
+    value /= 1024
+    step += 1
+  }
+  const unit = SIZE_UNITS[step]
+  const digits = unit === 'B' || Math.abs(value) >= 10 ? 0 : 1
   const text = new Intl.NumberFormat(i18n.language || 'en', { maximumFractionDigits: digits }).format(value)
   return i18n.t(`common:units.${unit}`, { value: text, defaultValue: `${text} ${unit}` })
 }
 
+// A number with the separators of the app language; `digits` caps the fraction digits.
+export function formatNumber(n, { digits } = {}) {
+  if (n === null || n === undefined || n === '' || !Number.isFinite(Number(n))) return ''
+  const options = digits === undefined ? {} : { maximumFractionDigits: digits }
+  return new Intl.NumberFormat(i18n.language || 'en', options).format(Number(n))
+}
+
+// A non-empty pool never reads 0%, a pool that is not full never reads 100%.
 export function formatPercent(percent) {
   const p = Number(percent) || 0
   if (p > 0 && p < 1) return '<1%'

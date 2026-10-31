@@ -32,10 +32,10 @@ const view = (id) => {
 describe('rpz helpers', () => {
   it('formats counts and sizes', () => {
     expect(formatCount(118000)).toBe('118 000')
-    expect(formatMb(94.4)).toBe('94 MB')
-    expect(formatMb(1520)).toBe('1.5 GB')
-    expect(formatBytes(7_300_000)).toBe('7.3 MB')
-    expect(formatBytes(48_000)).toBe('48 kB')
+    expect(formatMb(94.4)).toBe('90 MiB')
+    expect(formatMb(1520)).toBe('1.4 GiB')
+    expect(formatBytes(7_300_000)).toBe('7 MiB')
+    expect(formatBytes(48_000)).toBe('47 KiB')
     expect(estimatedMb(118000, 800)).toBe(94.4)
   })
 

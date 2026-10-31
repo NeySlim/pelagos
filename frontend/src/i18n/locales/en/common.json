@@ -355,8 +355,9 @@
   },
   "units": {
     "B": "{{value}} B",
-    "kB": "{{value}} kB",
-    "MB": "{{value}} MB",
-    "GB": "{{value}} GB"
+    "KiB": "{{value}} KiB",
+    "MiB": "{{value}} MiB",
+    "GiB": "{{value}} GiB",
+    "TiB": "{{value}} TiB"
   }
 }

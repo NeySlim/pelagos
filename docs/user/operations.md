@@ -186,7 +186,10 @@ deletes them; they come back on that node once it is upgraded. Features that
 keep such records refuse to write them (`409 collection_unavailable`) while a
 node of the cluster does not know them yet, so finish the upgrade of every
 node before using them. A rolling update from the UI does not stall on that
-difference.
+difference, with one exception: when an older node relayed the removal of a
+field of such a record and the record was deleted later, the older node keeps
+that removal mark until it is upgraded, and the update reports
+"cluster.toml differs" for it meanwhile. Upgrading that node clears it.
 
 **Compose**: build or pull the new image, then:
 

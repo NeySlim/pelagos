@@ -1850,7 +1850,11 @@ next merge with any node that knows the collection, with their original
 stamps. While a collection holds records, the digests of nodes that know it
 and of nodes that do not differ, and each peer poll merges both ways (as for
 `[[api_tokens]]` with 0.2.x nodes, section 16); `digest(without=...)` gives
-the comparable value (rolling updates, section 29). A section unknown to
+the comparable value (rolling updates, section 29). It is exact except in
+one case: an older node that relayed a field tombstone of a collection
+record later deleted keeps that tombstone for good (it never prunes a
+section it does not know), while nodes that know the collection prune it, so
+convergence reports a difference with that node until it is upgraded. A section unknown to
 every release (written by a newer one) follows the same rule on this
 release. `/repl/v1/status` gains `collections` (the names this node knows,
 sorted), read into `PeerStatus.collections: list[str] | None` (None: an
@@ -5466,7 +5470,8 @@ the screen (U6), daemon and lab tests (U7).
   (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`; the audit mark is
   this node's count when the check began: new entries keep arriving, equal counts rarely meet;
   a peer whose status does not list a non-empty local collection is compared with
-  `digest(without=<those collections>)`, section 10),
+  `digest(without=<those collections>)`, section 10, exact except for a field tombstone of a
+  deleted record that such a peer relayed: it reports a difference until that peer is upgraded),
   `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` and no
   sandbox refusal from the new processes), `permissions` (the permission
   guard of the collector, probed in its own unit sandbox), `ha` (Kea HA back to a normal state), `engine_checks`

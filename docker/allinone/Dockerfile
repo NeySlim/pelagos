@@ -58,8 +58,9 @@ COPY docker/kea/ /usr/share/pelagos/seed/kea-3/
 COPY docker/kea-2.6/ /usr/share/pelagos/seed/kea-2.6/
 COPY docker/allinone/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/entrypoint.sh /usr/local/bin/pelagos-entrypoint
+COPY docker/allinone/kea-run.sh /usr/local/bin/kea-run
 COPY LICENSE NOTICE /usr/share/doc/pelagos/
-RUN chmod 0755 /usr/local/bin/pelagos-entrypoint && ln -s /opt/pelagos/bin/pelagos /usr/bin/pelagos \
+RUN chmod 0755 /usr/local/bin/pelagos-entrypoint /usr/local/bin/kea-run && ln -s /opt/pelagos/bin/pelagos /usr/bin/pelagos \
  && if [ "$KEA_SOURCE" = "isc" ]; then mv /usr/share/pelagos/seed/kea-3 /usr/share/pelagos/seed/kea; \
     else mv /usr/share/pelagos/seed/kea-2.6 /usr/share/pelagos/seed/kea; fi \
  && rm -rf /usr/share/pelagos/seed/kea-3 /usr/share/pelagos/seed/kea-2.6 \

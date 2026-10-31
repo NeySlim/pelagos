@@ -240,13 +240,13 @@ class UpdatesService:
         named = str(installed.get("release") or "")
         if named and ur.release_version(named) != mine:
             return False
-        return (self.upgrade_dir / "packages" / mine).is_dir()
+        return src.held_dir(self.upgrade_dir / "packages" / mine)
 
     def previous_kept(self) -> str | None:
         """The release `previous.json` names, when its packages are still held here."""
         prev = _read_json(self.upgrade_dir / "previous.json") or {}
         version = str(prev.get("release") or "")
-        if not valid_version(version) or not (self.upgrade_dir / "packages" / version).is_dir():
+        if not valid_version(version) or not src.held_dir(self.upgrade_dir / "packages" / version):
             return None
         return version
 

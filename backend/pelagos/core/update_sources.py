@@ -178,6 +178,14 @@ def fetch_from_peer(client: Any, version: str, incoming: Path) -> dict[str, Any]
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def held_dir(path: Path) -> bool:
+    """A real folder of root's update tree; a tree closed to pelagos (EACCES) holds nothing."""
+    try:
+        return path.is_dir() and not path.is_symlink()
+    except OSError:
+        return False
+
+
 @dataclass(slots=True)
 class HeldReleases:
     """`ReleaseStore` of `/repl/v1/releases`: the helper's verified copies in `packages/<version>/`
@@ -192,7 +200,7 @@ class HeldReleases:
         if not valid_version(version):
             return None
         folder = self.packages_root / version
-        return folder if folder.is_dir() and not folder.is_symlink() else None
+        return folder if held_dir(folder) else None
 
     def _sums(self, folder: Path) -> dict[str, str] | None:
         try:
@@ -201,6 +209,12 @@ class HeldReleases:
             return None
 
     def listing(self, version: str) -> dict[str, Any] | None:
+        try:
+            return self._listing(version)
+        except OSError:
+            return None
+
+    def _listing(self, version: str) -> dict[str, Any] | None:
         folder = self._folder(version)
         if folder is None:
             return None
@@ -240,7 +254,10 @@ class HeldReleases:
         if sums is None or (name not in sums and name not in (CHECKSUMS, SIGNATURE)):
             return None
         path = folder / name
-        return path if path.is_file() and not path.is_symlink() else None
+        try:
+            return path if path.is_file() and not path.is_symlink() else None
+        except OSError:
+            return None
 
     def holds(self, version: str) -> bool:
         return self.listing(version) is not None

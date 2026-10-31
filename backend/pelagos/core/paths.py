@@ -114,7 +114,8 @@ class Paths:
     @property
     def upgrade_dir(self) -> Path:
         """Root's update state (section 29): verified packages, progress, state backups. Beside
-        the service user's tree, never inside it: nothing there may be owned or moved by pelagos."""
+        the service user's tree, never inside it: nothing there may be owned or moved by pelagos.
+        Read-only for pelagos, and absent or closed (EACCES) on a node never updated from the UI."""
         return self.var.parent / "pelagos-helper" / "upgrade"
 
     @property

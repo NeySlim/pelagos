@@ -532,3 +532,20 @@ def test_pre_release_versions_compare_in_their_release_form():
     assert ur.release_version("0.3.0rc1") == "0.3.0~rc1" and ur.release_version("0.3.0") == "0.3.0"
     assert _cmp("0.3.0~rc1", "0.2.5") > 0 and _cmp("0.3.0~rc1", "0.3.0rc1") == 0
     assert _cmp("0.3.0", "0.3.0rc2") > 0
+
+
+def test_overview_with_an_unreadable_helper_tree(admin, services):
+    """Item 87: a deploy-prod node whose root helper tree is closed to pelagos (EACCES)."""
+    helper_root = Path(services.ctx.paths.upgrade_dir).parent
+    helper_root.mkdir(parents=True, exist_ok=True)
+    helper_root.chmod(0)
+    try:
+        res = admin.get(f"{V1}/admin/updates")
+        assert res.status_code == 200, res.get_json()
+        node = res.get_json()["nodes"][0]
+        assert node["previous_kept"] is None
+        assert services.updates.rollback_ready() is False
+        assert services.updates.held().holds(OLD) is False
+        assert services.updates.held_versions() == []
+    finally:
+        helper_root.chmod(0o755)

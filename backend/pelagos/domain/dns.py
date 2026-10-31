@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -71,6 +72,15 @@ def bulk_zone(zone: Zone | Mapping[str, Any]) -> bool:
     """Policy and catalog zones hold no hosts and may hold millions of names: every global read
     (hosts, IPv6, consistency, PTR checks, archives, serial series) leaves them out."""
     return zone_role(zone) is not None
+
+
+# RFC 2317 classless delegations ("0/25.2.0.192.in-addr.arpa") are the only zone names with "/".
+CLASSLESS_ZONE = re.compile(r"^\d+[/-]\d+\.")
+
+
+def slash_in_zone_name(name: str) -> bool:
+    """True for a "/" outside the RFC 2317 form: a path to another endpoint, never a zone."""
+    return "/" in name and not CLASSLESS_ZONE.match(name.strip())
 
 
 def normalize_name(name: str) -> str:

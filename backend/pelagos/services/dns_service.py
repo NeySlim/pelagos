@@ -36,7 +36,7 @@ from pelagos.domain import (
     messages,
     normalize_name,
 )
-from pelagos.domain.dns import NO_RECORD_KINDS, ZoneRole, zone_role
+from pelagos.domain.dns import NO_RECORD_KINDS, ZoneRole, slash_in_zone_name, zone_role
 from pelagos.services.dns_extras import DnsExtras, zone_mode
 from pelagos.services.errors import (
     EngineUnavailable,
@@ -852,14 +852,20 @@ def check_zone_name(name: str) -> None:
     """Letters, digits, hyphen, underscore (and "/" of RFC 2317 names) in labels of 63 octets at
     most; the root is "."."""
     text = name.strip()
+    if slash_in_zone_name(text):
+        raise _zone_name_error(name)
     labels = [] if text in (".", "") else text.rstrip(".").split(".")
     if text and len(text.rstrip(".")) <= 253 and all(_ZONE_LABEL.match(label) for label in labels):
         return
+    raise _zone_name_error(name)
+
+
+def _zone_name_error(name: str) -> ValidationError:
     err = ValidationError(
         f"{name} is not a valid zone name", [field_error("change.target", "invalid zone name")]
     )
     err.extra = {"detail_message": messages.msg("problem.detail.zone_name_invalid", zone=name)}
-    raise err
+    return err
 
 
 def parse_change(raw: Any, where: str) -> Change:

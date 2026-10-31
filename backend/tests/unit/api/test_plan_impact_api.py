@@ -135,6 +135,27 @@ def test_zone_name_is_checked_first(role_client):
     assert r.get_json()["detail_message"]["key"] == "problem.detail.zone_name_invalid"
 
 
+@pytest.mark.parametrize(
+    "target", ["_default/example.lan/records", "_default/example.lan/dnssec", "_default/a/b."]
+)
+@pytest.mark.parametrize("op", ["add", "replace", "delete"])
+def test_zone_plan_refuses_a_slash_in_the_name(role_client, op, target):
+    dora = role_client("dns-operator")
+    change = {"op": op, "target": target, "after": {"kind": "primary"}}
+    r = dora.post("/api/v1/dns/zones/plan", json={"change": change})
+    assert r.status_code == 400
+    assert r.get_json()["errors"][0]["field"] == "change.target"
+    assert r.get_json()["detail_message"]["key"] == "problem.detail.zone_name_invalid"
+
+
+def test_check_zone_name_keeps_rfc2317_names():
+    from pelagos.services.dns_service import check_zone_name
+
+    check_zone_name("0/25.2.0.192.in-addr.arpa.")
+    check_zone_name("0-25.2.0.192.in-addr.arpa")
+    check_zone_name("example.lan.")
+
+
 def test_ddns_record_delete_says_kea_writes_it_again(role_client):
     dora = role_client("dns-operator")
     change = {"op": "delete", "target": "pc1/A"}

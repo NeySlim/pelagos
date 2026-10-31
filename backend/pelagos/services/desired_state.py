@@ -16,7 +16,7 @@ from typing import Any
 from pelagos.connectors.bind.rrset import RRsetError, normalize_rdata
 from pelagos.connectors.kea import config as kcfg
 from pelagos.domain import ClientClass, Family, OptionData, Plan, Reservation, RRset, Subnet, Zone
-from pelagos.domain.dns import normalize_name
+from pelagos.domain.dns import normalize_name, slash_in_zone_name
 from pelagos.services.errors import NotFound, ValidationError, field_error
 from pelagos.services.plan_targets import check_dhcp_target, check_record_owner, check_ttl, model_error
 
@@ -26,8 +26,6 @@ _RESERVATION_FIXED = frozenset({"id_type", "identifier", "raw"})
 _RRSET_KEYS = frozenset({"ttl", "records", "ptr", "view", "confirm"})
 # Octets separated by ":", "-" or spaces, or plain hex (optionally 0x): what Kea reads for these types.
 _HEX_ID = re.compile(r"^(?:0x)?(?:[0-9a-f]{1,2}(?:[:\- ][0-9a-f]{1,2})+|[0-9a-f]{2,})$", re.IGNORECASE)
-# RFC 2317 classless delegations ("0/25.2.0.192.in-addr.arpa") are the only zone names with "/".
-_CLASSLESS = re.compile(r"^\d+[/-]\d+\.")
 _WHOLE_OBJECT: dict[str, type] = {"class": ClientClass, "options": OptionData}
 
 
@@ -89,7 +87,7 @@ def _invalid(field: str, detail: str, message: str) -> ValidationError:
 def check_zone_path(name: str) -> None:
     """`/dns/zones/<path:zone>` also matches the sub-routes (`.../records`, `.../dnssec`): a "/" in a
     zone name other than the RFC 2317 form is a path to another endpoint, never a zone."""
-    if "/" in name and not _CLASSLESS.match(name.strip()):
+    if slash_in_zone_name(name):
         raise _invalid("zone", f"{name!r} is not a zone name", "not a zone name")
 
 

@@ -306,6 +306,13 @@
     "name",
     "rtype"
   ],
+  "alert.replication_conflict": [
+    "local_node",
+    "local_user",
+    "path",
+    "remote_node",
+    "remote_user"
+  ],
   "alert.reservation_duplicate_host": [
     "count",
     "hostname",

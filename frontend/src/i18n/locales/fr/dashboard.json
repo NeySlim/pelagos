@@ -211,7 +211,8 @@
     "path_not_writable": "chemin non inscriptible",
     "update_available": "mise à jour disponible",
     "update_failed": "mise à jour en échec",
-    "update_stalled": "mise à jour bloquée"
+    "update_stalled": "mise à jour bloquée",
+    "replication_conflict": "conflit de réplication"
   },
   "live": {
     "label": "Direct",

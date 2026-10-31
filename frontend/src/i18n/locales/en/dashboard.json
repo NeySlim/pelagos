@@ -211,7 +211,8 @@
     "path_not_writable": "path not writable",
     "update_available": "update available",
     "update_failed": "update failed",
-    "update_stalled": "update stalled"
+    "update_stalled": "update stalled",
+    "replication_conflict": "replication conflict"
   },
   "live": {
     "label": "Live",

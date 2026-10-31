@@ -27,6 +27,7 @@ from pelagos.collector.checks import (
     distro,
     forecast,
     kea_series,
+    replication_conflicts,
     reservations,
     resolver,
     resolver_probes,
@@ -41,7 +42,7 @@ from pelagos.connectors.base import ConnectorError
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.core import settings_registry as reg
 from pelagos.domain import Alert, AlertKind, Engine, Family, LeaseState, ZoneKind, bulk_zone
-from pelagos.domain.common import from_rfc3339
+from pelagos.domain.common import from_rfc3339, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -192,6 +193,7 @@ class HealthChecks:
             self._versions,
             self._advisories,
             self._kea_series,
+            self._replication_conflicts,  # F0-REPL
         ):
             try:
                 out.append(check())
@@ -538,6 +540,17 @@ class HealthChecks:
             self.store.write_snapshot(self.node_id, engine.value, "advisories", int(now), payload)
 
     # Slow checks -----------------------------------------------------------------
+
+    # F0-REPL: merge conflicts of this node (section 13).
+    def _replication_conflicts(self) -> PollOutcome:
+        audit_log = getattr(self.ctx, "audit_log", None)
+        if audit_log is None:
+            return PollOutcome()
+        alerts = replication_conflicts.observe(audit_log, self.node_id, utcnow(), self._names())
+        kinds = frozenset({AlertKind.REPLICATION_CONFLICT.value})
+        return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
+
+    # F0-REPL end
 
     def slow(self) -> list[PollOutcome]:
         out = []

@@ -999,11 +999,18 @@ class LiveView:
             if status is None:
                 continue
             name = peer.name or peer.id
-            if status.config_digest and status.config_digest != mine:
+            if status.config_digest and status.config_digest != mine and not self._same_without(status):
                 problems.append(f"{name}: cluster.toml differs")
             if status.audit_count is not None and status.audit_count < floor:
                 problems.append(f"{name}: audit count {status.audit_count}, here {floor}")
         return problems
+
+    # F0-REPL: a peer that does not know a collection holding records here cannot hold them.
+    def _same_without(self, status: Any) -> bool:
+        cfg = self.ctx.config_store.load_cluster()
+        known = getattr(status, "collections", None) or []
+        missing = [n for n, recs in cfg.collections.items() if recs and n not in known]
+        return bool(missing) and status.config_digest == cfg.digest(without=missing)
 
     def audit_count(self) -> int:
         return int(self.ctx.audit_log.head()[0])

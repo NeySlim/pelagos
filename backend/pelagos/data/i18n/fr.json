@@ -72,6 +72,7 @@
   "alert.ptr_mismatch.no_ptr": "{{name}} n'a pas de PTR (trouvé : {{found}})",
   "alert.ptr_mismatch.stale": "{{count}} PTR désignent un hôte qui n'a pas cette adresse (périmés)",
   "alert.record_without_lease": "L'enregistrement {{rtype}} {{name}} ({{addresses}}) a un DHCID mais aucun bail",
+  "alert.replication_conflict": "{{path}} : écriture de {{local_user}} sur {{local_node}} perdue face à {{remote_user}} sur {{remote_node}}",
   "alert.reservation_duplicate_host": "Le nom {{hostname}} est réservé {{count}} fois ({{ips}})",
   "alert.reservation_duplicate_id": "{{identifier}} est réservé {{count}} fois ({{ips}})",
   "alert.reservation_in_pool": "La réservation {{identifier}} ({{ip}}) est dans le pool dynamique {{pool}}",

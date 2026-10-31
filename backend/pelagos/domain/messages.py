@@ -445,6 +445,10 @@ CATALOG: dict[str, str] = {
     ),
     "alert.update_failed": "update to {version} failed on {node} at step {step}: {error}",
     "alert.update_stalled": "update to {version}: {node} has not moved for {minutes} minutes (step {step})",
+    # F0-REPL: merge conflicts (section 13).
+    "alert.replication_conflict": (
+        "{path}: write by {local_user} on {local_node} lost to {remote_user} on {remote_node}"
+    ),
     "plan.update.pelagos": "update Pelagos to {version} on {nodes}, in this order",
     "plan.update.engine_packages": "update {packages} on {nodes}, in this order",
     "plan.update.rollback": "go back to Pelagos {version} on {nodes}, in this order",

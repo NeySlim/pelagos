@@ -78,6 +78,8 @@ class AlertKind(enum.StrEnum):
     UPDATE_AVAILABLE = "update_available"
     UPDATE_FAILED = "update_failed"
     UPDATE_STALLED = "update_stalled"
+    # F0-REPL: a write of this node lost to a concurrent one (section 13).
+    REPLICATION_CONFLICT = "replication_conflict"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:

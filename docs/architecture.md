@@ -4941,9 +4941,10 @@ rollout state machine, sources and distribution between nodes in the
 collector (U3), engine packages (U4), the routes in `api/updates.py` (U5),
 the screen (U6), daemon and lab tests (U7).
 
-- **Release directory** (`make release`, then attached to the GitHub
-  release or uploaded from the screen): `pelagos_<version>-1_<arch>.deb`
-  (and `.rpm` when built), `release.json`, `NOTES.md`, `SHA256SUMS`
+- **Release directory** (`scripts/release-assemble.sh` in the release
+  workflow, attached to the GitHub release, or uploaded from the screen):
+  `pelagos_<version>-1_<arch>.deb` (and the el9 and el10 `.rpm`, outside
+  `release.json`, which lists one package per format and arch), `release.json`, `NOTES.md`, `SHA256SUMS`
   (`sha256sum` output over every other file, `release.json` and `NOTES.md`
   included), `SHA256SUMS.sig` when a key is available. Only files listed in
   `SHA256SUMS` are ever read; a listed file that is missing, or whose sum

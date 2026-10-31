@@ -165,15 +165,16 @@ seconds, a few tens of seconds on slow arm64 hardware).
 
 ## Scripted upgrade
 
-A release comes as a directory (`make release`, or the assets of the GitHub
-release): `pelagos_<version>_amd64.deb`, `pelagos_<version>_arm64.deb`,
-`SHA256SUMS` and `NOTES.md`. `scripts/deploy-prod.sh` applies this page to
+A release comes as the assets of the GitHub release (or a directory with
+the same files): `pelagos_<version>_amd64.deb`, `pelagos_<version>_arm64.deb`,
+`SHA256SUMS`, `release.json` and `NOTES.md`. `scripts/deploy-prod.sh` applies this page to
 Debian nodes one at a time, from any machine that reaches them over ssh with
 a key and passwordless `sudo`:
 
 ```sh
 scripts/deploy-prod.sh --dry-run ./0.1.1 ns2 ns1    # checks only, changes nothing
 scripts/deploy-prod.sh ./0.1.1 ns2 ns1              # standby first, primary last
+scripts/deploy-prod.sh --tag v0.1.1 ns2 ns1         # the assets of the GitHub release (gh)
 ```
 
 The hosts are ssh destinations, upgraded in the order given. Before the

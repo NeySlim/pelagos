@@ -12,7 +12,7 @@ make docker-allinone   # all-in-one image: pelagos-allinone:<version>, KEA_SOURC
 
 Release images are published as `ghcr.io/neyslim/pelagos` and
 `ghcr.io/neyslim/pelagos-allinone` (`<version>` and `latest`, amd64 and
-arm64) by `.github/workflows/images.yml`. Deploying them is described in
+arm64) by the `release` workflow, after their smoke tests. Deploying them is described in
 [docs/user/docker.md](../docs/user/docker.md), with one compose file per
 scenario under `examples/`. This file covers the local build and the
 development stack of `compose.yaml`.

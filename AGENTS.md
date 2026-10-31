@@ -133,8 +133,8 @@ owning package's test directory.
   `pytest -n auto`, vitest, frontend build, under 10 minutes). The daemon
   tier runs when `backend/pelagos/connectors/` or the fixtures change, a
   Playwright smoke (`make test-e2e-smoke`) when `frontend/` changes, the
-  amd64 packages when `packaging/` or `docker/` change. Release tags and the
-  nightly run take the full suite (unit on Python 3.12 and 3.13, daemon
+  amd64 packages when `packaging/` or `docker/` change. Release tags (the
+  `release` workflow) and the nightly run take the full suite (unit on Python 3.12 and 3.13, daemon
   tier, every Playwright spec, packages amd64 and arm64). One green run is
   enough.
 - **Lab tier:** the full `make test-lab` runs once a week. Before a release,
@@ -148,21 +148,23 @@ owning package's test directory.
 
 ### Releases
 
-`make release VERSION=0.1.1 SINCE=<previous tag or commit>
-RELEASE_DIR=<dir>` sets `backend/pelagos/__init__.py` (the only source of
-the version), commits and tags `v0.1.1`, builds the amd64 and arm64 debs in
-Debian 13 containers (arm64 through qemu binfmt), writes
-`<dir>/0.1.1/` with the debs, `release.json`, `NOTES.md` and `SHA256SUMS`
-over them, then moves `main` to the next `.dev0`. With
-`PELAGOS_RELEASE_KEY=<Ed25519 private key outside the repository>` it also
-writes `SHA256SUMS.sig`; without it the release is unsigned (no error).
-Public keys ship in `backend/pelagos/data/release-keys/` (README there). Nothing is pushed: push `main` only. Pushing the tag,
-publishing a GitHub release, and opening public PRs, issues or comments need
-the owner's explicit approval: prepare the text and wait. A pushed tag runs
-the full CI but never publishes; publication is a manual packages run on the
-tag with `publish` set. `NO_TAG=1` builds a throwaway version from `HEAD` without touching
-git. `scripts/deploy-prod.sh` rolls a release directory out node by node
-(`docs/user/upgrade.md`).
+The process is [docs/dev/release.md](docs/dev/release.md).
+`make release VERSION=0.1.1` checks the release (`scripts/release-check.sh`:
+notes in `docs/releases/0.1.1.md`, `CHANGELOG.md`, no version in the
+README), commits the version (`backend/pelagos/__init__.py`, the only source
+of the version) with the notes, tags `v0.1.1` and moves `main` to the next
+`.dev0`; it builds nothing. The pushed tag runs `.github/workflows/release.yml`:
+full CI and packages (`ci.yml` and `packages.yml` as reusable workflows),
+`scripts/release-assemble.sh` and the blocking checks, a draft GitHub release
+and the ghcr.io images. Production debs are the draft's
+(`scripts/deploy-prod.sh --tag v0.1.1`), never a local build. `NO_TAG=1`
+builds throwaway debs of `HEAD` locally (lab tests). With
+`PELAGOS_RELEASE_KEY=<Ed25519 private key outside the repository>` (or the
+repository secret of the same name in CI) `SHA256SUMS.sig` is written;
+without it the release is unsigned (no error). Public keys ship in
+`backend/pelagos/data/release-keys/` (README there). Agents push `main`
+only: pushing a tag, publishing a GitHub release, and opening public PRs,
+issues or comments need the owner's explicit approval.
 
 ### Local daemon fixtures
 
@@ -244,7 +246,7 @@ make test           # unit tier + vitest (PYTEST_ARGS="-n auto" for the parallel
 make test-daemon    # daemon tier
 make test-e2e-smoke # a few Playwright specs (make test-e2e: all of them)
 make test-lab       # lab tier (PELAGOS_LAB=1)
-make release VERSION=X.Y.Z  # tag and build the release debs (see Releases)
+make release VERSION=X.Y.Z  # release commit and tag; CI drafts the release (see Releases)
 make build-frontend # vite build
 make run            # backend dev server + vite dev server
 ```

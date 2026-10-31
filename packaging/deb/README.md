@@ -12,7 +12,7 @@ frontend `dist` when it exists), writes `debian/changelog` from
 `backend/pelagos/__init__.py` (`0.1.0.dev0` becomes
 `0.1.0~dev0+git<commit time>.<commit>-1` in a git checkout, so each build
 upgrades the previous one; `PELAGOS_SNAPSHOT` overrides the snapshot, empty
-for none; a release such as `0.1.1`, cut with `make release`, is never
+for none; a release such as `0.1.1`, tagged with `make release`, is never
 stamped) and runs
 `dpkg-buildpackage -b`. `debian/rules` calls `packaging/build-tree.sh`,
 shared with the rpm and the images, which:

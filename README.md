@@ -136,7 +136,7 @@ Details: [user documentation](docs/user/README.md),
 | Item | Versions |
 | --- | --- |
 | deb package | Debian 13 (trixie), amd64 and arm64 |
-| rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64, built from this repository (`make rpm`) |
+| rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 |
 | Container images | node and all-in-one, amd64 and arm64, on ghcr.io: `ghcr.io/neyslim/pelagos:<version>` and `ghcr.io/neyslim/pelagos-allinone:<version>` (and `latest`) |
 | BIND | 9.20 |
 | Kea | 3.x recommended (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`), with the built-in migration to 3.x |
@@ -147,9 +147,9 @@ The packages bundle their own Python environment under `/opt/pelagos`
 
 ## Installation
 
-The deb packages (amd64 and arm64), `SHA256SUMS`, `release.json` and the
-notes are attached to each [GitHub release](https://github.com/NeySlim/pelagos/releases).
-Releases carry no rpm: build it with `make rpm` (see below).
+The deb packages (amd64 and arm64), the rpms (el9 and el10, x86_64),
+`SHA256SUMS`, `release.json` and the notes are attached to each
+[GitHub release](https://github.com/NeySlim/pelagos/releases).
 
 ### Debian 13 (deb)
 
@@ -168,8 +168,9 @@ initialized. Later upgrades go through **Administration > Updates**
 
 ### RHEL, Rocky, AlmaLinux (rpm)
 
-Build the rpm from a checkout of the release tag with `make rpm`
-([packaging/rpm/README.md](packaging/rpm/README.md)), then:
+Take the rpm of your distribution from the release (or build it from a
+checkout of the release tag with `make rpm`, see
+[packaging/rpm/README.md](packaging/rpm/README.md)), then:
 
 ```sh
 sudo dnf install ./pelagos-<version>.el10.x86_64.rpm   # el9 on RHEL 9
@@ -283,10 +284,10 @@ first, see [AppArmor](docs/user/troubleshooting.md#apparmor)), and `lab`
 (installs packages on disposable VMs, `make test-lab`, see
 [scripts/lab/README.md](scripts/lab/README.md)). CI runs lint, the unit
 tier on Python 3.12 and 3.13, the frontend checks, the daemon tier against
-BIND 9.20 and Kea 3.2, and the end-to-end suite. A version tag builds and
-smoke-tests the packages and images for amd64 and arm64. A GitHub release
-carries the debs built by `make release`; the images are published by the
-manual `images` workflow on the release tag.
+BIND 9.20 and Kea 3.2, and the end-to-end suite. A version tag runs the
+`release` workflow: full suite, packages and images built and tested for
+amd64 and arm64, then a draft GitHub release and the images on ghcr.io
+([docs/dev/release.md](docs/dev/release.md)).
 
 The frontend can run alone against a mock API: `cd frontend && npm run mock`
 in one terminal and `VITE_API_MOCK=1 npm run dev` in another (see

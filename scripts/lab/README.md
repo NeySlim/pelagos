@@ -248,7 +248,7 @@ Every module rolls its own VMs back in its first step, so the demo state left
 by `test_kea26_lab.py` (`test_10_demo_state`) is never inherited by another
 module.
 
-The lab VMs are amd64 only. `packages.yml` builds the deb on a native arm64
+The lab VMs are amd64 only. `packages.yml` builds and tests the deb on a native arm64
 runner, but no lab scenario runs on arm64: the Kea 2.6.3 and BIND 9.20 Debian
 scenario is proven on amd64 only (same source packages on both architectures).
 

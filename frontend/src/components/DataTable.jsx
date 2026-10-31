@@ -16,6 +16,8 @@ import { SkeletonTable } from './motion/Skeleton'
 import { RowEnter, RowLeave } from './motion/Rows'
 import { glideRows, orderChanged } from './motion/primitives'
 import { useMotionLevel } from '../contexts/MotionContext'
+import { useMobile } from '../contexts/MobileContext'
+import { MobileCard } from './ui/MobileCard'
 import { useColumnBand } from '../hooks/useColumnBand'
 import { useSharedName } from '../hooks/useSharedName'
 import { Button } from './Button'
@@ -76,10 +78,15 @@ export function DataTable({
   // Column keys whose cells tint once when their value changes for the same row (serials,
   // counters); `col.changeValue(row)` overrides what is compared.
   highlightChanges = null,
+  // Phone layout: { title(row), subtitle(row), status(row), fields: [column keys], primaryAction(row) }.
+  // Without it the table scrolls sideways as before.
+  mobileCard,
   className,
   testId = 'data-table',
 }) {
   const { t } = useTranslation()
+  const { isMobile } = useMobile()
+  const cardMode = Boolean(mobileCard) && isMobile
   const [localSort, setLocalSort] = useState(null)
   const activeSort = sort || localSort
   const bodyRef = useRef(null)
@@ -229,7 +236,30 @@ export function DataTable({
       <div className="overflow-auto flex-1 min-h-0">
         <div ref={wrapRef} className="relative">
         <span ref={bandRef} className="fx-colband" aria-hidden="true" />
-        <table className="w-full text-sm border-collapse">
+        {cardMode && !loading && !error && (
+          <ul className="divide-y divide-border-op30" data-testid="data-table-cards">
+            {renderItems.filter((item) => !item.ghost).map(({ row, key }) => {
+              const fields = (mobileCard.fields || []).slice(0, 3).map((fieldKey) => columns.find((c) => c.key === fieldKey)).filter(Boolean)
+              return (
+                <li key={key} data-testid="data-table-card">
+                  <MobileCard
+                    title={mobileCard.title?.(row)}
+                    subtitle={mobileCard.subtitle?.(row)}
+                    badge={mobileCard.status?.(row)}
+                    actions={mobileCard.primaryAction?.(row)}
+                    metadata={fields.map((col) => {
+                      const raw = getValue(row, col.key)
+                      return { label: col.label, value: col.render ? col.render(row, raw, { entering: false }) : cellText(raw) }
+                    })}
+                    isSelected={selectedKey !== undefined && selectedKey === key}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  />
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {!cardMode && <table className="w-full text-sm border-collapse">
           <thead className="table-header-gradient sticky top-0 z-10">
             <tr>
               {columns.map((col) => {
@@ -287,11 +317,19 @@ export function DataTable({
                     {...ghostProps}
                     className={cn(
                       'ui-row border-b border-border-op30 last:border-b-0 transition-colors',
-                      onRowClick && 'cursor-pointer hover:bg-tertiary-op40',
+                      onRowClick && 'cursor-pointer hover:bg-tertiary-op40 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-primary',
                       selected && 'bg-accent-primary-op10 is-selected',
                       typeof rowClassName === 'function' ? rowClassName(row) : rowClassName,
                     )}
                     onClick={onRowClick && !ghost ? () => onRowClick(row) : undefined}
+                    tabIndex={onRowClick && !ghost ? 0 : undefined}
+                    aria-selected={onRowClick && !ghost && selectedKey !== undefined ? selected : undefined}
+                    onKeyDown={onRowClick && !ghost ? (e) => {
+                      // Only the row itself: Enter or Space on an inner button keeps its own meaning.
+                      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+                      e.preventDefault()
+                      onRowClick(row)
+                    } : undefined}
                     data-testid={ghost ? 'data-table-row-leaving' : 'data-table-row'}
                   >
                     {columns.map((col) => {
@@ -322,7 +360,7 @@ export function DataTable({
                 )
               })}
           </tbody>
-        </table>
+        </table>}
         </div>
 
         {loading && <SkeletonTable columns={columns.length} testId="data-table-loading" />}

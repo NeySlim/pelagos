@@ -33,6 +33,21 @@
 import { cn } from '../../lib/utils'
 import { IconBadge } from '../IconBadge'
 
+// A clickable card is a focus stop that Enter and Space activate. With an inner action
+// it gets no button role (no nested interactive controls) but stays reachable.
+function clickableProps(onClick, hasActions) {
+  if (!onClick) return {}
+  return {
+    tabIndex: 0,
+    role: hasActions ? undefined : 'button',
+    onKeyDown: (e) => {
+      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+      e.preventDefault()
+      onClick(e)
+    },
+  }
+}
+
 export function MobileCard({
   // Icon (left side)
   icon: Icon,
@@ -84,10 +99,11 @@ export function MobileCard({
         style.padding,
         'transition-colors duration-150',
         isSelected && 'mobile-row-selected',
-        onClick && 'cursor-pointer',
+        onClick && 'cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-primary',
         className
       )}
       onClick={onClick}
+      {...clickableProps(onClick, Boolean(actions))}
     >
       {/* Main row: Icon + Content + Badge/Actions */}
       <div className={cn('flex items-start', style.gap)}>

@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { DataTable } from './DataTable'
 import { UtilizationBar, utilizationLevel } from './UtilizationBar'
 import { StatusBadge } from './StatusBadge'
 import { DiffView, parseUnifiedDiff } from './DiffView'
 import { JsonTree } from './JsonTree'
+
+// The phone layout is switched per test; everything else of MobileContext stays real.
+let mockMobile = false
+vi.mock('../contexts/MobileContext', async (orig) => ({ ...(await orig()), useMobile: () => ({ isMobile: mockMobile }) }))
 
 const columns = [
   { key: 'name', label: 'Name', sortable: true },
@@ -123,5 +127,81 @@ describe('small shared components', () => {
     render(<JsonTree data={{ 'user-context': { note: '<img src=x onerror=alert(1)>' } }} expandedDepth={3} />)
     expect(screen.getByText('"<img src=x onerror=alert(1)>"')).toBeInTheDocument()
     expect(document.querySelector('img')).toBeNull()
+  })
+})
+
+describe('DataTable on a phone', () => {
+  const card = {
+    title: (row) => row.name,
+    subtitle: (row) => row.ip,
+    status: (row) => <span>state-{row.id}</span>,
+    fields: ['meta.owner', 'ip', 'name', 'zone'],
+    primaryAction: (row) => <button type="button">open-{row.id}</button>,
+  }
+  afterEach(() => { mockMobile = false })
+
+  it('renders cards with at most three fields and the main action visible', () => {
+    mockMobile = true
+    const withZone = [...columns, { key: 'zone', label: 'Zone' }]
+    render(<DataTable columns={withZone} rows={rows.map((r) => ({ ...r, zone: 'example.lan' }))} mobileCard={card} />)
+    expect(document.querySelector('table')).toBeNull()
+    const cards = screen.getAllByTestId('data-table-card')
+    expect(cards).toHaveLength(2)
+    expect(within(cards[0]).getAllByText('pc10').length).toBeGreaterThan(0)
+    expect(within(cards[0]).getAllByText('192.0.2.110').length).toBeGreaterThan(0)
+    expect(within(cards[0]).getByText('state-1')).toBeInTheDocument()
+    expect(within(cards[0]).getByRole('button', { name: 'open-1' })).toBeInTheDocument()
+    expect(within(cards[0]).getByText('Owner:')).toBeInTheDocument()
+    expect(within(cards[0]).getByText('IP:')).toBeInTheDocument()
+    expect(within(cards[0]).queryByText('Zone:')).toBeNull()
+  })
+
+  it('keeps the table without mobileCard, or on desktop', () => {
+    mockMobile = true
+    const { rerender } = render(<DataTable columns={columns} rows={rows} />)
+    expect(document.querySelector('table')).not.toBeNull()
+    mockMobile = false
+    rerender(<DataTable columns={columns} rows={rows} mobileCard={card} />)
+    expect(document.querySelector('table')).not.toBeNull()
+    expect(screen.queryByTestId('data-table-card')).toBeNull()
+  })
+
+  it('opens a card with Enter and Space', () => {
+    mockMobile = true
+    const onRowClick = vi.fn()
+    render(<DataTable columns={columns} rows={rows} mobileCard={{ ...card, primaryAction: undefined }} onRowClick={onRowClick} />)
+    const first = screen.getAllByRole('button')[0]
+    fireEvent.keyDown(first, { key: 'Enter' })
+    fireEvent.keyDown(first, { key: ' ' })
+    expect(onRowClick).toHaveBeenCalledTimes(2)
+    expect(onRowClick).toHaveBeenCalledWith(rows[0])
+  })
+})
+
+describe('DataTable keyboard', () => {
+  it('clickable rows are focus stops that Enter and Space open', () => {
+    const onRowClick = vi.fn()
+    render(<DataTable columns={columns} rows={rows} onRowClick={onRowClick} selectedKey={2} />)
+    const [first, second] = screen.getAllByTestId('data-table-row')
+    expect(first).toHaveAttribute('tabindex', '0')
+    expect(first).toHaveAttribute('aria-selected', 'false')
+    expect(second).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(first, { key: 'Enter' })
+    fireEvent.keyDown(second, { key: ' ' })
+    fireEvent.keyDown(first, { key: 'a' })
+    expect(onRowClick.mock.calls.map((c) => c[0].id)).toEqual([1, 2])
+  })
+
+  it('an inner button keeps its own keys', () => {
+    const onRowClick = vi.fn()
+    const cols = [{ key: 'name', label: 'Name', render: (row) => <button type="button">act-{row.id}</button> }]
+    render(<DataTable columns={cols} rows={rows} onRowClick={onRowClick} />)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'act-1' }), { key: 'Enter' })
+    expect(onRowClick).not.toHaveBeenCalled()
+  })
+
+  it('rows without a click handler are not focus stops', () => {
+    render(<DataTable columns={columns} rows={rows} />)
+    expect(screen.getAllByTestId('data-table-row')[0]).not.toHaveAttribute('tabindex')
   })
 })

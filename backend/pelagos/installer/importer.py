@@ -27,7 +27,7 @@ from pelagos.domain import (
     ValidationResult,
     messages,
 )
-from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed
+from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
 from pelagos.installer.jobs import Step
 from pelagos.platform import (
     ENGINES,
@@ -110,7 +110,9 @@ def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Pla
                 f"named-checkconf {named_conf} fails; fix the configuration before importing:\n{output}"
             )
         printed = env.t.checkconf_print(named_conf)
-        insp = bindsetup.inspect(named_conf, paths.bind_include_dir, paths.rndc_key)
+        insp = bindsetup.inspect(
+            named_conf, paths.bind_include_dir, paths.rndc_key, skip=zone_audit.pelagos_rpz_zones(env)
+        )
         stats_added = insp.stats is None
         read = {
             "named_conf": str(named_conf),

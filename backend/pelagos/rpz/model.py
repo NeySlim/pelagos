@@ -184,6 +184,15 @@ def resolve(settings: dict[str, Any]) -> list[Sub]:
     return [subs[i] for i in [*order, *[i for i in subs if i not in order]]]
 
 
+def managed_zones(settings: dict[str, Any]) -> set[str]:
+    """Names (lower case, final dot) of every policy zone the cluster RPZ state makes Pelagos own:
+    each subscription's zone and, once there is one, the allow zone."""
+    zones = [s.zone for s in resolve(settings)]
+    if zones:
+        zones.append(ALLOW_ZONE)
+    return {z.lower().rstrip(".") + "." for z in zones}
+
+
 def for_node(subs: list[Sub], node_id: str) -> list[Sub]:
     return [s for s in subs if s.on_node(node_id)]
 

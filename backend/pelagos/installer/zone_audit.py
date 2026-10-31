@@ -8,6 +8,7 @@ changes which view answers an existing client: only requests signed with the new
 
 from __future__ import annotations
 
+import logging
 import stat
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,23 @@ from pelagos.installer import bindconf, managed
 from pelagos.installer.bindconf import ConfigFiles, Statement
 
 UPDATE_TYPES = zone_updates.ADMIN_UPDATE_TYPES
+log = logging.getLogger(__name__)
+
+
+def pelagos_rpz_zones(env: Any) -> frozenset[str]:
+    """Policy zones Pelagos owns per the cluster RPZ state: their statements and files are rewritten
+    by Pelagos, so no audit or import proposes a change to them. Empty before `pelagos init`."""
+    if not env.node_initialized():
+        return frozenset()
+    from pelagos.core.config_store import ConfigStore
+    from pelagos.rpz import model
+
+    try:
+        cluster = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster()
+        return frozenset(model.managed_zones(cluster.settings))
+    except Exception as exc:  # an unreadable cluster.toml audits every zone
+        log.warning("RPZ zones of the cluster not read: %s", exc)
+        return frozenset()
 
 
 def view_key_name(view: str) -> str:
@@ -71,14 +89,16 @@ def view_key_of(top: list[Statement], view: str) -> str | None:
 # Findings ------------------------------------------------------------------------------------------
 
 
-def findings(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Any]:
+def findings(
+    files: ConfigFiles, top: list[Statement], key_names: set[str], skip: frozenset[str] = frozenset()
+) -> list[Any]:
     from pelagos.domain.messages import join, msg
     from pelagos.installer.security_audit import Finding, finding_id
 
     out: list[Any] = []
     if managed.ADMIN_KEY in key_names:
         for z in bindconf.zones(top):
-            if not is_static(z, top) or z.name in BUILTIN_ZONES:
+            if not is_static(z, top) or z.name in BUILTIN_ZONES or z.name in skip:
                 continue
             subject = f"{z.view}/{z.name}"
             key = view_key_of(top, z.view) or managed.ADMIN_KEY

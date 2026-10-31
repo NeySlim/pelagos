@@ -193,6 +193,7 @@ class BindAuditInput:
     )  # from rndc.key when not included
     file_issues: list[bind_files.FileIssue] = field(default_factory=list)
     named_version: str | None = None
+    pelagos_rpz: frozenset[str] = frozenset()  # policy zones Pelagos owns (zone_audit.pelagos_rpz_zones)
 
 
 def _file_findings(issues: list[bind_files.FileIssue]) -> list[Finding]:
@@ -328,6 +329,8 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
             )
 
     for z in bindconf.zones(top):
+        if z.name in inp.pelagos_rpz:
+            continue
         allow_update = z.elements("allow-update")
         addresses = [e for e in allow_update if _is_address(e)]
         subject = f"{z.view}/{z.name}"
@@ -408,8 +411,8 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
                 )
             )
 
-    findings += _pelagos_access(files, top, {k.name for k in key_defs})
-    findings += zone_audit.findings(files, top, {k.name for k in key_defs})
+    findings += _pelagos_access(files, top, {k.name for k in key_defs}, inp.pelagos_rpz)
+    findings += zone_audit.findings(files, top, {k.name for k in key_defs}, inp.pelagos_rpz)
     findings += _file_findings(inp.file_issues)
     if options is not None and (version := _version_finding(options, inp.named_version)):
         findings.append(version)
@@ -579,7 +582,9 @@ def _narrow_grant_finding(subject: str, z: bindconf.ZoneDef, key: str) -> Findin
     )
 
 
-def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Finding]:
+def _pelagos_access(
+    files: ConfigFiles, top: list[Statement], key_names: set[str], skip: frozenset[str] = frozenset()
+) -> list[Finding]:
     """Once adopted, Pelagos reads zones by AXFR with ddi-read and writes them by UPDATE with ddi-admin
     (with several views, the view's own key does both): zones whose transfer or update rules leave the
     key out get a finding that adds it."""
@@ -588,6 +593,8 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
     options_needed = False
     multi_view = len(zone_audit.views(top)) >= 2
     for z in bindconf.zones(top):
+        if z.name in skip:
+            continue
         subject = f"{z.view}/{z.name}"
         dynamic = z.is_primary and zone_audit.takes_updates(z, top)
         static = zone_audit.is_static(z, top) and z.name not in zone_audit.BUILTIN_ZONES
@@ -989,7 +996,8 @@ def collect_bind(env: Any) -> BindAuditInput | None:
             rndc_stmts = bindconf.keys(bindconf.parse(Path(kf).read_text(), kf))
         except (OSError, bindconf.ParseError):
             rndc_stmts = []
-    address, refused = _probe_query_access(env, files)
+    rpz = zone_audit.pelagos_rpz_zones(env)
+    address, refused = _probe_query_access(env, files, rpz)
     extra_keys = [p for p in (kf, str(env.paths.rndc_conf_pelagos), str(env.paths.keys_conf)) if p]
     return BindAuditInput(
         files=files,
@@ -1000,16 +1008,19 @@ def collect_bind(env: Any) -> BindAuditInput | None:
         query_refused=refused,
         file_issues=bind_files.issues(env, bind_files.paths_by_category(env, files, extra_keys)),
         named_version=env.t.named_version(),
+        pelagos_rpz=rpz,
     )
 
 
-def _probe_query_access(env: Any, files: bindconf.ConfigFiles) -> tuple[str, list[str]]:
+def _probe_query_access(
+    env: Any, files: bindconf.ConfigFiles, skip: frozenset[str] = frozenset()
+) -> tuple[str, list[str]]:
     """The query address Pelagos uses (same [engines.bind] source as the collector, local named
     included) and the zones named refuses a SOA query for from it."""
     table = env.bind_table() or {}
     address = str(table.get("query_address") or "127.0.0.1")
     port = int(table.get("query_port") or 53)
-    zones = bindsetup.served_zones(files)
+    zones = bindsetup.served_zones(files, skip)
     if not zones or not bindsetup.named_running(env):
         return address, []
     return address, bindsetup.refused_zones(env, address, zones, port)

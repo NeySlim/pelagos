@@ -14,7 +14,7 @@ from typing import Any
 
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import ValidationResult, zone_updates
-from pelagos.installer import bindconf, managed
+from pelagos.installer import bindconf, managed, zone_audit
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.platform import PELAGOS_USER
 
@@ -156,7 +156,14 @@ def kea_key_of_zone(zone: bindconf.ZoneDef) -> str | None:
     return None
 
 
-def inspect(named_conf: Path, include_dir: Path, rndc_key: Path, read: Any = None) -> BindInspection:
+def inspect(
+    named_conf: Path,
+    include_dir: Path,
+    rndc_key: Path,
+    read: Any = None,
+    skip: frozenset[str] = frozenset(),
+) -> BindInspection:
+    """`skip`: zones Pelagos owns (its RPZ zones), never offered an update-policy."""
     files = bindconf.load_files(named_conf, read)
     if str(named_conf) not in files.statements:
         raise FileNotFoundError(f"{named_conf} is not readable")
@@ -168,7 +175,7 @@ def inspect(named_conf: Path, include_dir: Path, rndc_key: Path, read: Any = Non
     zones = bindconf.zones(list(files.top_level()))
     proposals = []
     for z in zones:
-        if not z.is_primary:
+        if not z.is_primary or z.name in skip:
             continue
         kea_key = kea_key_of_zone(z)
         proposals.append(
@@ -336,7 +343,7 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
         out.append("rndc: no usable control channel found; see the security audit")
 
     query_address = "127.0.0.1"
-    zones = served_zones(files)
+    zones = served_zones(files, zone_audit.pelagos_rpz_zones(env))
     if zones and named_running(env) and env.remote_bind() is None:
         query_address, refused = choose_query_address(env, zones)
         if query_address != "127.0.0.1":
@@ -459,14 +466,17 @@ def named_running(env: Any) -> bool:
     return env.services.is_active(env.bind_unit())
 
 
-def served_zones(files: bindconf.ConfigFiles) -> list[str]:
-    """Names of the zones a SOA probe makes sense for (not hints, forwards or the built-in ones)."""
+def served_zones(files: bindconf.ConfigFiles, skip: frozenset[str] = frozenset()) -> list[str]:
+    """Names of the zones a SOA probe makes sense for (not hints, forwards, the built-in ones or the
+    `skip` ones: Pelagos's RPZ zones only answer localhost)."""
     from pelagos.installer.zone_audit import BUILTIN_ZONES
 
     names = {
         z.name
         for z in bindconf.zones(list(files.top_level()))
-        if z.kind in ("primary", "master", "secondary", "slave") and z.name not in BUILTIN_ZONES
+        if z.kind in ("primary", "master", "secondary", "slave")
+        and z.name not in BUILTIN_ZONES
+        and z.name not in skip
     }
     return sorted(names)
 

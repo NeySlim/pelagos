@@ -489,6 +489,8 @@ class ReplicationApp:
             status, body = exc.status, {"code": exc.code, "detail": exc.detail, "status": exc.status}
         except EnrollError as exc:
             status, body = exc.status, {"code": exc.code, "detail": str(exc), "status": exc.status}
+            if exc.field:
+                body["errors"] = [{"field": exc.field, "message": str(exc)}]
         except Exception:
             log.exception("replication request %s %s failed", method, path)
             # The cause stays in this node's journal; peers get no paths or internal messages.

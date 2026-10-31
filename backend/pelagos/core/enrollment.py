@@ -45,7 +45,7 @@ from pelagos.core.repl_http import (
 )
 from pelagos.core.secrets import SecretBox, SecretError, write_master_key
 from pelagos.domain.audit import AuditEntry, AuditResult
-from pelagos.domain.cluster import NodeModules, Peer
+from pelagos.domain.cluster import NodeModules, Peer, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
 
 log = logging.getLogger(__name__)
@@ -59,10 +59,11 @@ REPL_PREFIX = "/repl/v1"
 class EnrollError(Exception):
     """Refused enrollment or renewal; `status` maps to the HTTP answer of the replication server."""
 
-    def __init__(self, code: str, message: str, status: int = 403) -> None:
+    def __init__(self, code: str, message: str, status: int = 403, field: str | None = None) -> None:
         super().__init__(message)
         self.code = code
         self.status = status
+        self.field = field
 
 
 @dataclass(slots=True)
@@ -351,6 +352,13 @@ class EnrollmentService:
             raise EnrollError("validation_error", f"invalid CSR: {exc}", 400) from exc
         if not new_id_:
             raise EnrollError("validation_error", "CSR lacks the urn:pelagos:node SAN", 400)
+        if req.web_url is not None and clean_web_url(req.web_url) is None:
+            raise EnrollError(
+                "validation_error",
+                "web_url must be an http(s) URL with a host (at most 2048 characters)",
+                400,
+                "web_url",
+            )
         if self.config_store.load_cluster().peer(new_id_) is not None:
             raise EnrollError("conflict", f"node {new_id_} is already enrolled", 409)
         record = self.tokens.consume(req.token)

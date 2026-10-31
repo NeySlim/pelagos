@@ -7,8 +7,25 @@ import enum
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from pelagos.domain.common import Model, utcnow
+
+WEB_URL_MAX = 2048
+
+
+def clean_web_url(value: Any) -> str | None:
+    """The value when it is an http(s) URL with a host and a bounded length, else None."""
+    if not isinstance(value, str) or not value or len(value) > WEB_URL_MAX:
+        return None
+    if any(c.isspace() or ord(c) < 32 for c in value):
+        return None
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 (raises on a bad port)
+    except ValueError:
+        return None
+    return value if parts.scheme in ("http", "https") and parts.hostname else None
 
 
 @dataclass(slots=True)
@@ -35,6 +52,10 @@ class Peer(Model):
     modules: NodeModules = field(default_factory=NodeModules)
     enrolled_at: datetime = field(default_factory=utcnow)
     enrolled_by: str | None = None
+
+    def __post_init__(self) -> None:
+        # A stored or replicated web_url that is not a plain http(s) URL counts as absent.
+        self.web_url = clean_web_url(self.web_url)
 
 
 @dataclass(slots=True)

@@ -20,7 +20,7 @@ import tomli_w
 from pelagos.core import cluster_merge as cm
 from pelagos.core import settings_registry
 from pelagos.core.locks import FileLock
-from pelagos.domain.cluster import ApiToken, NodeModules, Peer, Role, User
+from pelagos.domain.cluster import ApiToken, NodeModules, Peer, Role, User, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
 
 SCHEMA_VERSION = 1
@@ -163,7 +163,7 @@ class NodeConfig:
             web_listen=node.get("web_listen", "0.0.0.0:8443"),
             replication_listen=node.get("replication_listen", "0.0.0.0:8444"),
             replication_url=node.get("replication_url", ""),
-            web_url=node.get("web_url", ""),
+            web_url=clean_web_url(node.get("web_url")) or "",
             engines=dict(data.get("engines") or {}),
             paths=dict(data.get("paths") or {}),
             tls=dict(data.get("tls") or {}),

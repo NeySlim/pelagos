@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import pytest
 
+from pelagos.core.config_store import NodeConfig
 from pelagos.core.enrollment import (
     MAX_TOKEN_TTL_SECONDS,
     EnrollError,
@@ -17,6 +18,7 @@ from pelagos.core.enrollment import (
     _parse_engines,
     enroll_command,
 )
+from pelagos.domain.cluster import Peer, clean_web_url
 from pelagos.domain.common import utcnow
 
 pytestmark = pytest.mark.unit
@@ -110,3 +112,57 @@ def test_enroll_command_runs_as_root_with_the_peer_urls(url, web_url, web, repl)
     assert cmd.startswith(f"sudo pelagos enroll --url {url} --token tok --ca-fingerprint sha256:ab ")
     assert "--name <name> " in cmd
     assert cmd.endswith(f"--web-url {web} --replication-url {repl}")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "javascript:alert(1)",
+        "JAVASCRIPT:alert(1)",
+        "data:text/html,x",
+        "ftp://ns2/",
+        "https://",
+        "//ns2/x",
+        "https://ns2:99999",
+        "https://ns2/ x",
+        "https://ns2/" + "a" * 2100,
+        "",
+        5,
+    ],
+)
+def test_clean_web_url_rejects_non_http_values(value):
+    assert clean_web_url(value) is None
+
+
+def test_clean_web_url_keeps_http_and_https():
+    assert clean_web_url("https://ns2.example.lan:8443") == "https://ns2.example.lan:8443"
+    assert clean_web_url("http://[2001:db8::2]:8443/") == "http://[2001:db8::2]:8443/"
+
+
+def test_peer_ignores_a_stored_or_replicated_bad_web_url():
+    base = {"id": "N1", "name": "ns2", "url": "https://ns2:8444", "cert_fingerprint": "aa"}
+    assert Peer.from_dict({**base, "web_url": "javascript:alert(1)"}).web_url is None
+    assert Peer.from_dict({**base, "web_url": "https://ns2:8443"}).web_url == "https://ns2:8443"
+
+
+def test_node_toml_with_a_bad_web_url_loads_as_empty():
+    node = NodeConfig.from_toml({"node": {"id": "N1", "name": "ns1", "web_url": "javascript:alert(1)"}})
+    assert node.web_url == ""
+
+
+def test_enroll_refuses_a_bad_web_url_before_burning_the_token(tmp_root):
+    from pelagos.core.enrollment import EnrollmentService
+
+    svc = EnrollmentService.__new__(EnrollmentService)
+    svc._ca = lambda: object()
+    req = EnrollRequest("t", "ns2", "-", {}, "https://ns2:8444", "javascript:alert(1)", "")
+    import pelagos.core.enrollment as mod
+
+    orig = mod.ca_mod.csr_node_id
+    mod.ca_mod.csr_node_id = lambda _csr: "N2"
+    try:
+        with pytest.raises(EnrollError) as err:
+            svc.enroll(req)
+    finally:
+        mod.ca_mod.csr_node_id = orig
+    assert err.value.status == 400 and err.value.code == "validation_error" and err.value.field == "web_url"

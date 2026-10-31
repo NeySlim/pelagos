@@ -30,6 +30,7 @@ import { resetNodeNameCache } from '../dhcp/hooks'
 import { flattenHa } from '../dhcp/haSetup'
 import { EnrollTokenDialog } from './EnrollTokenDialog'
 import { formatOffset, ntpState, skewTone } from './clock'
+import { safeWebUrl } from './webUrl'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
 const NODES_POLL_MS = 10000
@@ -275,8 +276,8 @@ export default function NodesPage() {
       label: t('fields.url'),
       className: 'font-mono text-2xs break-all',
       render: (n) =>
-        n.peer.web_url && !n.is_self ? (
-          <a href={n.peer.web_url} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
+        safeWebUrl(n.peer.web_url) && !n.is_self ? (
+          <a href={safeWebUrl(n.peer.web_url)} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
             {n.peer.web_url}
           </a>
         ) : (

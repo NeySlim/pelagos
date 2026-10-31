@@ -42,6 +42,7 @@ def register_api(app: Flask) -> Api:
         certs,
         dashboard,
         ddns_failover,
+        desired_state,
         dhcp,
         dns,
         hosts,
@@ -139,6 +140,7 @@ def register_api(app: Flask) -> Api:
         resolver_health,
         kea_migration,
         updates,
+        desired_state,
     ):
         api.add_namespace(module.ns)
     for extra in (resolver_health.series_ns, ipv6.hosts_ns, ipv6.admin_ns):

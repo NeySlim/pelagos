@@ -60,6 +60,7 @@ def test_a_failed_load_caches_nothing():
 
     with pytest.raises(RuntimeError):
         cache.get("leases:a:kea4", None, boom)
+    _clock.now += 6
     assert cache.get("leases:a:kea4", None, lambda: 5) == 5
     assert cache.peek("leases:a:kea4") == 5
 
@@ -91,6 +92,8 @@ L4, L6, R4, Z = "leases:a:kea4", "leases:a:kea6", "reservations:a:kea4", "zone:_
         (ev("leases", "summary", engine="kea4", new_since_last=0, expired_since_last=0), [], [L4]),
         (ev("zones", "serial", zone="a.", view="_default", serial=2), [Z], [L4]),
         (ev("plans", "applied"), [L4, R4, Z], []),
+        (ev("plans", "step", state="done", plan_id="p"), [L4, R4, Z], []),
+        (ev("plans", "step", state="running", plan_id="p"), [], [L4, R4, Z]),
         (ev("alerts", "opened"), [], [L4, Z]),
     ],
 )
@@ -124,3 +127,84 @@ def test_one_loader_at_a_time():
     for t in threads:
         t.join(5)
     assert out == ["value"] * 5 and len(calls) == 1
+
+
+def test_an_invalidation_during_a_load_keeps_the_entry_stale():
+    """A load that started before an invalidation may carry data older than the write it announces."""
+    cache = HostCache(lambda: 60)
+    started, release = threading.Event(), threading.Event()
+    values = iter(["before the write", "after the write"])
+
+    def slow() -> str:
+        value = next(values)
+        started.set()
+        release.wait(2)
+        return value
+
+    out: list[str] = []
+    t = threading.Thread(target=lambda: out.append(cache.get("leases:a:kea4", None, slow)))
+    t.start()
+    assert started.wait(2)
+    cache.invalidate("leases:")
+    release.set()
+    t.join(5)
+    assert out == ["before the write"]
+    assert cache.peek("leases:a:kea4") is None
+    assert cache.get("leases:a:kea4", None, slow) == "after the write"
+
+
+def test_derived_entries_rebuild_after_any_source_load():
+    cache, _clock = _cache()
+    cache.get("zone:_default/a.:n", 1, lambda: "a1")
+    builds = iter(["join1", "join2"])
+    assert cache.get("join:snapshot", None, lambda: next(builds)) == "join1"
+    assert cache.peek("join:snapshot") == "join1"
+    cache.get("zone:_default/a.:n", 2, lambda: "a2")  # the serial moved: read again
+    assert cache.peek("join:snapshot") is None
+    assert cache.get("join:snapshot", None, lambda: next(builds)) == "join2"
+
+
+def test_a_failure_is_answered_again_briefly():
+    cache, clock = _cache()
+    calls: list[int] = []
+
+    def boom() -> int:
+        calls.append(1)
+        raise RuntimeError("timeout")
+
+    for _ in range(3):
+        with pytest.raises(RuntimeError):
+            cache.get("zone:_default/a.:n", None, boom)
+    assert len(calls) == 1
+    clock.now += 6
+    assert cache.get("zone:_default/a.:n", None, lambda: "ok") == "ok"
+    with pytest.raises(RuntimeError):
+        cache.get("leases:a:kea4", None, boom)
+    cache.invalidate("leases:")  # an event says the source moved: ask again now
+    assert cache.get("leases:a:kea4", None, lambda: 3) == 3
+
+
+def test_kept_refuses_a_value_and_idle_entries_go():
+    cache, clock = _cache()
+    assert cache.get("join:snapshot", None, lambda: "partial", keep=lambda v: v != "partial") == "partial"
+    assert cache.peek("join:snapshot") is None
+    cache.get("zone:_default/gone.:n", 1, lambda: "x")
+    clock.now += 30
+    cache.get("zone:_default/kept.:n", 1, lambda: "y")
+    assert cache.evict_idle(20) >= 1
+    assert cache.peek("zone:_default/gone.:n") is None and cache.peek("zone:_default/kept.:n") == "y"
+
+
+def test_the_age_is_read_once_inside_a_request():
+    reads: list[int] = []
+
+    def age() -> float:
+        reads.append(1)
+        return 60
+
+    cache = HostCache(age)
+    with cache.request():
+        for i in range(10):
+            cache.get(f"zone:_default/z{i}.:n", 1, lambda: 1)
+            cache.get(f"zone:_default/z{i}.:n", 1, lambda: 2)
+    assert len(reads) == 1

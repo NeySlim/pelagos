@@ -243,7 +243,8 @@ class HostsService:
         """`collect_judged` plus the records read, by zone name. `zones`: the read node's zone list
         when the caller has it; `remote`: zones read from other nodes, by zone then node, with
         the views to read there."""
-        read = self._read(zones, remote)
+        with self.cache.request():
+            read = self._read(zones, remote)
         records, errors = read.records, read.errors
         dhcp_rows: list[Lease | Reservation] = [*read.leases, *read.reservations]
         join = _join(dhcp_rows, records.values())
@@ -264,6 +265,17 @@ class HostsService:
         remote: Mapping[str, Mapping[str, list[str]]] | None = None,
     ) -> _Read:
         """Leases, reservations and records through the cache, with the per-source errors."""
+        with self.cache.request():
+            out = self._read_sources(zones, remote)
+            # Zones and nodes that went away stop being read, so their entries age out.
+            self.cache.evict_idle(max(2 * self.cache.age(), 60.0))
+        return out
+
+    def _read_sources(
+        self,
+        zones: list[dict[str, Any]] | None,
+        remote: Mapping[str, Mapping[str, list[str]]] | None,
+    ) -> _Read:
         out = _Read()
         for dhcp in self._dhcp_services():
             try:
@@ -295,8 +307,9 @@ class HostsService:
         return out
 
     def snapshot(self) -> HostsSnapshot:
-        """The joined hosts and their sources as of the last read, rebuilt when a source is read again
-        or invalidated (search reads this, not the engines)."""
+        """The joined hosts and their sources as of the last read, rebuilt once any source was read
+        again or invalidated (search reads this, not the engines). A snapshot with read errors is
+        returned but not kept, so the next caller tries the failed source again."""
 
         def load() -> HostsSnapshot:
             read = self._read()
@@ -311,8 +324,11 @@ class HostsService:
                 errors=read.errors,
             )
 
-        held = self.cache.peek("join:snapshot")
-        return held if held is not None else self.cache.get("join:snapshot", None, load)
+        with self.cache.request():
+            held = self.cache.peek("join:snapshot")
+            if held is not None:
+                return held  # type: ignore[no-any-return]
+            return self.cache.get("join:snapshot", None, load, keep=lambda snap: not snap.errors)
 
     def _zone_records(
         self,
@@ -451,9 +467,17 @@ class HostsService:
     # Consistency --------------------------------------------------------
 
     def consistency_pass(self) -> dict[str, Any]:
-        """One read-only pass of services.consistency on fresh reads; the collector owns the alert table."""
+        """One read-only pass of services.consistency; the collector owns the alert table. Leases are
+        read now (released or expired leases are not announced by events); reservations and zones
+        come through the host join cache, read again when their hash or serial moved."""
         from pelagos.collector.events import send_signal
         from pelagos.services import consistency
+
+        self.cache.invalidate("leases:")
+        with self.cache.request():
+            return self._consistency_pass(consistency, send_signal)
+
+    def _consistency_pass(self, consistency: Any, send_signal: Any) -> dict[str, Any]:
 
         leases: list[Lease] = []
         reservations: list[Reservation] = []

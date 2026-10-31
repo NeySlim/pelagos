@@ -93,7 +93,8 @@ def test_the_consistency_pass_reads_what_the_hosts_view_read(rig):
     _reads(zones, calls)
     result = svc.hosts.consistency_pass()
     assert result["errors"] == {}
-    assert _reads(zones, calls) == (0, 0, 0)
+    # Leases are read now (released or expired leases send no event); zones and reservations are not.
+    assert _reads(zones, calls) == (0, 1, 0)
 
 
 def test_age_lease_events_and_config_hash(rig):
@@ -146,7 +147,7 @@ def test_zero_age_turns_the_cache_off(rig, node_ctx):
 def test_an_engine_error_is_not_cached(rig):
     from pelagos.services.errors import EngineUnavailable
 
-    svc, _dns, _kea, _zones, _calls, _clock = rig
+    svc, _dns, _kea, _zones, _calls, clock = rig
     working = svc.dhcp4.all_leases
 
     def down(*_args: Any, **_kwargs: Any) -> Any:
@@ -156,5 +157,56 @@ def test_an_engine_error_is_not_cached(rig):
     _hosts, errors = svc.hosts.list()
     assert "kea4.leases" in errors
     svc.dhcp4.all_leases = working
+    # The failure is answered again for a few seconds instead of each caller waiting on the engine.
+    _hosts, errors = svc.hosts.list()
+    assert "kea4.leases" in errors
+    clock.now += 6
     _hosts, errors = svc.hosts.list()
     assert "kea4.leases" not in errors
+
+
+def test_the_search_snapshot_follows_a_source_read_again(rig):
+    svc, dns, _kea, zones, calls, _clock = rig
+    svc.hosts.snapshot()  # built while its sources were read: built once more from the cache
+    first = svc.hosts.snapshot()
+    assert svc.hosts.snapshot() is first
+    nas = RRset("nas.example.lan.", "A", 300, ["192.0.2.42"])
+    dns.rrsets["example.lan."][("nas.example.lan.", "A")] = nas
+    dns.serials["example.lan."] += 1
+    svc.hosts.list()  # GET /hosts sees the serial move and reads the zone again
+    _reads(zones, calls)
+    again = svc.hosts.snapshot()
+    assert again is not first and any("192.0.2.42" in h.ips for h in again.hosts)
+    assert _reads(zones, calls) == (0, 0, 0)
+
+
+def test_a_snapshot_with_errors_is_not_kept(rig):
+    from pelagos.services.errors import EngineUnavailable
+
+    svc, _dns, _kea, _zones, _calls, clock = rig
+    working = svc.dhcp4.all_leases
+
+    def down(*_args: Any, **_kwargs: Any) -> Any:
+        raise EngineUnavailable("kea down")
+
+    svc.dhcp4.all_leases = down
+    assert "kea4.leases" in svc.hosts.snapshot().errors
+    svc.dhcp4.all_leases = working
+    clock.now += 6
+    assert svc.hosts.snapshot().errors == {}
+
+
+def test_the_age_setting_is_read_once_per_request(rig):
+    svc, *_rest = rig
+    reads: list[int] = []
+    age = svc.hosts.cache.max_age
+
+    def counted() -> float:
+        reads.append(1)
+        return age()
+
+    svc.hosts.cache.max_age = counted
+    svc.hosts.list()
+    reads.clear()
+    svc.hosts.list()
+    assert len(reads) == 1

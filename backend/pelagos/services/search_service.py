@@ -215,7 +215,7 @@ class SearchService:
         ]
         if engine_groups:
             index, read_errors = self._index()
-            errors.update(read_errors)
+            errors.update({k: v for k, v in read_errors.items() if allowed(_error_permission(k))})
             for group in engine_groups:
                 results[group], totals[group] = _best(index.groups.get(group, []), n, limit)
         if allowed("read:alerts") and self.alerts is not None:
@@ -239,6 +239,11 @@ class SearchService:
                 {"kind": "node", "id": peer.id, "label": peer.name, "sublabel": peer.url, "route": "/nodes"},
                 names=(peer.name.lower(), peer.id.lower(), peer.url.lower()),
             )
+
+
+def _error_permission(source: str) -> str:
+    """The permission that may see a source error: `dns...` read:dns, `kea...` read:dhcp."""
+    return "read:dns" if source.startswith("dns") else "read:dhcp"
 
 
 def _best(rows: Iterable[_Row], n: Needle, limit: int) -> tuple[list[dict[str, Any]], int]:

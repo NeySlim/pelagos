@@ -20,7 +20,7 @@ caller's permissions (`read:hosts`, `read:dns` or `read:dhcp` to call it). New s
 `collector.hosts_cache_max_age_seconds` (60). `HostsService` reads leases, reservations and zone
 records through `services/host_cache.py` (section 15, Host join cache): keyed by SOA serial and
 Kea config hash, refreshed by `leases`, `zones` and `plans` events and by age; the web
-consistency pass reads the same entries. `HostsService.__init__` takes an optional `cache`;
+consistency pass reads the same entries (leases read again first). `HostsService.__init__` takes an optional `cache`;
 `snapshot()` is new. Additive. B1-DISCOVERY and E2-IPAM read `HostsService.snapshot()` instead of
 reading the engines; U1-SHELL calls `api.search.query` (mock `frontend/mock/search.mjs`).
 

@@ -2404,30 +2404,42 @@ The web process (F0-HOSTS) keeps the reads behind the hosts join in memory
 this node's id or `peer` when the read goes to a peer. An entry is read again
 when:
 
-- its freshness key moved: the zone's SOA serial on each node, as
+- its freshness key moved: the zone's SOA serial on the node read, as
   `GET /dns/zones` lists it (the serials are read anyway to list the zones,
-  so a stable zone costs one SOA query, not an AXFR), and the local Kea's
-  `config-hash-get` for the reservations; an unknown key (named stopped, a
-  read through a peer) leaves the age and the events to decide;
+  so a stable zone costs one SOA query, not an AXFR; through a peer, any
+  node's serial), and the local Kea's `config-hash-get` for the
+  reservations; an unknown key (named stopped, a read through a peer) leaves
+  the age and the events to decide;
 - it is older than `collector.hosts_cache_max_age_seconds` (60 s; 0 turns the
-  cache off);
+  cache off), read once per request;
 - an `EventHub` event names its source: `leases`/`lease` with `change: "new"`,
   `leases`/`coalesced` with new leases, `leases`/`summary` with
-  `new_since_last` or `expired_since_last`, for that engine (a renewal only
-  moves times: the age refreshes it); `zones`/`serial` and `zones`/`transfer`
-  for that zone and view; `plans`/`applied` and `plans`/`rolled_back` for
-  every entry.
+  `new_since_last` or `expired_since_last`, for that engine; `zones`/`serial`
+  and `zones`/`transfer` for that zone and view; `plans`/`applied`,
+  `plans`/`rolled_back` and the final `plans`/`step` (`done` or `failed`, a
+  plan a peer applied here) for every entry. A renewal only moves times, and
+  a lease released or expired but not reclaimed yet sends no event: both wait
+  for the age.
 
-One caller reads an entry at a time (a lock per entry); a failed read caches
-nothing. `HostsService.collect_records` (`GET /hosts`, `GET /hosts/{key}`,
-the IPv6 view) and `consistency_pass` (`POST /alerts/consistency/run`) read
-through the same entries, so the pass does not read again what the hosts
-view just read; a read without a view shares the entry of the view it
-reaches (`_default`, else the first view holding the zone). The joined hosts
-and their sources are also kept as a derived entry (`join:snapshot`) that
-`GET /search` reads without asking the engines; any invalidation drops it.
-Plan building (`POST /hosts/plan`) still reads the zones it checks directly.
-The collector's own pass is unchanged: it reads the engines itself.
+One caller reads an entry at a time (a lock per entry). An invalidation that
+arrives while an entry is being read leaves it stale (the read may predate
+the change it announces). A failed read caches its error for 5 s (at most the
+age), so callers queued on a stopped engine do not each wait for its timeout;
+an invalidation clears it. Entries nobody read for twice the age (at least
+60 s) are dropped: zones and nodes that went away.
+
+`HostsService.collect_records` (`GET /hosts`, `GET /hosts/{key}`, the IPv6
+view) and `consistency_pass` (`POST /alerts/consistency/run`) read through the
+same entries, so the pass does not transfer again the zones the hosts view
+just read; it reads the leases again (`leases:*` invalidated first), since
+released and expired leases send no event. A read without a view shares the
+entry of the view it reaches (`_default`, else the first view holding the
+zone). The joined hosts and their sources are kept as a derived entry
+(`join:snapshot`) that `GET /search` reads without asking the engines; it is
+rebuilt once any source was read again or invalidated after it was built, and
+a snapshot with read errors is answered but not kept. Plan building
+(`POST /hosts/plan`) still reads the zones it checks directly. The
+collector's own pass is unchanged: it reads the engines itself.
 
 #### Consistency exceptions ("Ignore: admin's choice")
 
@@ -2888,7 +2900,8 @@ without the final dot, @ for the root>[?view=][&q=<owner>]`,
 `/hosts?q=<name or address>`, `/alerts?alert=<id>`, `/nodes`. The engine
 groups come from the host join snapshot (section 15, Host join cache), never
 from a fresh engine read; `errors` are the sources that snapshot could not
-read, as `GET /hosts` `meta.errors`. Answer time on a warm cache stays under
+read, as `GET /hosts` `meta.errors`, each shown only with the permission of
+its engine (`dns...`: `read:dns`, `kea...`: `read:dhcp`). Answer time on a warm cache stays under
 200 ms with 20 000 leases and 5 000 records.
 
 ### Plans and jobs

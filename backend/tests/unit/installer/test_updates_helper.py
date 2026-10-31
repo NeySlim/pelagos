@@ -732,3 +732,13 @@ def test_kea_migration_steps_that_start_a_change_wait_for_a_rollout(node: Any) -
     with pytest.raises(ValueError, match="update rollout"):
         stop.run()
     assert start  # a later step (start Kea again) is never held back by a rollout
+
+
+def test_layout_opens_a_closed_helper_root_to_the_service_user(node: Any) -> None:
+    """Item 87: the Kea migration (UMask=0027) left the helper root 0750 root:root."""
+    env, _ = node
+    top = updates.layout(env).root.parent
+    top.mkdir(parents=True, exist_ok=True)
+    top.chmod(0o750)
+    updates.ensure_layout(env)
+    assert top.stat().st_mode & 0o777 == 0o755

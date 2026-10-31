@@ -568,6 +568,7 @@ def state_dir(env: Any, migration_id: str, create: bool = False) -> Path:
         top = mdir.parent.parent
         if not top.is_dir():
             top.mkdir(mode=0o755, parents=True)
+            top.chmod(0o755)  # the helper's UMask=0027 would close it to the update tree below
         _mkdir(mdir.parent)
         _mkdir(mdir)
     return mdir

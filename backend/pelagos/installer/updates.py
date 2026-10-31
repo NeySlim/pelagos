@@ -130,7 +130,8 @@ def layout(env: Any) -> Layout:
 
 def _mkdir(path: Path, mode: int, group: bool, keep_mode: bool = False) -> None:
     """A root-owned folder (group pelagos when `group`); a symlink or foreign owner is refused.
-    With `keep_mode`, an existing folder keeps its mode but must not be writable by others."""
+    With `keep_mode`, an existing folder keeps its mode, must not be writable by others and is
+    opened for reading by all (an older install left it 0750 root:root)."""
     existed = os.path.lexists(path)
     path.mkdir(mode=mode, parents=True, exist_ok=True)
     st = path.lstat()
@@ -139,6 +140,8 @@ def _mkdir(path: Path, mode: int, group: bool, keep_mode: bool = False) -> None:
     if existed and keep_mode:
         if st.st_uid != os.geteuid() or st.st_mode & 0o022:
             raise UpdateRefused("layout", f"{path} is writable by another user")
+        if st.st_mode & 0o055 != 0o055:  # the web serves packages/ to peers through it
+            os.chmod(path, (st.st_mode & 0o777) | 0o055, follow_symlinks=False)  # noqa: S103
         return
     if _is_root():
         gid = _pelagos_gid() if group else 0

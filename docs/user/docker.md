@@ -26,8 +26,9 @@ troubleshooting). The compose files are complete and live under
 | `ghcr.io/neyslim/pelagos` | the node: web process and collector, `rndc`, `named-checkconf`, no BIND or Kea daemon | `linux/amd64`, `linux/arm64` |
 | `ghcr.io/neyslim/pelagos-allinone` | Debian 13 with `bind9` from Debian, Kea 3.2 from the ISC repository (hooks included), the node, and `supervisord` running them all | `linux/amd64`, `linux/arm64` |
 
-Tags: `<version>` (`0.3.1`) and `latest` (the newest release that is not a
-pre-release). Images are published from `v0.3.1` on; earlier versions are
+Tags: `<version>` (`0.3.2`) and `latest` (the newest release that is not a
+pre-release). They are published by the `images` workflow
+for each release from `v0.3.2` on; earlier versions are
 built from a checkout (`make docker`, `make docker-allinone`).
 
 The examples pull `latest`. In production, pin a release in `.env` so that
@@ -35,8 +36,8 @@ a `docker compose pull` never upgrades a node behind your back, and change
 it on purpose ([Upgrade and rollback](#upgrade-and-rollback)):
 
 ```sh
-PELAGOS_VERSION=0.3.1                          # tag of the published image
-PELAGOS_IMAGE=registry.example.lan/pelagos:0.3.1   # or a whole image name (mirror, local build)
+PELAGOS_VERSION=0.3.2                          # tag of the published image
+PELAGOS_IMAGE=registry.example.lan/pelagos:0.3.2   # or a whole image name (mirror, local build)
 ```
 
 `PELAGOS_IMAGE` wins over `PELAGOS_VERSION`. The host-engines scenario and

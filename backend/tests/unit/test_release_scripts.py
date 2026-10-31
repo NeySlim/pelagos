@@ -28,6 +28,8 @@ REQUIRE_ALL = "deb:amd64,deb:arm64,rpm:el9,rpm:el10"
 
 
 def run(*args: object, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    # The CI image has no system python3: the scripts get this interpreter.
+    env = {**(env or os.environ), "PELAGOS_PYTHON": sys.executable}
     return subprocess.run([str(a) for a in args], capture_output=True, text=True, env=env, check=False)
 
 

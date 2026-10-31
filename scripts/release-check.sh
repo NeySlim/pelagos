@@ -10,6 +10,7 @@
 #   --require  packages RELEASE_DIR must hold (default deb:amd64,deb:arm64; also rpm:el9, rpm:el10)
 #   --tested   sha256sum lines of the packages the tests ran on: every package must match one
 # Without RELEASE_DIR only the source checks run (tag, version, notes, CHANGELOG, README).
+# PELAGOS_PYTHON: the Python reading release.json (default python3).
 set -euo pipefail
 
 src="$(cd "$(dirname "$0")/.." && pwd)" tree="" tag="" require="deb:amd64,deb:arm64" dir=""
@@ -21,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     --tree) tree="${2:?--tree needs a directory}"; shift ;;
     --require) require="${2?--require needs a list}"; shift ;;
     --tested) tested+=("${2:?--tested needs a file}"); shift ;;
-    -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,13p' "$0"; exit 0 ;;
     -*) echo "release-check: unknown option $1" >&2; exit 2 ;;
     *) [[ -z "$dir" ]] || { echo "release-check: one release directory only" >&2; exit 2; }; dir="$1" ;;
   esac
@@ -131,7 +132,7 @@ if [[ -n "$dir" ]]; then
     fail "release.json missing"
   else
     debs="$(printf '%s\n' "${packages[@]}" | grep '\.deb$' | tr '\n' ' ' || true)"
-    if msg="$(python3 -I - "$dir/release.json" "$version" "$deb_version" "$debs" <<'PY'
+    if msg="$("${PELAGOS_PYTHON:-python3}" -I - "$dir/release.json" "$version" "$deb_version" "$debs" <<'PY'
 import json, sys
 path, version, deb_version, debs = sys.argv[1:]
 data = json.load(open(path))

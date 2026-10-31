@@ -62,6 +62,15 @@ describe('theme families', () => {
     }
   })
 
+  // Tertiary text sits on cards, table headers and the page ground of every family.
+  it.each(families.flatMap((f) => ['dark', 'light'].map((mode) => [f.id, mode])))('%s %s text-tertiary meets AA on the three surfaces', (id, mode) => {
+    const palette = themeFamilies[id][mode]
+    for (const bg of ['bg-primary', 'bg-secondary', 'bg-tertiary']) {
+      const ratio = contrast(palette['text-tertiary'], palette[bg])
+      expect(ratio, `${id} ${mode} text-tertiary on ${bg} ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it.each([['instrument', 'dark'], ['instrument', 'light'], ['pelagic', 'dark'], ['pelagic', 'light'], ['mission', 'dark'], ['mission', 'light']])('%s %s accents meet AA contrast', (id, mode) => {
     const palette = themeFamilies[id][mode]
     for (const token of TOKENS) {

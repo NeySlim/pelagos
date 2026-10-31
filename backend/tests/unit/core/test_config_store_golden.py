@@ -9,7 +9,8 @@ import pytest
 import tomli_w
 
 from pelagos.core import cluster_merge as cm
-from pelagos.core.config_store import ClusterConfig
+from pelagos.core import collections
+from pelagos.core.config_store import ClusterConfig, ConfigStore
 
 pytestmark = pytest.mark.unit
 
@@ -120,11 +121,19 @@ def test_a_file_without_collections_round_trips_byte_for_byte():
     assert digest == GOLDEN_DIGEST
 
 
-@pytest.mark.skip(reason="F0-REPL: contract, implemented next")
-def test_a_registered_but_unused_collection_changes_neither_bytes_nor_digest():
-    """COLLECTIONS with a fake entry and no record: dumps() and digest() equal those of an empty registry."""
+def test_a_registered_but_unused_collection_changes_neither_bytes_nor_digest(monkeypatch):
+    plain = ClusterConfig.from_toml(tomllib.loads(GOLDEN))
+    monkeypatch.setitem(collections.COLLECTIONS, "widgets", collections.Collection())
+    with_registry = ClusterConfig.from_toml(tomllib.loads(GOLDEN))
+    assert with_registry.dumps() == plain.dumps()
+    assert with_registry.digest() == plain.digest() == with_registry.digest(without=["widgets"])
+    assert _without_settings(with_registry) == (GOLDEN, GOLDEN_DIGEST)
 
 
-@pytest.mark.skip(reason="F0-REPL: contract, implemented next")
-def test_bases_never_reach_cluster_toml():
-    """A write records bases in cluster.bases.json only: cluster.toml bytes as without bases."""
+def test_bases_never_reach_cluster_toml(node_paths, monkeypatch):
+    monkeypatch.setitem(collections.COLLECTIONS, "widgets", collections.Collection())
+    store = ConfigStore(node_paths.node_toml, node_paths.cluster_toml)
+    cfg = store.update_cluster(lambda c: c.users[0].roles.append("viewer"), "user:admin")
+    assert store.read_bases()
+    text = node_paths.cluster_toml.read_text()
+    assert text == cfg.dumps() and "bases" not in text and "widgets" not in text

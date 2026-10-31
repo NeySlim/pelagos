@@ -28,10 +28,12 @@ from pelagos import __version__
 from pelagos.archives.inbox import ArchiveInbox, InboxError
 from pelagos.core import ca as ca_mod
 from pelagos.core import clock
+from pelagos.core import cluster_merge as cm
 from pelagos.core import context as context_mod
 from pelagos.core import settings_registry as reg
 from pelagos.core.audit_log import AuditLog
-from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
+from pelagos.core.collections import COLLECTIONS
+from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig, bases_payload
 from pelagos.core.context import (
     REPL_ISOLATED,
     REPL_READY,
@@ -122,6 +124,8 @@ class PeerStatus:
     clock_uncertainty: float | None = None
     # The peer's own NTP state (core.clock.read_ntp_state); None from an older peer.
     ntp: dict[str, Any] | None = None
+    # Generic collections the peer knows (core.collections); None from an older peer.
+    collections: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -137,6 +141,7 @@ class PeerStatus:
             "clock_offset": self.clock_offset,
             "clock_uncertainty": self.clock_uncertainty,
             "ntp": self.ntp,
+            "collections": self.collections,
         }
 
 
@@ -268,6 +273,7 @@ class ReplicationClient:
             config_updated_by=data.get("config_updated_by"),
             config_digest=data.get("config_digest"),
             modules=dict(data.get("modules") or {}),
+            collections=_names(data.get("collections")),
             last_seen=received,
             clock_offset=offset,
             clock_uncertainty=uncertainty,
@@ -277,8 +283,12 @@ class ReplicationClient:
     def fetch_config(self) -> dict[str, Any]:
         return self._call("GET", "/config")
 
-    def push_config(self, version: int, updated_at: str, updated_by: str, toml_text: str) -> bool:
+    def push_config(
+        self, version: int, updated_at: str, updated_by: str, toml_text: str, bases: Any = None
+    ) -> bool:
         body = {"version": version, "updated_at": updated_at, "updated_by": updated_by, "toml": toml_text}
+        if bases is not None:
+            body["bases"] = bases  # write bases (section 13); an older node ignores the member
         return bool(self._call("PUT", "/config", body).get("adopted"))
 
     def fetch_audit(
@@ -719,6 +729,7 @@ class ReplicationApp:
             "time": to_rfc3339(utcnow()),
             "ntp": ntp,
             "modules": self.node.modules.to_dict(),
+            "collections": sorted(COLLECTIONS),
         }
 
     def config_payload(self) -> dict[str, Any]:
@@ -728,6 +739,7 @@ class ReplicationApp:
             "updated_at": to_rfc3339(cfg.updated_at),
             "updated_by": cfg.updated_by,
             "toml": self.config_store.cluster_path.read_text(),
+            "bases": bases_payload(self.config_store.read_bases()),
         }
 
     def _put_config(self, body: dict[str, Any]) -> tuple[int, Any]:
@@ -735,7 +747,9 @@ class ReplicationApp:
         if not isinstance(toml_text, str):
             raise _Refused(400, "validation_error", "toml text required")
         try:
-            adopted = self.config_store.merge_remote(toml_text)
+            adopted = self.config_store.merge_remote(
+                toml_text, body.get("bases"), on_conflict=ConflictReporter(self.audit_log, self.config_store)
+            )
         except (ConfigError, ValueError) as exc:
             # tomllib errors derive from ValueError; a newer schema is a ConfigError.
             raise _Refused(409, "schema_mismatch", str(exc)) from None
@@ -1149,6 +1163,137 @@ def _handler_class() -> type:
 # Replicator -----------------------------------------------------------------
 
 
+def _names(raw: Any) -> list[str] | None:
+    """The `collections` member of a status; None when absent (an older node)."""
+    if not isinstance(raw, list):
+        return None
+    return sorted(str(n) for n in raw)
+
+
+# Merge conflicts (section 13) -----------------------------------------------------------------
+
+MASK = "***"
+CONFLICT_ACTION = "replication.conflict"
+CONFLICT_WINDOW_SECONDS = 60.0
+_SECRET_LEAVES = ("password_hash", "totp_secret", "secret_hash")
+
+
+def is_secret_path(path: str) -> bool:
+    """Entries whose value never reaches a conflict entry: secrets, hashes, security keys."""
+    parts = cm.split_path(path)
+    section = parts[0]
+    if section == "secrets":
+        return True
+    if section in ("users", "api_tokens") and len(parts) >= 3:
+        if section == "users" and parts[2] == "webauthn":
+            return True
+        if parts[-1] in _SECRET_LEAVES:
+            return True
+    coll = COLLECTIONS.get(section)
+    return coll is not None and len(parts) >= 3 and parts[2] in coll.secret_fields
+
+
+def masked(path: str, value: Any, record: bool = False) -> Any:
+    """`value` of entry `path`, masked; a record report masks field by field."""
+    if record and isinstance(value, dict):
+        return {f: masked(path + "/" + cm.path_of(*f.split("/")), v) for f, v in value.items()}
+    return MASK if value is not None and is_secret_path(path) else value
+
+
+class _ConflictLimiter:
+    """At most one entry per path and per minute in this process; skipped ones are counted."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._last: dict[str, float] = {}
+        self._skipped: dict[str, int] = {}
+
+    def admit(self, path: str, now: float | None = None) -> int | None:
+        """The count of conflicts suppressed since the last entry, or None to suppress this one."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            last = self._last.get(path)
+            if last is not None and now - last < CONFLICT_WINDOW_SECONDS:
+                self._skipped[path] = self._skipped.get(path, 0) + 1
+                return None
+            self._last[path] = now
+            return self._skipped.pop(path, 0)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._last.clear()
+            self._skipped.clear()
+
+
+CONFLICT_LIMITER = _ConflictLimiter()
+
+
+def _who(by: str | None) -> str:
+    m = re.match(r"user:(.+)@node:", by or "")
+    return m.group(1) if m else "system"
+
+
+class ConflictReporter:
+    """`on_conflict` of ConfigStore.merge_remote: one replication.conflict audit entry per item."""
+
+    def __init__(self, audit_log: AuditLog, config_store: ConfigStore) -> None:
+        self.audit_log = audit_log
+        self.config_store = config_store
+
+    def __call__(self, discarded: list[cm.Discarded]) -> None:
+        node_id = self.config_store.local_node_id()
+        try:
+            names = {n.id: n.name for n in self.config_store.load_cluster().nodes}
+        except (OSError, ConfigError, ValueError):
+            names = {}
+        for item in discarded:
+            suppressed = CONFLICT_LIMITER.admit(item.path)
+            if suppressed is None:
+                continue
+            try:
+                self.audit_log.append(conflict_entry(item, node_id, names, suppressed))
+            except OSError as exc:
+                log.warning("conflict audit entry for %s not written: %s", item.path, exc)
+
+
+def conflict_entry(item: cm.Discarded, node_id: str, names: dict[str, str], suppressed: int) -> AuditEntry:
+    record = item.reason in ("record_deleted", "record_recreated", "username")
+    parts = cm.split_path(item.path)
+    request: dict[str, Any] = {"path": item.path}
+    if parts[0] in cm.records() and len(parts) >= 2:
+        request["section"], request["record"] = parts[0], parts[1]
+    elif len(parts) >= 1:
+        request["section"] = parts[0]
+    request["reason"] = item.reason
+    request["local"] = {
+        "stamp": cm.stamp_text(item.local_stamp),
+        "by": item.local_by,
+        "value": masked(item.path, item.local, record),
+        "deleted": item.local_deleted,
+    }
+    request["remote"] = {
+        "stamp": cm.stamp_text(item.remote_stamp),
+        "by": item.remote_by,
+        "value": item.remote if record else masked(item.path, item.remote),
+        "deleted": item.remote_deleted,
+        "base": cm.stamp_text(item.remote_base) if item.remote_base is not None else None,
+    }
+    request["suppressed"] = suppressed
+    lnode, rnode = item.local_stamp[1], item.remote_stamp[1]
+    message = (
+        f"Concurrent write of {item.path}: {_who(item.remote_by)} on {names.get(rnode, rnode)} "
+        f"replaced {_who(item.local_by)} on {names.get(lnode, lnode)}"
+    )
+    return AuditEntry(
+        node_id=node_id,
+        user="system",
+        action=CONFLICT_ACTION,
+        target=f"config:{item.path}",
+        request=request,
+        message=message,
+    )
+
+
 class Replicator:
     """Drives all peers: pull on start, push on write, anti-entropy (collector side)."""
 
@@ -1258,17 +1403,23 @@ class Replicator:
         if status.config_digest is not None and status.config_digest == self.config_store.digest():
             # Same entries, higher header on the peer: take it so versions converge too.
             if (status.config_version or 0) > self.config_store.cluster_version()[0]:
-                return self.config_store.merge_remote(client.fetch_config()["toml"])
+                return self._merge_from(client)
             return False
-        adopted = self.config_store.merge_remote(client.fetch_config()["toml"])
+        adopted = self._merge_from(client)
         if status.config_digest is None or self.config_store.digest() != status.config_digest:
             self._push_config_to(client)
         return adopted
 
+    def _merge_from(self, client: ReplicationClient) -> bool:
+        body = client.fetch_config()
+        reporter = ConflictReporter(self.audit_log, self.config_store)
+        return self.config_store.merge_remote(body["toml"], body.get("bases"), on_conflict=reporter)
+
     def _push_config_to(self, client: ReplicationClient) -> bool:
         cfg = self.config_store.load_cluster()
         text = self.config_store.cluster_path.read_text()
-        return client.push_config(cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by, text)
+        bases = bases_payload(self.config_store.read_bases())
+        return client.push_config(cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by, text, bases)
 
     def _sync_audit(self, client: ReplicationClient, status: PeerStatus) -> int:
         """Both directions after each side's head, then an id-set exchange when the counts still differ.

@@ -17,13 +17,15 @@ from typing import Any
 
 import pytest
 
+from pelagos.collector.checks import replication_conflicts
+from pelagos.core import collections
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
 from pelagos.core.context import NodeContext
 from pelagos.core.enrollment import enroll_node
 from pelagos.core.replication import ReplicationService
 from pelagos.domain import Engine, Family, PlanState
-from pelagos.domain.common import new_id
+from pelagos.domain.common import new_id, utcnow
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
 from pelagos.services.errors import ValidationError
@@ -573,8 +575,104 @@ def test_primary_with_two_secondaries(dns_cluster):
     assert err.value.errors == [{"field": "node_ids", "message": n3.id}]
 
 
-@pytest.mark.skip(reason="F0-REPL: contract, implemented next")
-def test_generic_collection_and_conflict_across_three_nodes():
-    """A fake collection written on ns1 and ns2 converges on three nodes (equal digests); the same field
-    written on two nodes between exchanges gives exactly one replication.conflict entry, on the losing
-    node, replicated to all three, and one replication_conflict alert there."""
+# F0-REPL: generic collections and merge conflicts --------------------------------------------
+
+
+@pytest.fixture
+def repl_cluster(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Cluster]:
+    # One process holds the three nodes: they share the registry, so all know the fake collection.
+    monkeypatch.setitem(collections.COLLECTIONS, "widgets", collections.Collection())
+    cluster = build_cluster(tmp_root, [(None, None)] * 3)
+    try:
+        yield cluster
+    finally:
+        for node in cluster.nodes:
+            node.service.stop()
+
+
+def quiet_store(node: Live) -> ConfigStore:
+    """A store without the collector signal: its writes wait for the next exchange."""
+    paths = node.ctx.paths
+    return ConfigStore(paths.node_toml, paths.cluster_toml, paths.locks_dir / "cluster.lock")
+
+
+def converged(cluster: Cluster) -> bool:
+    texts = {n.ctx.paths.cluster_toml.read_text() for n in cluster.nodes}
+    counts = {n.ctx.audit_log.head()[0] for n in cluster.nodes}
+    return len(texts) == 1 and len(counts) == 1
+
+
+def settle(cluster: Cluster) -> None:
+    def done() -> bool:
+        cluster.converge()
+        return converged(cluster)
+
+    wait_for(done, timeout=30)
+
+
+def conflicts(cluster: Cluster) -> dict[str, Any]:
+    """Every replication.conflict entry of the three journals, by id."""
+    found: dict[str, Any] = {}
+    for node in cluster.nodes:
+        for entry in node.ctx.audit_log.read(limit=100000):
+            if entry.action == "replication.conflict":
+                found[entry.id] = entry
+    return found
+
+
+def bump(store: ConfigStore, times: int) -> None:
+    for i in range(times):
+        store.update_cluster(lambda c, i=i: c.settings["plans"].__setitem__("ttl_seconds", 700 + i), "test")
+
+
+def test_generic_collection_and_conflict_across_three_nodes(repl_cluster):
+    cluster = repl_cluster
+    ns1, ns2, ns3 = cluster.nodes
+    s1, s2 = quiet_store(ns1), quiet_store(ns2)
+    by1, by2 = f"user:alice@node:{ns1.id}", f"user:bob@node:{ns2.id}"
+
+    # Records created on two nodes meet on the three.
+    s1.update_collection("widgets", lambda ws: ws.append({"id": "w1", "name": "one"}), by1)
+    s2.update_collection("widgets", lambda ws: ws.append({"id": "w2", "name": "two"}), by2)
+    settle(cluster)
+    digests = {n.ctx.config_store.digest() for n in cluster.nodes}
+    assert len(digests) == 1
+    assert sorted(w["id"] for w in ns3.ctx.config_store.load_cluster().collection("widgets")) == ["w1", "w2"]
+    assert conflicts(cluster) == {}
+
+    # A record deleted on ns1 while ns2 (clock ahead) edits it: one record_deleted, on ns2.
+    s1.update_collection("widgets", lambda ws: ws.remove(next(w for w in ws if w["id"] == "w1")), by1)
+    bump(s2, 3)
+    s2.update_collection("widgets", lambda ws: next(w for w in ws if w["id"] == "w1").update(name="1b"), by2)
+    settle(cluster)
+    found = list(conflicts(cluster).values())
+    assert [(e.node_id, e.request["reason"], e.request["path"]) for e in found] == [
+        (ns2.id, "record_deleted", "widgets/w1")
+    ]
+    for node in cluster.nodes:
+        assert node.ctx.config_store.load_cluster().record("widgets", "w1") is None
+        assert found[0].id in node.ctx.audit_log.ids()
+
+    # The same field written on two nodes between exchanges: one entry, on the losing node.
+    s1.update_cluster(lambda c: setattr(c.users[0], "roles", ["admin", "dns"]), by1)
+    bump(s2, 3)
+    s2.update_cluster(lambda c: setattr(c.users[0], "roles", ["admin", "viewer"]), by2)
+    settle(cluster)
+    roles = [e for e in conflicts(cluster).values() if e.request["reason"] == "stamp"]
+    assert len(roles) == 1
+    entry = roles[0]
+    assert entry.node_id == ns1.id and entry.request["path"].endswith("/roles")
+    assert entry.request["local"]["by"] == by1 and entry.request["remote"]["by"] == by2
+    assert "alice on ns1" in (entry.message or "") and "bob on ns2" in (entry.message or "")
+    for node in cluster.nodes:
+        assert node.ctx.config_store.load_cluster().users[0].roles == ["admin", "viewer"]
+        assert entry.id in node.ctx.audit_log.ids()
+        assert node.ctx.config_store.bases_path.exists()
+        alerts = replication_conflicts.observe(node.ctx.audit_log, node.id, utcnow())
+        subjects = {a.subject for a in alerts}
+        if node is ns1:
+            assert subjects == {entry.request["path"]}
+        elif node is ns2:
+            assert subjects == {"widgets/w1"}
+        else:
+            assert subjects == set()

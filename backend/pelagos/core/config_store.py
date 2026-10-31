@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import copy
 import glob
+import json
 import logging
 import os
 import re
 import tempfile
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ import tomli_w
 
 from pelagos.core import cluster_merge as cm
 from pelagos.core import settings_registry
+from pelagos.core.collections import COLLECTIONS
 from pelagos.core.locks import FileLock
 from pelagos.domain.cluster import ApiToken, NodeModules, Peer, Role, User, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
@@ -221,6 +223,8 @@ class ClusterConfig:
     exceptions: list[dict[str, Any]] = field(default_factory=list)
     # API tokens (section 16): hashed secrets only.
     api_tokens: list[ApiToken] = field(default_factory=list)
+    # Generic collections (section 10, core.collections): one list per registered name.
+    collections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
     # Per-entry stamps and tombstones (core.cluster_merge); `stamped` is False for a pre-merge file.
     stamps: dict[str, cm.Stamp] = field(default_factory=dict)
@@ -255,6 +259,7 @@ class ClusterConfig:
             revoked=list(data.get("revoked") or []),
             exceptions=[dict(e) for e in data.get("exceptions") or [] if isinstance(e, dict) and e.get("id")],
             api_tokens=_tokens(data.get("api_tokens")),
+            collections={name: _records(data.get(name), c.key) for name, c in COLLECTIONS.items()},
             schema_version=schema,
             migrated=migrated,
         )
@@ -284,6 +289,12 @@ class ClusterConfig:
             **(
                 {"api_tokens": [_strip_none(t.to_dict()) for t in self.api_tokens]} if self.api_tokens else {}
             ),
+            # Absent when empty: a cluster that never used a collection keeps the same bytes.
+            **{
+                name: [_strip_none(r) for r in self.collections.get(name) or []]
+                for name in COLLECTIONS
+                if self.collections.get(name)
+            },
             **self._replication_table(),
         }
 
@@ -303,8 +314,28 @@ class ClusterConfig:
         fallback = cm.ZERO if self.stamped else (self.version, cm.writer_node(self.updated_by))
         return cm.state_of(self.document(), self.stamps, self.tombstones, fallback)
 
-    def digest(self) -> str:
-        return self.state().digest()
+    def digest(self, without: Iterable[str] = ()) -> str:
+        """Digest of the entries; `without` leaves out the values and stamps of those collections
+        (their tombstones stay): what a node that does not know them holds once the rest converged."""
+        state = self.state()
+        prefixes = tuple(cm.path_of(name) + "/" for name in without)
+        if prefixes:
+            state = cm.State(
+                {p: v for p, v in state.values.items() if not p.startswith(prefixes)},
+                {p: s for p, s in state.stamps.items() if not p.startswith(prefixes)},
+                state.tombstones,
+            )
+        return state.digest()
+
+    def collection(self, name: str) -> list[dict[str, Any]]:
+        """The live list of a registered collection; KeyError for an unknown name."""
+        if name not in COLLECTIONS:
+            raise KeyError(name)
+        return self.collections.setdefault(name, [])
+
+    def record(self, name: str, rid: str) -> dict[str, Any] | None:
+        key = COLLECTIONS[name].key
+        return next((r for r in self.collection(name) if r.get(key) == rid), None)
 
     def dumps(self) -> str:
         return "# SPDX-License-Identifier: Apache-2.0\n" + tomli_w.dumps(self.to_toml())
@@ -337,6 +368,11 @@ def _tokens(raw: Any) -> list[ApiToken]:
     return out
 
 
+def _records(raw: Any, key: str) -> list[dict[str, Any]]:
+    """Records of a generic collection; one without a non-empty string identity is dropped."""
+    return [dict(r) for r in raw or [] if isinstance(r, dict) and isinstance(r.get(key), str) and r.get(key)]
+
+
 def _decode_dates(d: dict[str, Any]) -> dict[str, Any]:
     # tomllib yields datetime objects for RFC 3339 values; Model.from_dict accepts both.
     return d
@@ -354,6 +390,8 @@ class ConfigStore:
         self.node_path = node_path
         self.cluster_path = cluster_path
         self.lock = FileLock(lock_path or cluster_path.with_suffix(".lock"))
+        # Write bases (section 13, merge conflicts): never in cluster.toml.
+        self.bases_path = cluster_path.with_suffix(".bases.json")
         self._on_change: list[Callable[[ClusterConfig], None]] = []
 
     def on_change(self, callback: Callable[[ClusterConfig], None]) -> None:
@@ -395,6 +433,19 @@ class ConfigStore:
         except (OSError, ConfigError, ValueError):
             return updated_by
 
+    def read_bases(self) -> cm.Bases:
+        """cluster.bases.json; missing or damaged reads as empty (detection off, nothing else)."""
+        try:
+            raw = json.loads(self.bases_path.read_text())
+        except (OSError, ValueError):
+            return {}
+        return parse_bases(raw)
+
+    def _write_bases(self, bases: cm.Bases, previous: cm.Bases) -> None:
+        if bases == previous:
+            return
+        atomic_write(self.bases_path, json.dumps(bases_payload(bases), sort_keys=True).encode(), mode=0o640)
+
     def update_cluster(self, mutate: Callable[[ClusterConfig], None], updated_by: str) -> ClusterConfig:
         """Lock, load, mutate, stamp what changed, bump version, write atomically, notify."""
         with self.lock:
@@ -410,9 +461,18 @@ class ConfigStore:
             cfg.updated_at = utcnow()
             cfg.updated_by = updated_by
             atomic_write(self.cluster_path, cfg.dumps().encode())
+            previous = self.read_bases()
+            bases = {**cm.valid_bases(state, previous), **cm.write_bases(before, state, updated_by)}
+            self._write_bases(cm.bound_bases(bases), previous)
         for cb in self._on_change:
             cb(cfg)
         return cfg
+
+    def update_collection(
+        self, name: str, mutate: Callable[[list[dict[str, Any]]], None], updated_by: str
+    ) -> ClusterConfig:
+        """update_cluster on one generic collection's list."""
+        return self.update_cluster(lambda cfg: mutate(cfg.collection(name)), updated_by)
 
     def migrate_settings(self, updated_by: str) -> list[tuple[str, str]]:
         """Write cluster.toml once with former settings names renamed; [] when none was left.
@@ -434,21 +494,46 @@ class ConfigStore:
             cb(cfg)
         return list(cfg.migrated)
 
-    def merge_remote(self, toml_text: str) -> bool:
-        """Merge a peer's cluster.toml entry by entry (section 13); True when the local file changed."""
+    def merge_remote(
+        self,
+        toml_text: str,
+        bases: Any = None,
+        *,
+        on_conflict: Callable[[list[cm.Discarded]], None] | None = None,
+    ) -> bool:
+        """Merge a peer's cluster.toml entry by entry (section 13); True when the local file changed.
+
+        `bases` is the peer's `bases` member (absent from an older node); `on_conflict` gets the
+        local writes the merge dropped unseen, once, outside the lock, only when the file changed.
+        """
         remote = ClusterConfig.from_toml(tomllib.loads(toml_text))
+        remote_bases = parse_bases(bases)
+        discarded: list[cm.Discarded] = []
         with self.lock:
+            previous = self.read_bases()
             if self.cluster_path.exists():
                 local = self.load_cluster()
-                merged = merge_configs(local, remote)
+                merged, report = _merge(local, remote, previous, remote_bases, self.local_node_id())
                 if merged.digest() == local.digest() and merged.version == local.version:
                     return False
+                discarded, merged_bases = report.discarded, report.bases
             else:
                 merged = remote
+                merged_bases = cm.valid_bases(remote.state(), remote_bases)
             atomic_write(self.cluster_path, merged.dumps().encode())
+            self._write_bases(merged_bases, previous)
         for cb in self._on_change:
             cb(merged)
+        if on_conflict is not None and discarded:
+            on_conflict(discarded)
         return True
+
+    def local_node_id(self) -> str:
+        """This node's id; "" when node.toml is unreadable, so nothing is reported as ours."""
+        try:
+            return self.load_node().id
+        except (OSError, ConfigError, ValueError):
+            return ""
 
     def digest(self) -> str:
         """Digest of the replicated entries: two nodes agree exactly when their digests match."""
@@ -459,10 +544,39 @@ class ConfigStore:
         return cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by
 
 
+def parse_bases(raw: Any) -> cm.Bases:
+    """{path: [stamp, base, by]} as JSON; damaged items are skipped."""
+    out: cm.Bases = {}
+    if not isinstance(raw, dict):
+        return out
+    for path, item in raw.items():
+        if not (isinstance(item, list) and len(item) == 3):
+            continue
+        if isinstance(item[0], str) and isinstance(item[1], str):
+            by = item[2] if isinstance(item[2], str) else None
+            out[str(path)] = (cm.parse_stamp(item[0]), cm.parse_stamp(item[1]), by)
+    return out
+
+
+def bases_payload(bases: cm.Bases) -> dict[str, list[Any]]:
+    return {p: [cm.stamp_text(s), cm.stamp_text(b), by] for p, (s, b, by) in bases.items()}
+
+
 def merge_configs(local: ClusterConfig, remote: ClusterConfig) -> ClusterConfig:
     """The deterministic merge of two cluster files: the same result whichever side computes it."""
+    return _merge(local, remote, {}, {}, None)[0]
+
+
+def _merge(
+    local: ClusterConfig,
+    remote: ClusterConfig,
+    local_bases: cm.Bases,
+    remote_bases: cm.Bases,
+    node_id: str | None,
+) -> tuple[ClusterConfig, cm.MergeReport]:
     lstate, rstate = local.state(), remote.state()
-    merged = cm.merge_states(lstate, rstate)
+    report = cm.merge_report(lstate, rstate, local_bases, remote_bases, node_id=node_id)
+    merged = report.state
     digest = merged.digest()
     version = max(local.version, remote.version, merged.clock())
     if digest not in (lstate.digest(), rstate.digest()):
@@ -479,4 +593,4 @@ def merge_configs(local: ClusterConfig, remote: ClusterConfig) -> ClusterConfig:
     cfg = ClusterConfig.from_toml(data)
     cfg.stamped = True
     cfg.stamps, cfg.tombstones = merged.stamps, merged.tombstones
-    return cfg
+    return cfg, report

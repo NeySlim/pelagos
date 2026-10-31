@@ -4,6 +4,7 @@ rewrites an answer, the allow zone and a client exemption win, a bad update keep
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ import dns.query
 import dns.rcode
 import pytest
 
-from pelagos.connectors.base import ConnectorContext
+from pelagos.connectors.base import ConnectorContext, ConnectorTimeout
 from pelagos.connectors.bind import BindBackend
 from pelagos.domain.plan import Change, ChangeOp, PlanState
 from pelagos.rpz import fetch as fetch_mod
@@ -75,7 +76,8 @@ class Rig:
 
 
 @pytest.fixture
-def rig(tmp_root: Path) -> Iterator[Rig]:
+def rig(tmp_root: Path, request: pytest.FixtureRequest) -> Iterator[Rig]:
+    threads = getattr(request, "param", None)
     root = tmp_root / "rpz"
     inc = root / "pelagos"
     inc.mkdir(parents=True)
@@ -92,6 +94,7 @@ def rig(tmp_root: Path) -> Iterator[Rig]:
             f"{ZONE}.db": bind_custom.zone_text(ZONE, extra="ads IN A 192.0.2.66\nwww2 IN A 192.0.2.67\n")
         },
         recursion=True,
+        threads=threads,
     )
     ctx = ConnectorContext(
         node_id="n1",
@@ -227,3 +230,45 @@ def test_removing_the_subscription_restores_the_configuration(rig: Rig) -> None:
     assert rig.rcode(f"ads.{ZONE}") == "NOERROR"
     assert not any(o.name == "response-policy" for o in rig.backend.read_config().options)
     assert "rpz.invalid" not in (rig.root / "pelagos" / "zones.conf").read_text()
+
+
+def wait_rcode(rig: Rig, name: str, rcode: str, seconds: float = 60.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while rig.rcode(name) != rcode:
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
+@pytest.mark.parametrize("rig", [1], indirect=True)
+def test_a_large_list_left_on_disk_is_enabled_again_while_named_loads_it(rig: Rig) -> None:
+    # A slow node: rndc answers nothing while named loads the newly configured list, which takes
+    # longer than one rndc timeout. The plan waits for the load instead of rolling back.
+    big = "".join(f"host{i}.blocked{i % 97}.example.net\n" for i in range(300_000)).encode()
+    rig.subscribe()
+    rig.plan_and_apply()
+    rig.responses.append(LIST + big)
+    assert rig.update().updated == ["blocklist"]
+    assert wait_rcode(rig, f"ads.{ZONE}", "NXDOMAIN")
+    off = rig.backend.plan_config_change(
+        [Change(ChangeOp.REPLACE, "rpz/state", after={"subs": [], "allow": {}})], "test"
+    )
+    assert rig.backend.apply(off).ok
+    assert rig.rcode(f"ads.{ZONE}") == "NOERROR"
+    rndc = rig.backend.rndc
+    rndc.timeout = 0.15
+    timeouts: list[str] = []
+    run = rndc.run
+
+    def counted(*args: str) -> str:
+        try:
+            return run(*args)
+        except ConnectorTimeout:
+            timeouts.append(args[0])
+            raise
+
+    rndc.run = counted  # type: ignore[method-assign]
+    rig.plan_and_apply()
+    assert timeouts, "named answered within the rndc timeout: the list loads too fast to test"
+    assert wait_rcode(rig, f"ads.{ZONE}", "NXDOMAIN")

@@ -8,9 +8,17 @@ from typing import Any
 
 import pytest
 
-from pelagos.connectors.base import ConnectorContext, ConnectorDenied, ConnectorUnavailable, NotSupported
+from pelagos.connectors.base import (
+    ConnectorContext,
+    ConnectorDenied,
+    ConnectorTimeout,
+    ConnectorUnavailable,
+    NotSupported,
+)
 from pelagos.connectors.bind import BindBackend
+from pelagos.connectors.bind.backend import LOAD_SECONDS_PER_MB, LOAD_WAIT_MAX
 from pelagos.connectors.bind.rndc import RndcNotFound, parse_dnssec_status, zone_args, zone_status_from
+from pelagos.domain.common import utcnow
 from pelagos.domain.dns import RRset, ZoneKind
 from pelagos.domain.plan import Change, ChangeOp, PlanScope, PlanState, PreconditionKind
 
@@ -474,3 +482,113 @@ def test_strip_rndc_noise_removes_the_default_configuration_warning():
     )
     assert strip_rndc_noise(raw).strip() == "zone reload queued"
     assert strip_rndc_noise("plain") == "plain"
+
+
+class BusyRndc(Recorder):
+    """named loading zones: its control channel times out `busy` times before answering."""
+
+    timeout = 0.05
+
+    def __init__(self, busy: int, reconfig_busy: bool = False, configured: str | None = None) -> None:
+        super().__init__()
+        self.busy = busy
+        self.reconfig_busy = reconfig_busy
+        self.configured = configured
+
+    def run(self, *args: str) -> str:
+        self.calls.append(args)
+        if args[0] == "reconfig" and self.reconfig_busy:
+            raise ConnectorTimeout("rndc reconfig timed out")
+        return ""
+
+    def status(self) -> dict[str, str]:
+        self.calls.append(("status",))
+        if self.busy > 0:
+            self.busy -= 1
+            raise ConnectorTimeout("rndc status timed out")
+        now = utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
+        return {"version": "BIND 9.20.30", "last configured": self.configured or now}
+
+
+def busy_backend(tmp_root: Path, conf_tree: Path, rndc: Recorder) -> tuple[BindBackend, Any]:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    backend.rndc = rndc  # type: ignore[assignment]
+    plan = backend.plan_config_change([Change(ChangeOp.ADD, "options/notify-rate", after="20")])
+    assert plan.state is PlanState.VALIDATED
+    return backend, plan
+
+
+def test_config_plan_waits_for_named_loading_zones(tmp_root: Path, conf_tree: Path, monkeypatch) -> None:
+    # 18 MB of RPZ files on a slow node: rndc status times out while named loads them.
+    rndc = BusyRndc(busy=3)
+    backend, plan = busy_backend(tmp_root, conf_tree, rndc)
+    monkeypatch.setattr(backend, "_load_budget", lambda: 5.0)
+    result = backend.apply(plan)
+    assert result.ok and not result.rolled_back, result.message
+    assert rndc.calls.count(("status",)) == 4
+
+
+def test_named_busy_past_the_budget_fails_and_rolls_back(
+    tmp_root: Path, conf_tree: Path, monkeypatch
+) -> None:
+    rndc = BusyRndc(busy=10**6)
+    backend, plan = busy_backend(tmp_root, conf_tree, rndc)
+    monkeypatch.setattr(backend, "_load_budget", lambda: 0.3)
+    options_conf = conf_tree / "pelagos" / "options.conf"
+    before = options_conf.read_text()
+    result = backend.apply(plan)
+    assert not result.ok and result.rolled_back
+    assert "rndc status timed out: named still busy loading zones" in result.message
+    assert options_conf.read_text() == before
+
+
+def test_a_refused_control_channel_is_not_retried(tmp_root: Path, conf_tree: Path, monkeypatch) -> None:
+    rndc = BusyRndc(busy=0)
+    backend, plan = busy_backend(tmp_root, conf_tree, rndc)
+    monkeypatch.setattr(backend, "_load_budget", lambda: 5.0)
+    calls: list[int] = []
+
+    def refused() -> dict[str, str]:
+        calls.append(1)
+        raise ConnectorUnavailable("rndc: connect failed: 127.0.0.1#953: connection refused")
+
+    rndc.status = refused  # type: ignore[method-assign]
+    result = backend.apply(plan)
+    assert not result.ok and result.rolled_back and "connection refused" in result.message
+    assert len(calls) == 1
+
+
+def test_reconfig_timed_out_while_loading_counts_once_named_took_it(
+    tmp_root: Path, conf_tree: Path, monkeypatch
+) -> None:
+    rndc = BusyRndc(busy=2, reconfig_busy=True)
+    backend, plan = busy_backend(tmp_root, conf_tree, rndc)
+    monkeypatch.setattr(backend, "_load_budget", lambda: 5.0)
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    steps = backend.pop_details(plan.id)["response"]["steps"]
+    assert any(s["name"] == "reload" and "named was loading zones" in s["output"] for s in steps)
+
+
+def test_reconfig_timed_out_and_never_applied_fails(tmp_root: Path, conf_tree: Path, monkeypatch) -> None:
+    # named answers again but its configuration predates the reconfig: it never loaded the files.
+    rndc = BusyRndc(busy=1, reconfig_busy=True, configured="Sat, 24 Oct 2026 12:29:37 GMT")
+    backend, plan = busy_backend(tmp_root, conf_tree, rndc)
+    monkeypatch.setattr(backend, "_load_budget", lambda: 5.0)
+    result = backend.apply(plan)
+    assert not result.ok and "did not load the new configuration" in result.message
+
+
+def test_load_budget_grows_with_the_zone_files(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    backend.rndc = BusyRndc(busy=0)  # type: ignore[assignment]
+    empty = backend._load_budget()
+    assert empty == pytest.approx(0.05)
+    rpz = tmp_root / "var" / "pelagos" / "rpz"
+    rpz.mkdir(parents=True)
+    with open(rpz / "big.rpz.invalid.db", "wb") as fh:
+        fh.truncate(18 * 2**20)
+    assert backend._load_budget() == pytest.approx(0.05 + 18 * LOAD_SECONDS_PER_MB)
+    with open(rpz / "huge.rpz.invalid.db", "wb") as fh:
+        fh.truncate(4096 * 2**20)
+    assert backend._load_budget() == LOAD_WAIT_MAX

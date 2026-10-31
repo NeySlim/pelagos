@@ -33,6 +33,7 @@ def start(
     options: str = "",
     files: dict[str, str] | None = None,
     recursion: bool = False,
+    threads: int | None = None,
 ) -> named_fx.NamedServer:
     """`body` may use {zones} (the zone directory) and {key:<name>} is not needed: every key of
     `keys` is defined at the top level before it."""
@@ -86,8 +87,10 @@ logging {{
         raise RuntimeError(f"named-checkconf failed:\n{check.stdout}{check.stderr}\n{conf}")
     user = os.environ.get("USER") or str(os.getuid())
     stdout = (root / "named.stdout").open("w")
+    # One worker thread (-n 1) runs the control channel on the loop that loads zones, as on a slow node.
+    extra = ["-n", str(threads)] if threads else []
     proc = subprocess.Popen(
-        [named, "-c", str(path), "-g", "-u", user], stdout=stdout, stderr=subprocess.STDOUT
+        [named, "-c", str(path), "-g", "-u", user, *extra], stdout=stdout, stderr=subprocess.STDOUT
     )
     server = named_fx.NamedServer(
         root=root,

@@ -17,6 +17,7 @@ from pelagos.connectors.base import (
     ConnectorContext,
     ConnectorDenied,
     ConnectorError,
+    ConnectorTimeout,
     ConnectorUnavailable,
     DnsBackend,
     NotSupported,
@@ -51,6 +52,7 @@ from pelagos.connectors.bind.rndc import (
     RndcNotFound,
     find_binary,
     parse_dnssec_status,
+    parse_rndc_time,
     zone_args,
     zone_status_from,
 )
@@ -73,7 +75,7 @@ from pelagos.domain import (
     ZoneStatus,
     messages,
 )
-from pelagos.domain.common import Engine
+from pelagos.domain.common import Engine, utcnow
 from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS, normalize_name
 from pelagos.domain.messages import Message
 from pelagos.domain.plan import (
@@ -100,6 +102,10 @@ RELOAD_POLL = 0.2
 # A refused AXFR is not asked again for this long (a config change through a plan resets it).
 AXFR_RETRY_SECONDS = 6 * 3600.0
 SIZE_CACHE_SECONDS = 60.0
+# named answers no rndc command while it loads newly configured zones: 18 MB of RPZ took 15-25 s
+# on a node capped at 0.3 core. A plan waits that long per MB of zone files, within a bound.
+LOAD_SECONDS_PER_MB = 3.0
+LOAD_WAIT_MAX = 600.0
 
 
 def _zone_kind(change: Any) -> str | None:
@@ -756,24 +762,69 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             return 0o640, self.group
         return None, None  # user files keep their owner, group and mode
 
-    def _verify(self, plan: Plan) -> Any:
+    def _load_budget(self) -> float:
+        """Seconds a reconfig may keep named busy: the rndc timeout plus a share per MB of the zone
+        files Pelagos manages (RPZ lists included), capped."""
+        size = 0
+        try:
+            top = self.default_zone_dir()
+        except ConnectorError:
+            top = None
+        for root, _dirs, files in os.walk(top) if top else ():
+            for name in files:
+                try:
+                    size += os.stat(os.path.join(root, name)).st_size
+                except OSError:
+                    continue
+        base = float(getattr(self.rndc, "timeout", 15.0))
+        return min(LOAD_WAIT_MAX, base + LOAD_SECONDS_PER_MB * size / 2**20)
+
+    @staticmethod
+    def _when_loaded(call: Callable[[], Any], deadline: float) -> Any:
+        """An rndc command asked again while it times out (named loading zones) until `deadline`;
+        any other failure (refused, denied, error) is not retried."""
+        while True:
+            try:
+                return call()
+            except ConnectorTimeout as exc:
+                if time.monotonic() >= deadline:
+                    raise ConnectorTimeout(f"{exc}: named still busy loading zones") from exc
+            time.sleep(RELOAD_POLL)
+
+    def _reconfig_loaded(self, budget: float) -> str:
+        """rndc reconfig. When it times out, named got it but is busy loading zones: once it answers
+        again, `last configured` must be later than the command, else the reconfig failed."""
+        sent = utcnow().replace(microsecond=0)
+        try:
+            return self.reconfig() or "reconfig done"
+        except ConnectorTimeout:
+            pass
+        status = self._when_loaded(self.rndc.status, time.monotonic() + budget)
+        configured = parse_rndc_time(status.get("last configured"))
+        if configured is None or configured < sent:
+            raise ConnectorError("rndc reconfig timed out and named did not load the new configuration")
+        return "reconfig done (named was loading zones)"
+
+    def _verify(self, plan: Plan, budget: float | None = None) -> Any:
+        budget = self._load_budget() if budget is None else budget
         if plan.scope is not PlanScope.DNS_ZONE:
-            return lambda: bool(self.rndc.status())
+            return lambda: bool(self._when_loaded(self.rndc.status, time.monotonic() + budget))
 
         def verify() -> bool:
+            deadline = time.monotonic() + budget
             for change in plan.changes:
                 view, _, name = change.target.partition("/")
                 view = None if view in ("", DEFAULT_VIEW) else view
                 # Root hints are not a zone rndc zonestatus knows: the reload itself is the check.
                 if _zone_kind(change) == "hint":
-                    if not self.rndc.status():
+                    if not self._when_loaded(self.rndc.status, deadline):
                         return False
                     continue
                 # rndc names the redirect zone "-redirect", as "." would be the root zone.
                 if _zone_kind(change) == "redirect":
                     name = "-redirect"
                 try:
-                    self.rndc.zonestatus(name, view)
+                    self._when_loaded(lambda n=name, v=view: self.rndc.zonestatus(n, v), deadline)
                     present = True
                 except RndcNotFound:
                     present = False
@@ -923,14 +974,15 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             )
         for d in dirs:
             self._ensure_zone_dir(d)
-        verify = self._verify(plan)
+        budget = self._load_budget()
+        verify = self._verify(plan, budget)
         moved = [c.target for c in plan.changes if handover.is_handover(c)]
         if moved:
             verify = self._verify_handover(verify, moved)
         pipeline = self._config_pipeline(
             backup_root=self.ctx.backup_root,
             validate=lambda: run_checkconf(self.checkconf, self.named_conf),
-            reload=lambda: self.reconfig() or "reconfig done",
+            reload=lambda: self._reconfig_loaded(budget),
             verify=verify,
             label=plan.id,
         )
@@ -1149,7 +1201,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             pipeline = self._config_pipeline(
                 backup_root=self.ctx.backup_root,
                 validate=lambda: run_checkconf(self.checkconf, self.named_conf),
-                reload=lambda: self.reconfig() or "reconfig done",
+                reload=lambda: self._reconfig_loaded(self._load_budget()),
                 label=f"{plan.id}-rollback",
             )
             outcome = pipeline.restore(backup)

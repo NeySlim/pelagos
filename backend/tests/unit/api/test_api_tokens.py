@@ -91,7 +91,8 @@ def test_admin_with_required_key_scripts_through_a_token(app, admin_key, node_ct
     created = next(e for e in entries if e.action == "auth.token" and e.request["op"] == "create")
     assert created.message == "verified by webauthn" and created.target == "token:deploy"
     log_text = node_ctx.audit_log.path.read_text()
-    assert token not in log_text and token.split("_")[-1] not in log_text
+    # pel_<hex id>_<secret>: the secret itself may hold "_".
+    assert token not in log_text and token.split("_", 2)[2] not in log_text
 
 
 def test_token_reaches_no_account_or_token_management(app, admin_key):

@@ -5,6 +5,7 @@ import {
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
   secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS, nameServers, defaultNameServers,
   zoneCopies, secondaryChoice, hasRecords, zoneTabIds, forwardingNodes, forwardingDivergent, zoneErrorKey,
+  recordsHome,
 } from './zoneTools'
 
 const zone = {
@@ -233,5 +234,34 @@ describe('zones without records', () => {
     expect(zoneErrorKey({ code: 'engine_unavailable', status: 503 })).toBe('detail.errors.unavailable')
     expect(zoneErrorKey({ code: 'network_error', status: 0 })).toBe('detail.errors.network')
     expect(zoneErrorKey({ code: 'internal_error', status: 500 })).toBe('detail.errors.generic')
+  })
+})
+
+describe('where the records of a zone are edited', () => {
+  const node = (id, status = 'online', bind = true) => ({ peer: { id, modules: { bind } }, status })
+  const nodes = [node('ns1'), node('ns2'), node('ns3')]
+  const ok = (kind) => ({ kind, error: null })
+  const copy = { name: 'branch.example.lan.', kind: 'secondary', primaries: ['192.0.2.2 key ddi-read'] }
+  it('edits a primary here and a copy of a cluster primary through it', () => {
+    expect(recordsHome({ zone }, 'ns1', nodes)).toEqual({ where: 'here' })
+    const detail = { zone: copy, copies: { ns1: { kind: 'secondary' }, ns2: { kind: 'primary' } }, status: { ns1: ok('secondary'), ns2: ok('primary') } }
+    expect(recordsHome(detail, 'ns1', nodes)).toEqual({ where: 'primary', node: 'ns2' })
+    expect(recordsHome(null, 'ns1', nodes)).toBeNull()
+  })
+  it('names the external primaries when every node answered', () => {
+    const detail = {
+      zone: copy,
+      copies: { ns1: { kind: 'secondary' } },
+      status: { ns1: ok('secondary'), ns2: { error: 'zone not found' }, ns3: { error: 'zone not found' } },
+    }
+    expect(recordsHome(detail, 'ns1', nodes)).toEqual({ where: 'external', primaries: ['192.0.2.2'] })
+    expect(recordsHome({ ...detail, zone: { ...copy, primaries: [] } }, 'ns1', nodes).primaries).toEqual([])
+  })
+  it('says which nodes cannot be reached when no primary answers', () => {
+    const detail = { zone: copy, copies: { ns1: { kind: 'secondary' } }, status: { ns1: ok('secondary'), ns2: { error: 'unreachable' }, ns3: { error: 'zone not found' } } }
+    expect(recordsHome(detail, 'ns1', nodes)).toEqual({ where: 'unreachable', nodes: ['ns2'] })
+    // An offline node is left out of the status by the backend; a node without BIND never counts.
+    const offline = [node('ns1'), node('ns2', 'offline'), node('ns3', 'online', false)]
+    expect(recordsHome({ ...detail, status: { ns1: ok('secondary') } }, 'ns1', offline)).toEqual({ where: 'unreachable', nodes: ['ns2'] })
   })
 })

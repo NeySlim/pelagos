@@ -448,7 +448,7 @@ function zoneStatus(state, zone, nodeId) {
   }
   // A Pelagos primary is served by the peers as a secondary of this node.
   const peer = !state.nodes.find((n) => n.peer.id === nodeId)?.is_self
-  const kind = peer && zone.kind === 'primary' ? 'secondary' : zone.kind
+  const kind = state.remotePrimaries?.[zone.name] === nodeId ? 'primary' : peer && zone.kind === 'primary' ? 'secondary' : zone.kind
   return {
     zone: zone.name,
     view: zone.view,
@@ -1066,7 +1066,8 @@ function rrsetPlan(state, user, zoneName, body) {
     summary: `${normalized.length} change(s) in ${zone.name}${ptr.changes.length ? ` (PTR in ${zonesOf.slice(1).join(', ')})` : ''}${replacedText.map((t) => ` (${t})`).join('')}`,
     changes: all,
     diff: unifiedDiff(oldText, newText, zone.name),
-    targets: [state.selfId],
+    // A copy's records are changed on the zone's primary node.
+    targets: [state.remotePrimaries?.[zone.name] || state.selfId],
     tool: 'dnspython',
     requires_confirmation: ptr.replaced.length > 0,
     preconditions: [
@@ -1473,7 +1474,7 @@ function buildHandlers(state, emit) {
       const zone = findZone(state, params.zone, query.get('view'))
       const views = [...new Set(state.zones.filter((z) => z.name === zone.name).map((z) => z.view))].sort()
       const copies = Object.fromEntries(
-        zoneHolders(state, zone).map((n) => [n.peer.id, { kind: n.is_self || zone.kind !== 'primary' ? zone.kind : 'secondary', source: n.is_self ? zone.source : 'pelagos' }]),
+        zoneHolders(state, zone).map((n) => [n.peer.id, { kind: zoneStatus(state, zone, n.peer.id).kind || zone.kind, source: n.is_self ? zone.source : 'pelagos' }]),
       )
       // A forward zone has no status nor serial: its forwarders per node and whether they answer.
       if (zone.kind === 'forward') return { zone, mode: zoneMode(zone), views, status: {}, copies, forwarding: forwarding(state, zone) }

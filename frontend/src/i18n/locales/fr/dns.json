@@ -196,7 +196,8 @@
         "unavailable": "La recherche de la zone inverse n'est pas disponible",
         "noPtrHere": "Aucun PTR ne pointe vers ce nom"
       }
-    }
+    },
+    "appliedOn": "Appliqué sur {{node}}, primaire de la zone ; ce nœud suit par transfert de zone."
   },
   "detail": {
     "tabs": {
@@ -280,7 +281,12 @@
       "technical": "Détail du moteur : {{detail}}"
     },
     "zoneFile": "Fichier de zone",
-    "zoneFileHelp": "Défini à la création de la zone, relatif au répertoire de BIND ; en lecture seule ici : named continue de charger ce fichier."
+    "zoneFileHelp": "Défini à la création de la zone, relatif au répertoire de BIND ; en lecture seule ici : named continue de charger ce fichier.",
+    "primaryOn": "Primaire : {{node}}",
+    "recordsOnPrimary": "Copie de {{node}}, primaire de la zone : les modifications faites ici y sont appliquées, et ce nœud suit par transfert de zone.",
+    "recordsExternal": "Lecture seule : ce nœud détient une copie transférée depuis {{primaries}}, un serveur hors du cluster. Modifiez les enregistrements sur ce serveur.",
+    "recordsExternalUnknown": "Lecture seule : ce nœud détient une copie d'une zone dont la primaire est hors du cluster. Modifiez les enregistrements sur ce serveur.",
+    "recordsUnreachable": "Lecture seule pour l'instant : aucun nœud joignable ne détient cette zone en primaire, et ces nœuds sont injoignables : {{nodes}}. Si la primaire est l'un d'eux, modifiez les enregistrements à son retour."
   },
   "resolver": {
     "recursion": "Récursion",

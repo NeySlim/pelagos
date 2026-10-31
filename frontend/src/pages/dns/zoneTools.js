@@ -307,3 +307,23 @@ export function zoneErrorKey(err) {
   if (code === 'network_error' || err?.status === 0) return 'detail.errors.network'
   return 'detail.errors.generic'
 }
+
+// Where the records of a zone are edited from this node. A record plan is applied on the
+// zone's primary (backend `_primary_node`), so a copy whose primary is a reachable cluster node
+// is edited here too; otherwise the reason it is read-only: the primary is outside the cluster
+// or no reachable node holds it as primary while some node cannot be reached.
+export function recordsHome(detail, selfId, nodes = []) {
+  const zone = detail?.zone
+  if (!zone) return null
+  if (zone.kind === 'primary') return { where: 'here' }
+  const copies = zoneCopies(detail)
+  const primary = Object.keys(copies).find((id) => id !== selfId && copies[id].kind === 'primary')
+  if (primary) return { where: 'primary', node: primary }
+  const status = detail.status || {}
+  const unreachable = nodes
+    .filter((n) => n.peer.id !== selfId && n.peer.modules?.bind !== false && !(n.peer.id in copies))
+    .filter((n) => n.status === 'offline' || !(n.peer.id in status) || status[n.peer.id]?.error === 'unreachable')
+    .map((n) => n.peer.id)
+  if (unreachable.length) return { where: 'unreachable', nodes: unreachable }
+  return { where: 'external', primaries: (zone.primaries || []).map((p) => String(p).split(/\s+/)[0]) }
+}

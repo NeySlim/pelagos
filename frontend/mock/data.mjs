@@ -238,6 +238,19 @@ function makeZones() {
       config_path: '/etc/bind/named.conf.local',
     },
     {
+      // A copy on ns1 of a zone whose primary is ns2 (createState remotePrimaries).
+      ...common,
+      name: 'branch.example.lan.',
+      kind: 'secondary',
+      file: 'sec/db.branch.example.lan',
+      dynamic: false,
+      primaries: ['192.0.2.2 key ddi-read'],
+      allow_transfer: ['key ddi-read'],
+      update_policy: [],
+      source: 'pelagos',
+      config_path: '/etc/bind/pelagos/zones.conf',
+    },
+    {
       ...common,
       name: 'rpz.example.lan.',
       kind: 'primary',
@@ -347,6 +360,11 @@ function makeRecords(hosts) {
       rr('100.51.198.in-addr.arpa.', 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102401 3600 900 1209600 300`),
       rr('100.51.198.in-addr.arpa.', 'NS', 3600, [`ns1.${z}`, `ns2.${z}`]),
       rr('10.100.51.198.in-addr.arpa.', 'PTR', 3600, 'intranet.corp.example.lan.'),
+    ],
+    'branch.example.lan.': [
+      rr('branch.example.lan.', 'SOA', 3600, `ns2.${z} hostmaster.${z} 2026103101 3600 900 1209600 300`),
+      rr('branch.example.lan.', 'NS', 3600, [`ns2.${z}`, `ns1.${z}`]),
+      rr('www.branch.example.lan.', 'A', 3600, '192.0.2.80'),
     ],
     'partner.example.': [
       rr('partner.example.', 'SOA', 3600, 'ns.partner.example. admin.partner.example. 2026101503 7200 900 1209600 300'),
@@ -1035,6 +1053,8 @@ export function createState(scenario = 'pair') {
     sessions: new Map(),
     zones,
     records,
+    // Zones held as primary by a peer: this node has a copy, record plans apply on the peer.
+    remotePrimaries: { 'branch.example.lan.': NODE_IDS.ns2 },
     soaSerial,
     catalogs: [
       { zone: 'catalog.example.lan.', view: '_default', role: 'producer', version: '2', source: 'pelagos', members: [{ zone: 'lab.example.lan.', label: 'a1b2c3', group: 'lab', coo: null }] },

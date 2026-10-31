@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Globe, ArrowsClockwise, ArrowsSplit, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
+import { Globe, ArrowsClockwise, ArrowsSplit, Info, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -44,7 +44,7 @@ import { FailoverBadge } from './FailoverBadge'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
-import { editableZone, forwardingDivergent, forwardingNodes, secondaryChoice, secondaryPeers, staticFindingId, zoneCopies, zoneDeleteRequest, zoneErrorKey, zoneMode, zoneTabIds } from './zoneTools'
+import { editableZone, forwardingDivergent, forwardingNodes, recordsHome, secondaryChoice, secondaryPeers, staticFindingId, zoneCopies, zoneDeleteRequest, zoneErrorKey, zoneMode, zoneTabIds } from './zoneTools'
 
 const ZONE_POLL_MS = 15000
 const TRANSFER_REREAD_MS = 2500
@@ -62,7 +62,7 @@ function useZoneError() {
     return { title: t(zoneErrorKey(err)), detail: raw ? t('detail.errors.technical', { detail: raw }) : undefined }
   }
 }
-function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
+function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameOf }) {
   const { t } = useTranslation(['dns', 'common'])
   const msg = useMessage()
   const { isMobile } = useMobile()
@@ -164,6 +164,7 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
 
   return (
     <>
+      <RecordsHomeNote home={home} nameOf={nameOf} />
       {mode === 'static' && (
         <p className="mb-3 flex items-start gap-2 rounded-lg border border-border-op50 p-3 text-xs text-text-secondary" data-testid="zone-static-note">
           <FileText size={14} className="shrink-0 mt-0.5 text-accent-primary" />
@@ -216,12 +217,30 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
           onClose={() => setEditor(null)}
           onApplied={done}
           onCommitted={committed}
+          appliedOn={home?.where === 'primary' ? nameOf(home.node) : undefined}
         />
       )}
       {rollbackOf && (
         <PlanPreviewModal open plan={rollbackOf} autoRollback onClose={() => setRollbackOf(null)} onRolledBack={done} />
       )}
     </>
+  )
+}
+
+// Why the records of a copy are edited here and applied on its primary, or why they are read-only.
+function RecordsHomeNote({ home, nameOf }) {
+  const { t } = useTranslation('dns')
+  if (!home || home.where === 'here') return null
+  let text
+  if (home.where === 'primary') text = t('detail.recordsOnPrimary', { node: nameOf(home.node) })
+  else if (home.where === 'unreachable') text = t('detail.recordsUnreachable', { nodes: home.nodes.map(nameOf).join(', ') })
+  else if (home.primaries.length) text = t('detail.recordsExternal', { primaries: home.primaries.join(', ') })
+  else text = t('detail.recordsExternalUnknown')
+  return (
+    <p className="mb-3 flex items-start gap-2 rounded-lg border border-border-op50 p-3 text-xs text-text-secondary" data-testid={home.where === 'primary' ? 'records-primary-note' : 'records-readonly-note'} data-where={home.where}>
+      <Info size={14} className="shrink-0 mt-0.5 text-accent-primary" />
+      {text}
+    </p>
   )
 }
 
@@ -507,7 +526,9 @@ export default function ZoneDetailPage() {
   const handoverItem = zone?.source === 'user_conf' ? zoneHandover(handover.data, zone) : null
   const handOverZone = () => flow.run(() => api.dns.configPlan(handoverChanges([handoverItem]), handoverItem.nodes))
   const canOps = hasPermission('ops:dns')
-  const editable = Boolean(zone) && zone.kind === 'primary' && hasPermission('write:dns.records')
+  const home = useMemo(() => recordsHome(data, selfNode?.id, nodes), [data, selfNode, nodes])
+  // A copy whose primary is a reachable cluster node is edited here: the plan applies there.
+  const editable = Boolean(zone) && ['here', 'primary'].includes(home?.where) && hasPermission('write:dns.records')
   const viewArg = view ? { view } : {}
 
   const op = async (name, fn) => {
@@ -566,6 +587,9 @@ export default function ZoneDetailPage() {
             <StatusBadge status={zone.kind} label={t(`kind.${zone.kind}`, { defaultValue: zone.kind })} dot={false} />
             <ModeBadge mode={mode} />
             <FailoverBadge zone={zone} />
+            {home?.where === 'primary' && (
+              <Badge variant="gray" size="sm" data-testid="zone-primary-on">{t('detail.primaryOn', { node: nameOf(home.node) })}</Badge>
+            )}
           </span>
         )
       }
@@ -630,7 +654,7 @@ export default function ZoneDetailPage() {
       ) : zone ? (
         <>
           {activeTab === 'forwarding' && <ForwardingTab forwarding={data.forwarding} nameOf={nameOf} />}
-          {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
+          {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} home={home} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
           {activeTab === 'status' && (
             <StatusTab
               status={data.status}

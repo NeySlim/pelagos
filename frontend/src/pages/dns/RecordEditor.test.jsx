@@ -257,3 +257,14 @@ describe('RecordEditor TTL', () => {
     expect(plan).not.toHaveBeenCalled()
   })
 })
+
+describe('record editor on a copy', () => {
+  it('says the plan is applied on the zone primary', () => {
+    render(<RecordEditor open zone="branch.example.lan." mode="add" appliedOn="ns2" planFn={vi.fn()} lookupFn={vi.fn()} coverageFn={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.getByTestId('record-applied-on')).toHaveTextContent('ns2')
+  })
+  it('says nothing on the primary itself', () => {
+    render(<RecordEditor open zone="example.lan." mode="add" planFn={vi.fn()} lookupFn={vi.fn()} coverageFn={vi.fn()} onClose={vi.fn()} />)
+    expect(screen.queryByTestId('record-applied-on')).toBeNull()
+  })
+})

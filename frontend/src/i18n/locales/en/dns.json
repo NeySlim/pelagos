@@ -196,7 +196,8 @@
         "unavailable": "The reverse zone lookup is not available",
         "noPtrHere": "No PTR points to this name"
       }
-    }
+    },
+    "appliedOn": "Applied on {{node}}, the zone's primary; this node follows by zone transfer."
   },
   "detail": {
     "tabs": {
@@ -280,7 +281,12 @@
       "technical": "Engine detail: {{detail}}"
     },
     "zoneFile": "Zone file",
-    "zoneFileHelp": "Set when the zone was created, relative to the BIND directory; read only here: named keeps loading this file."
+    "zoneFileHelp": "Set when the zone was created, relative to the BIND directory; read only here: named keeps loading this file.",
+    "primaryOn": "Primary: {{node}}",
+    "recordsOnPrimary": "Copy of {{node}}, the zone's primary: record changes made here are applied there, and this node follows by zone transfer.",
+    "recordsExternal": "Read-only: this node holds a copy transferred from {{primaries}}, a server outside the cluster. Edit the records on that server.",
+    "recordsExternalUnknown": "Read-only: this node holds a copy of a zone whose primary is outside the cluster. Edit the records on that server.",
+    "recordsUnreachable": "Read-only for now: no reachable node holds this zone as primary, and these nodes cannot be reached: {{nodes}}. If the primary is one of them, edit the records once it is back."
   },
   "resolver": {
     "recursion": "Recursion",

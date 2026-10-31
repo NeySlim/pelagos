@@ -84,6 +84,8 @@ export function RecordEditor({
   onApplied,
   // Called on close when the plan stayed applied: (plan, result), for the toast that offers its rollback.
   onCommitted,
+  // Name of the zone's primary when this node holds a copy: the plan is applied there.
+  appliedOn,
   planFn = (z, changes, v, ptr) => api.dns.recordsPlan(z, changes, v, ptr),
   lookupFn = (z, params) => api.dns.records(z, params),
   coverageFn = (body) => api.dns.ptrCoverage(body),
@@ -287,6 +289,11 @@ export function RecordEditor({
             data-testid="record-rdata"
           />
         </>
+      )}
+      {appliedOn && (
+        <p className="text-xs text-text-tertiary" data-testid="record-applied-on">
+          {t('editor.appliedOn', { node: appliedOn })}
+        </p>
       )}
       {ptrKey && (
         <PtrOption mode={mode} option={ptr} checked={ptrChecked ?? true} onChange={setPtrChecked} loading={coverageLoading && !currentCoverage} />

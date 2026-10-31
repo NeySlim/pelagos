@@ -46,6 +46,9 @@ export {
 // Pelagos components
 export { DataTable } from './DataTable'
 export { ErrorNotice } from './ErrorNotice'
+export { ReadOnlyNote } from './ReadOnlyNote'
+export { NodeLink } from './NodeLink'
+export { useReadOnlyReason } from '../hooks/useReadOnlyReason'
 export { ConfirmDialog } from './ConfirmDialog'
 export { StatusBadge, statusVariant } from './StatusBadge'
 export { UtilizationBar, utilizationLevel } from './UtilizationBar'

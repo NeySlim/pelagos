@@ -60,33 +60,48 @@ full diff (Audit log screen, filterable by plan).
 
 ## Expiry
 
-A plan lives `plans.ttl_seconds` (default 600 seconds, **Administration,
-Settings**, "Plan lifetime"). Plans are kept in the memory of the web
-process of the node that built them:
+A plan not applied lives `plans.ttl_seconds` (default 600 seconds,
+**Administration, Settings**, "Plan lifetime"). A plan that finished (applied,
+rolled back or failed) stays `plans.rollback_window_seconds` after it ended
+(default 24 hours, at most 7 days, "Rollback window"). Plans are kept by the
+web process of the node that built them, encrypted on disk with the master
+key, so a restart of `pelagos.service` keeps them:
 
-- applying an expired plan answers `410 plan_expired`; the review panel
+- a plan past its deadline answers `410 plan_expired`; the review panel
   offers "Recompute the plan" from the same inputs;
-- a restart of `pelagos.service` drops every pending plan (they answer
-  `410` too);
 - `DELETE /plans/{id}` discards a plan (`404` afterwards).
+
+`GET /plans?state=&user=&scope=&page=&per_page=` lists the plans of the node
+you are connected to, newest first, with their state, `finished_at` and
+`rollback_until`. With `read:audit` you see every plan of the node and can
+open any of them read only; otherwise only your own. `GET /audit?plan_id=`
+gives the audit entries of one plan.
 
 ## Rollback
 
-An applied plan can be rolled back for `plans.ttl_seconds` after its apply,
-from its result panel ("Roll back") or `POST /plans/{id}/rollback`. The
-rollback is a plan of its own: the inverse changes, with the same
-preconditions on the state the apply left, applied on every node that
-applied it.
+An applied plan can be rolled back until its `rollback_until` (the end of
+the rollback window), from its result panel ("Roll back") or
+`POST /plans/{id}/rollback`. The rollback applies the inverse changes, with
+guards checked against the state now, on every node that applied it.
 
 - A record rollback sends the inverse UPDATE (dynamic zones) or writes the
   inverse file edit with a new serial (static zones), so secondaries
-  transfer the restored records.
-- A Kea rollback restores the configuration if nothing changed it since
-  (configuration hash guard).
-- Installer, import and security plans do not roll back as a whole: each
-  of their steps restores its own files when it fails.
+  transfer the restored records. A record changed since (another plan, a
+  hand edit, DDNS) refuses it.
+- A BIND configuration rollback restores the backup only when no file the
+  plan wrote changed since, and only while the backup is kept
+  (`retention.backups_days`).
+- A Kea rollback is refused when the configuration changed since the apply,
+  by any plan or by hand (configuration hash guard): roll back the newest
+  plan first, or build a new plan.
+- A D2 configuration rollback works for `plans.ttl_seconds` after the apply
+  and not after a restart, whatever the window says.
+- Installer, import, security and Kea migration plans do not roll back as
+  a whole: each of their steps restores its own files when it fails.
 - DNSSEC key rollovers and DS state changes cannot be rolled back.
 
+A refused rollback answers `409 precondition_failed` and the plan stays
+applied, or ends `failed`. A rollback that fails is final: build a new plan.
 After the window, restore by hand: the backups under
 `/var/lib/pelagos/backups/<engine>/` (also listed in **Advanced, History**,
 with the diff since the previous backup) and the `before` state in the

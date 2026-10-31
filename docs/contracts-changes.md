@@ -20,7 +20,7 @@ Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyRes
 `Plan.expires_at` keeps its meaning (when the plan stops being usable) and becomes the retention
 deadline: the preview TTL until the plan finishes, then `finished_at` plus the window.
 `rollback_until` is set only while the plan can be rolled back (`APPLIED`, or `FAILED` and
-`interrupted`; never for job scopes and `update`); a failed rollback is terminal.
+`interrupted`; never for job scopes); a failed rollback is terminal.
 `PlanStore(ttl_seconds, rollback_window_seconds)`, `PlanStore.finish` replaces `touch`,
 `PlanStore.list` and `on_expired` are new. Optional connector hook `check_rollback(plan)`, called
 before a rollback starts: a refusal is `409 precondition_failed` and leaves the plan `APPLIED`.

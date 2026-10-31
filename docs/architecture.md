@@ -777,12 +777,14 @@ class Plan(Model):
     target_node_ids: list[str]
     requires_confirmation: bool    # HA maintenance, dhcp-disable, key rotation, zone delete
     state: PlanState
-    expires_at: datetime           # created_at + settings.plans.ttl_seconds (default 600)
+    expires_at: datetime           # preview TTL (settings.plans.ttl_seconds), then the rollback window (section 6)
     error: str | None = None
     error_message: dict | None = None     # translatable error: permission guard refusal, apply error
     summary_message: dict | None = None   # translatable summary, section 19 "Messages"
     impact: list[ImpactItem] = []         # what the plan does beyond its diff (section 6, "Impact")
     requires_confirmation_reasons: list[str] = []   # ConfirmationReason values; empty on older plans
+    finished_at: datetime | None = None      # last apply or rollback ended (section 6)
+    rollback_until: datetime | None = None   # set only while the plan can be rolled back (section 6)
 
 class ConfirmationReason(str, Enum): DELETE="delete"; PREFIX_CHANGE="prefix_change"; POOL_SHRINK="pool_shrink"; LEASES_LOST="leases_lost"; LEASE_CONFLICT="lease_conflict"; MULTI_NODE="multi_node"; OPERATION="operation"
 class ImpactSeverity(str, Enum): INFO="info"; WARNING="warning"
@@ -805,6 +807,7 @@ class NodeApplyResult(Model):
 @dataclass(slots=True)
 class ApplyResult(Model):
     plan_id: str; state: PlanState; results: list[NodeApplyResult]; finished_at: datetime
+    rollback_until: datetime | None = None   # the plan's value after this apply or rollback
 
 class JobState(str, Enum): QUEUED="queued"; RUNNING="running"; DONE="done"; FAILED="failed"
 @dataclass(slots=True)
@@ -1099,7 +1102,8 @@ unchanged. Two optional fields, RFC 3339 or `null`, `null` on plans built before
   ended), or when a restart turned an `APPLYING` plan into an `interrupted` `FAILED` one.
 - `rollback_until`: not null if and only if the plan can be rolled back now: state `APPLIED`,
   or `FAILED` with `interrupted`, and a scope outside the job scopes (`install`, `import`,
-  `security`, `kea.migration`) and `update`, whose rollback has no backend; `restore` keeps it.
+  `security`, `kea.migration`), whose rollback has no backend; `restore` keeps it, and so does
+  `update`, whose rollback removes a rollout not started yet (section 29).
   It is then `finished_at + rollback_window_seconds`. `null` in every other state, after a
   rollback (`ROLLED_BACK`, or `FAILED`: a failed rollback is terminal, the nodes that did undo
   their part dropped their guard and a second pass would be a blind inverse).
@@ -1627,6 +1631,7 @@ api_token_audit_reads_enabled = true     # false: only unsafe Bearer calls get a
 
 [settings.plans]
 ttl_seconds = 600
+rollback_window_seconds = 86400         # a finished plan is kept, and an applied one rolls back, this long
 
 [settings.peers]
 plan_timeout_seconds = 300               # a peer answers an engine plan apply or rollback within this

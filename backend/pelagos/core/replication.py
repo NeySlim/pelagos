@@ -1419,7 +1419,7 @@ class Replicator:
         cfg = self.config_store.load_cluster()
         text = self.config_store.cluster_path.read_text()
         bases = bases_payload(self.config_store.read_bases())
-        return client.push_config(cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by, text, bases)
+        return client.push_config(cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by, text, bases=bases)
 
     def _sync_audit(self, client: ReplicationClient, status: PeerStatus) -> int:
         """Both directions after each side's head, then an id-set exchange when the counts still differ.

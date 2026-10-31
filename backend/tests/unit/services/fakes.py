@@ -1842,7 +1842,9 @@ class FakeReplicationClient:
             config_updated_by=updated_by,
         )
 
-    def push_config(self, version: int, updated_at: str, updated_by: str, toml_text: str) -> bool:
+    def push_config(
+        self, version: int, updated_at: str, updated_by: str, toml_text: str, bases: Any = None
+    ) -> bool:
         self._check()
         if version <= self._config_head()[0] and self.config_toml:
             return False

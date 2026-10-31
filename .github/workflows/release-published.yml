@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+# Publishing a release on GitHub (the human click on the draft) points ghcr.io <version> and
+# latest at the candidate images (<version>-amd64, <version>-arm64) that the release workflow
+# tested and pushed for the draft: no rebuild, and every candidate must still hold the digest
+# recorded by the newest successful release run of the tag. A release published with
+# GITHUB_TOKEN would not start this workflow; a person publishing the draft does.
+name: release-published
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      PRERELEASE: ${{ github.event.release.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Tag
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG (vX.Y.Z)" >&2; exit 1; }
+          echo "VERSION=${TAG#v}" >>"$GITHUB_ENV"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Digests of the newest successful release run of the tag
+        run: |
+          runs="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?status=success&per_page=100" \
+            --jq '.workflow_runs[] | select(.display_title == "release " + env.TAG) | .id')"
+          run="${runs%%$'\n'*}"
+          if [ -z "$run" ] || ! gh run download "$run" -n "image-digests-$VERSION"; then
+            echo "no tested images for $TAG: run the release workflow with tag=$TAG" >&2
+            exit 1
+          fi
+          echo "release run $run" | tee -a "$GITHUB_STEP_SUMMARY"
+          cat "image-digests-$VERSION.txt"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: <version>, and latest when it is the newest published release
+        run: |
+          newest="$(gh api --paginate "repos/$GH_REPO/releases" \
+            --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          latest=()
+          [ "$PRERELEASE" != true ] && [ "$newest" = "$TAG" ] && latest=(--latest)
+          scripts/release-images.sh promote "${latest[@]}" "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" \
+            "$VERSION" "image-digests-$VERSION.txt" | tee -a "$GITHUB_STEP_SUMMARY"

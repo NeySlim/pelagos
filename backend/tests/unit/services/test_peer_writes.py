@@ -189,7 +189,8 @@ def pair(tmp_root: Path) -> Iterator[Pair]:
 
 
 def _audit(ctx: NodeContext, action: str) -> list[Any]:
-    return [e for e in ctx.audit_log.read() if e.action == action]
+    # Each node's entries replicate to the other's log: keep the ones this node wrote.
+    return [e for e in ctx.audit_log.read() if e.action == action and e.node_id == ctx.node.id]
 
 
 def test_write_operation_runs_on_the_peer_and_is_audited_on_both(pair):
@@ -239,8 +240,9 @@ def test_zone_delete_is_built_and_applied_on_the_node_running_bind(pair):
     result = PlanService(pair.a, ConnectorRegistry(), pair.gateway).apply(plan, "alice", confirm=True)
     assert result.state is PlanState.APPLIED, result
     assert "example.lan." not in pair.registry_b.dns.zones
-    there = [e for e in pair.b.audit_log.read() if e.plan_id == plan.id]
-    assert there and there[-1].user == f"node:{pair.a.node.id}" and there[-1].request["created_by"] == "alice"
+    there = _audit(pair.b, "dns.zone.apply")
+    assert [e.plan_id for e in there] == [plan.id]
+    assert there[-1].user == f"node:{pair.a.node.id}" and there[-1].request["created_by"] == "alice"
     assert any(e.plan_id == plan.id for e in pair.a.audit_log.read())
 
 
@@ -322,8 +324,8 @@ def test_a_d2_plan_built_on_a_peer_keeps_its_sealed_secret_out_of_answers(pair):
     assert secret_change.after["sealed"] not in str(answer) and D2_SECRET not in str(answer)
     result = PlanService(pair.a, ConnectorRegistry(), pair.gateway).apply(plan, "alice", confirm=True)
     assert result.state is PlanState.APPLIED, result
-    there = [e for e in pair.b.audit_log.read() if e.plan_id == plan.id and e.action == "d2.config.apply"]
-    assert there and there[-1].result is AuditResult.OK
+    there = [e for e in _audit(pair.b, "d2.config.apply") if e.plan_id == plan.id]
+    assert len(there) == 1 and there[0].result is AuditResult.OK and there[0].request["remote"]
     for entry in pair.a.audit_log.read():
         assert secret_change.after["sealed"] not in str(entry.to_dict())
         assert "sealed" not in str(entry.request.get("changes", ""))

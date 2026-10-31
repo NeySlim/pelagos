@@ -121,8 +121,13 @@ def pair(tmp_root: Path, named_server, kea_dhcp4) -> Iterator[Pair]:
         service_b.stop()
 
 
+def own(ctx, action):
+    # Each node's entries replicate to the other's log: keep the ones this node wrote.
+    return [e for e in ctx.audit_log.read() if e.action == action and e.node_id == ctx.node.id]
+
+
 def here_last(ctx):
-    return [e for e in ctx.audit_log.read() if e.action == "dns.zone.op"][-1]
+    return own(ctx, "dns.zone.op")[-1]
 
 
 def test_rndc_operations_on_the_peer(pair, named_server):
@@ -131,27 +136,26 @@ def test_rndc_operations_on_the_peer(pair, named_server):
     assert "notify" in out["output"].lower(), out
     out = ops.run_bind("sync", {"zone": "example.lan"}, pair.peer_id, False, "alice", None)
     assert out["node_id"] == pair.peer_id
-    # The web node's own remote entries replicate to the peer's log too: keep the peer's.
-    peer = [e for e in pair.peer_ctx.audit_log.read() if e.action == "dns.ops" and e.node_id == pair.peer_id]
+    peer = own(pair.peer_ctx, "dns.ops")
     assert [e.request["op"] for e in peer] == ["notify", "sync"]
     assert all(e.user == f"node:{pair.web.node.id}" and e.result is AuditResult.OK for e in peer)
     # A zone operation through the zone endpoints' path (a plan applied on the peer).
     dns = DnsService(pair.web, None, pair.gateway)
     assert "notify" in dns.operation("notify", "example.lan", pair.peer_id, None, "alice").lower()
-    here = [e for e in pair.web.audit_log.read() if e.action == "dns.zone.op"]
+    here = own(pair.web, "dns.zone.op")
     assert here and here[-1].response["remote"] and here[-1].user == "alice"
     # Freeze, reload (a dynamic zone reloads only frozen) and thaw on the peer; without node_id they
     # go to the first peer running BIND.
     for op in ("freeze", "reload", "thaw"):
         out = dns.operation(op, "example.lan", None, None, "alice")
         assert isinstance(out, str), (op, out)
-    ran = [e for e in pair.peer_ctx.audit_log.read() if e.action == "dns.zone.apply"]
+    ran = own(pair.peer_ctx, "dns.zone.apply")
     assert [e.target.split("/")[0] for e in ran][-3:] == ["op:freeze", "op:reload", "op:thaw"]
     assert all(e.result is AuditResult.OK for e in ran[-3:])
     # retransfer of a primary: named refuses it, the refusal comes back from the peer, audited on both.
     with pytest.raises(EngineUnavailable, match="inappropriate zone type"):
         dns.operation("retransfer", "example.lan", pair.peer_id, None, "alice")
-    assert pair.peer_ctx.audit_log.read()[-1].result is AuditResult.ERROR
+    assert own(pair.peer_ctx, "dns.zone.apply")[-1].result is AuditResult.ERROR
     assert here_last(pair.web).result is AuditResult.ERROR
 
 

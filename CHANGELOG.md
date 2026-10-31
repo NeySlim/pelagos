@@ -5,6 +5,14 @@ One section per release, newest first. The full notes of each release are in
 [GitHub releases](https://github.com/NeySlim/pelagos/releases) page, which
 also holds the releases before 0.3.3.
 
+## 0.3.5
+
+- Fix: Administration > Updates no longer fails with "Permission denied" on
+  `/var/lib/pelagos-helper` on nodes where the ISC Kea migration ran; on
+  0.3.4, `sudo chmod 0755 /var/lib/pelagos-helper` works around it.
+- Release: the ghcr.io images get their version tag and `latest` when the
+  release is published; a draft only pushes the tested candidates.
+
 ## 0.3.4
 
 - Fix: the security audit, the import and the adoption no longer report or

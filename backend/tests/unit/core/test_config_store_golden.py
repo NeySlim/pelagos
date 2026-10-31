@@ -13,7 +13,7 @@ from pelagos.core.config_store import ClusterConfig
 
 pytestmark = pytest.mark.unit
 
-# Written by 0.3.6.dev0 (settings left out: their defaults grow with every release).
+# Written by 661603d4 (0.3.6.dev0); settings left out: their defaults grow with every release.
 GOLDEN = """\
 schema_version = 1
 version = 3
@@ -98,6 +98,7 @@ advanced_editor = true
 [replication.tombstones]
 "roles/old" = "2@A"
 """
+# Digest of GOLDEN without settings entries, computed by 661603d4.
 GOLDEN_DIGEST = "sha256:01505b515f02c4a6911ec874b246faa25b48eedf6b27abb52daf4764ee218c18"
 
 

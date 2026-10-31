@@ -33,3 +33,8 @@ def test_collection_accessors():
 @SKIP
 def test_update_collection_stamps_and_tombstones():
     """ConfigStore.update_collection: new records stamped, edited fields restamped, removed tombstoned."""
+
+
+@SKIP
+def test_peers_missing_counts_older_and_unaware_peers():
+    """No collections member or a list without the name: missing; unreachable peers do not block."""

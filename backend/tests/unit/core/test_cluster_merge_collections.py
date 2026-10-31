@@ -63,3 +63,48 @@ def test_concurrent_username_is_reported_with_reason_username():
 @SKIP
 def test_merge_report_keeps_merge_commutative():
     """merge_report(a, b).state and merge_report(b, a).state have the same digest as merge_states."""
+
+
+@SKIP
+def test_record_recreated_reports_concurrent_creation_of_a_natural_key():
+    """roles/ops created on A and B: the loser gets one record_recreated report."""
+
+
+@SKIP
+def test_causal_recreation_after_a_seen_tombstone_is_not_reported():
+    """Re-creation whose base is the tombstone it saw: nothing."""
+
+
+@SKIP
+def test_local_deletion_lost_to_a_concurrent_write_is_reported():
+    """Local tombstone against a remote value whose base sorts below it: reason stamp."""
+
+
+@SKIP
+def test_record_deleted_gives_one_entry_per_record_with_masked_fields():
+    """Ten fields lost under a deleted record: one report, fields masked one by one."""
+
+
+@SKIP
+def test_merge_report_bases_are_commutative():
+    """merge_report(a, b).bases equals merge_report(b, a).bases."""
+
+
+@SKIP
+def test_digest_without_a_collection_equals_an_older_nodes_digest():
+    """Older node simulated through TOML text: its digest equals digest(without=[name])."""
+
+
+@SKIP
+def test_two_write_sequence_on_one_node_is_reported_once_on_the_other():
+    """40@A, 42@A against 41@B: reported on B only."""
+
+
+@SKIP
+def test_stale_bases_items_are_ignored_when_read():
+    """Bases file behind cluster.toml (crash between writes): stale items inert."""
+
+
+@SKIP
+def test_remote_bases_with_foreign_stamps_are_ignored():
+    """Received bases whose stamp is not the path's current one: ignored."""

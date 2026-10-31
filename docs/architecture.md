@@ -1755,16 +1755,21 @@ at the root, and `collector.lease_watch_max`. Migration:
 A replicated collection is a list of records in `cluster.toml` that an epic
 adds without touching the merge (`[[networks]]`, `[[auth_providers]]`,
 `[[templates]]`, `[[role_scopes]]`, `[[approvals]]`). The only list is
-`core/collections.py`:
+`core/collections.py` (its name shadows the standard module inside the
+package directory only: import it as `pelagos.core.collections`):
 
 ```python
 @dataclass(frozen=True, slots=True)
 class Collection:
-    key: str = "id"                         # identity field: one record per value, a string
+    key: str = "id"                         # identity field: one record per value, a non-empty string
     secret_fields: tuple[str, ...] = ()     # top-level fields masked in conflict audit entries
 
 COLLECTIONS: dict[str, Collection] = {}     # name -> definition; empty until an epic adds a line
 # e.g. "networks": Collection(),  "auth_providers": Collection(secret_fields=("client_secret",))
+
+def peers_missing(name: str, statuses: Iterable[PeerStatus]) -> list[str]
+    # ids of reachable peers whose last status does not list `name` (no `collections` member:
+    # an older node, counts as missing); an unreachable peer does not block, it catches up later
 ```
 
 Adding a collection is one line there plus its tests; nothing else in
@@ -1774,18 +1779,29 @@ Adding a collection is one line there plus its tests; nothing else in
   `roles`, `exceptions`, `api_tokens`, `revoked`, `modules`, `settings`,
   `secrets`, `replication`) nor a header key. `test_collections.py` checks
   every entry against these rules.
-- Records are flat TOML tables whose values are strings, numbers, booleans,
-  lists or nested tables. The identity value is a string (an id from
-  `domain.common.new_id()` unless the epic names another natural key); a
-  record without it is dropped at load, like a damaged `[[exceptions]]` item.
-  Identity is immutable: renaming a key is a delete plus a create.
+- The key of a collection never changes once released: two releases with
+  different keys would split one section into two sets of entry paths.
+- Records are TOML tables whose values are strings, numbers, booleans,
+  lists or nested tables. Dates are RFC 3339 strings
+  (`domain.common.to_rfc3339`), never TOML datetimes. The identity value is
+  a non-empty string (an id from `domain.common.new_id()` unless the epic
+  names a natural key); a record without it, or with an empty one, is
+  dropped at load. Identity is immutable: renaming a key is a delete plus a
+  create.
 - Clear secrets never go in a record: a record names a `[secrets]` entry
-  (`secrets/<collection>/<id>/<field>`, sealed as in section 12). The
+  (`<collection>/<id>/<field>`, sealed as in section 12). The
   `secret_fields` list is for fields that hold a hash or a sealed value.
 - Uniqueness of any field other than the identity (a prefix, a name) is the
   service's check before the write. The merge never deduplicates
-  collections: two nodes creating the same prefix concurrently end with two
-  records, and the epic's consistency check reports it.
+  collections (only `users.username`, a login identity): two nodes creating
+  the same prefix concurrently end with two records, and the epic's
+  consistency check reports it. With a natural key, two concurrent creations
+  of the same key keep the fields of the greater creation and the other node
+  gets a `record_recreated` conflict (section 13).
+- Epic services refuse a write to a collection with `409
+  collection_unavailable` (the name in `errors`) while
+  `peers_missing(name, statuses)` is not empty: a collection holds records
+  only once every reachable node knows it.
 
 Merge (section 13): each collection is a record list exactly like `users`
 or `api_tokens`. `cluster_merge.records()` returns the core record lists
@@ -1802,6 +1818,9 @@ cluster.
 collections: dict[str, list[dict[str, Any]]]   # one list per COLLECTIONS name, [] when absent
 def collection(self, name: str) -> list[dict[str, Any]]        # the live list (mutate it in update_cluster); KeyError when not registered
 def record(self, name: str, rid: str) -> dict[str, Any] | None
+def digest(self, without: Iterable[str] = ()) -> str
+    # without: collection names whose values and stamps are left out (their tombstones stay):
+    # the digest a node that does not know them holds once everything else converged
 ```
 
 `from_toml` loads every registered name (records ordered as in the file,
@@ -1809,7 +1828,7 @@ which `unflatten` orders by creation stamp); `to_toml` writes each non-empty
 collection after `api_tokens`, in `COLLECTIONS` order, with `None` values
 dropped, and writes nothing for an empty one: a cluster that never used a
 collection keeps a `cluster.toml` byte for byte identical to the one the
-previous release wrote, and the same digest (`test_config_store_golden`).
+previous release wrote, and the same digest (`test_config_store_golden.py`).
 `ConfigStore.update_cluster(mutate, updated_by)` is unchanged: `mutate`
 edits `cfg.collection(name)` like any other field, and the write stamps
 changed entries and tombstones removed ones. A shortcut for services:
@@ -1820,7 +1839,8 @@ def update_collection(self, name: str, mutate: Callable[[list[dict[str, Any]]], 
 ```
 
 Mixed versions (guarantee, enforced by `test_cluster_merge_collections.py`,
-the "older node" tests): a node that does not know a collection (an older
+the "older node" tests, which simulate it through the TOML text under a
+reduced registry): a node that does not know a collection (an older
 release, or a node whose `COLLECTIONS` lacks the name) drops the section
 when it reads the file, never writes it back and never tombstones its
 entries: its own writes stamp only what it knows, so `record_write` cannot
@@ -1829,11 +1849,12 @@ keeps every tombstone without a live value). The records come back on the
 next merge with any node that knows the collection, with their original
 stamps. While a collection holds records, the digests of nodes that know it
 and of nodes that do not differ, and each peer poll merges both ways (as for
-`[[api_tokens]]` with 0.2.x nodes, section 16). A section unknown to every
-release (written by a newer one) follows the same rule on this release.
-`/repl/v1/status` gains `collections` (the names this node knows, sorted) so
-callers can tell a peer that cannot hold a collection from a peer that
-diverges; a peer without the member knows none.
+`[[api_tokens]]` with 0.2.x nodes, section 16); `digest(without=...)` gives
+the comparable value (rolling updates, section 29). A section unknown to
+every release (written by a newer one) follows the same rule on this
+release. `/repl/v1/status` gains `collections` (the names this node knows,
+sorted), read into `PeerStatus.collections: list[str] | None` (None: an
+older node).
 
 ## 11. Audit log (JSONL)
 
@@ -2141,72 +2162,109 @@ The merge keeps the write with the greatest stamp; the other write of the
 same entry is discarded. A discarded write that its winner never saw (a
 concurrent write) is a conflict, recorded in the audit log and raised as an
 `info` alert. A write the winner replaced knowingly (an ordinary edit of
-another node's value) is not.
+another node's value, a re-creation after a deletion it saw) is not.
+Detection is best effort: never a false positive, false negatives possible
+(below); the merge itself never depends on it.
 
-Bases. Every write records, per changed entry, the stamp of the value it
-replaced (its base, `0@` for a new entry) and the writer (`updated_by`).
-Bases live in `cluster.bases.json` next to `cluster.toml` (written under the
-same lock, after it, atomically), never in `cluster.toml`, so the file bytes
-and the digest do not change:
+Bases. The base of a write of an entry is the stamp of the entry it
+replaced, live value or tombstone; `0@` only when the path had neither.
+Every write (`update_cluster`, `update_collection`) records, for each path
+whose stamp changed (new, edited, tombstoned), `[stamp, base, by]` with
+`by` the write's `updated_by`; `init_cluster` records none. Bases live in
+`cluster.bases.json` next to `cluster.toml`, never in `cluster.toml`, so the
+file bytes and the digest do not change:
 
 ```json
 {"users/01JB.../roles": ["41@01JB...B", "38@01JB...A", "user:bob@node:01JB...B"]}
 ```
 
-`path -> [stamp, base, by]`, kept only while `stamp` is the entry's current
-stamp (live value or tombstone), at most 10 000 items (newest stamps kept).
-A missing or damaged file reads as empty: conflicts are then not detected,
-nothing else changes. `GET /repl/v1/config` answers `bases` (the whole map)
-beside `toml`, `PUT /repl/v1/config` takes it as an optional member; a merge
-keeps, for each merged entry, the base of whichever side held the winning
-stamp. An older node neither sends nor keeps bases.
+- Written under the `cluster.toml` lock, after it, with `atomic_write`
+  (0640); at most 10 000 items (newest stamps kept), which also bounds
+  `GET /repl/v1/config`. Not part of archives. `migrate_settings` leaves it
+  alone (stamps unchanged).
+- Valid at read: an item counts only when its `stamp` is the current stamp
+  of its path (live value or tombstone) at the time of use, for the local
+  file as for a received `bases` member. A crash between the two writes
+  leaves stale items, which are inert. A missing or damaged file reads as
+  empty.
+- Exchange: `GET /repl/v1/config` answers `bases` beside `toml`;
+  `ReplicationClient.fetch_config()` returns the whole body,
+  `push_config(..., bases)` sends it in the `PUT` body. An older node
+  ignores the member and sends none (`data.get("bases")`).
+- A merge keeps, per merged entry, the base of the side holding the winning
+  stamp. Bases do not change when `merge_remote` leaves the file unchanged.
 
-Detection (`cluster_merge.merge_report(local, remote, bases) -> MergeReport`,
-`merge_states` is `merge_report(...).state`):
+Detection (`core.cluster_merge`):
 
 ```python
+def merge_report(local: State, remote: State, local_bases: Bases, remote_bases: Bases,
+                 *, node_id: str | None = None) -> MergeReport
+    # Bases = dict[path, (stamp, base, by)]; node_id: report only local writes of this node
+    # (None: every local write, for tests). merge_states(a, b) == merge_report(a, b, {}, {}).state
+
 @dataclass(frozen=True, slots=True)
 class Discarded:
-    path: str                     # entry path, percent-encoded parts
-    local: Any                    # discarded value, None when it was a tombstone
+    path: str                     # entry path; <section>/<id> for record_deleted and record_recreated
+    local: Any                    # discarded value; None for a tombstone; {field path: value} for a record
     local_stamp: Stamp
     local_deleted: bool
-    remote: Any                   # winning value, None when it is a tombstone
+    local_by: str | None
+    remote: Any                   # winning value; None for a tombstone; True for a re-created record
     remote_stamp: Stamp
     remote_deleted: bool
-    reason: str                   # "stamp" | "record_deleted" | "username"
+    remote_by: str | None
+    remote_base: Stamp | None
+    reason: str                   # "stamp" | "record_deleted" | "record_recreated" | "username"
 
 @dataclass(slots=True)
 class MergeReport:
     state: State
-    discarded: list[Discarded]    # local writes the merge dropped and their winners never saw
+    bases: Bases                  # merged bases, valid items only
+    discarded: list[Discarded]
 ```
 
-A local entry is reported only when this node wrote it (its stamp's node is
-this node), so one conflict gives one report in the whole cluster, on the
-node whose write lost. Reasons:
+`state` and `bases` are the same in both orders; `discarded` is asymmetric
+by construction. The report decides per path first, then reads the effects
+of the username dedupe and the pruning. A local entry is reported only when
+this node wrote it (its stamp's node is `node_id`), so one conflict gives one
+report in the whole cluster, on the node whose write lost. Reasons:
 
-- `stamp`: the remote side holds a greater stamp for the same path with a
-  different value (or a tombstone against a value), and the winner's base is
-  known and sorts below the local stamp: the winning writer had not seen the
-  local write. Equal base: an ordinary edit, not reported. Unknown base (an
-  older node wrote it, bases lost): not reported.
-- `record_deleted`: a local field write is dropped because its record was
-  deleted by a tombstone with a smaller stamp than the field (the deleting
-  writer cannot have seen it). A field older than the tombstone is not
+- `stamp`: the remote side holds a greater stamp for the same path and a
+  different outcome (another value, a tombstone against a local value, or a
+  value against a local tombstone: a local deletion lost to a concurrent
+  write), and the winner's base is known and sorts below the local stamp:
+  the winning writer had not seen the local write. Base equal to the local
+  stamp: an ordinary edit; base above it: the local write was already
+  superseded; unknown base (an older node wrote it, bases lost): nothing is
   reported.
+- `record_deleted`: local field writes dropped because their record was
+  deleted by a tombstone with a smaller stamp than the field (the deleting
+  writer cannot have seen them). One report per record: `path` is
+  `<section>/<id>`, `local` the dropped fields (path relative to the record,
+  each masked), `remote` None. Fields older than the tombstone: nothing.
+- `record_recreated`: the local existence entry `<section>/<id>` is live
+  and written here, the remote one is live with a greater stamp, and the
+  winner's base is known and below the local stamp (`0@` for a creation):
+  a concurrent creation of the same natural key (`roles/ops`, a collection
+  with a natural key), whose local fields `_prune` drops. One report per
+  record: `local` the dropped fields, `remote` True. A causal re-creation
+  (its base is the tombstone it saw) is not reported.
 - `username`: a local user record lost to a concurrent user of the same
-  username (section 13 rule above).
+  username.
 
-Field entries dropped as an earlier incarnation of a record are stale data,
-never reported. A losing write that another write of the same node
-superseded before the exchange (two writes of one entry within one push) is
-reported against the last one only.
+Other fields dropped as an earlier incarnation are stale data, never
+reported. A losing write superseded twice before the exchange is reported
+against the last one only: A writes 40@A then 42@A, B writes 41@B
+concurrently (base below 40): B's write loses to 42@A and B reports it, A
+reports nothing.
 
-Audit. `ConfigStore.on_conflict(callback)` receives the `Discarded` list of
-each `merge_remote` that changed the file; the replication service
-(`core.replication`) turns each item into one entry, through the existing
-`AuditLog.append`:
+Audit. `ConfigStore.merge_remote(toml_text, bases=None, *, on_conflict=None)
+-> bool`: when the merge changes the file, `on_conflict(discarded)` is
+called once, after the lock is released, with the report of this node
+(`node_id` from `node.toml`); it is not called otherwise. The two callers in
+`core.replication` (`ReplicationApp._put_config`, `Replicator._sync_config`)
+pass a reporter built with their `audit_log` and node, which turns each item
+into one entry through `AuditLog.append`; other callers pass nothing:
 
 ```json
 {"id":"01JC...","ts":"2026-11-02T10:00:03.120Z","node_id":"01JB...A","user":"system",
@@ -2225,22 +2283,27 @@ each `merge_remote` that changed the file; the replication service
 - `by` comes from the bases (`null` when unknown); the message names the
   users (the `user:` part, else `system`) and the node names from
   `[[nodes]]` (the id when unknown).
-- Masking: `value` is `"***"` (and `deleted` kept) for any path under
-  `secrets/`, for a last part `password_hash`, `totp_secret`, `secret_hash`
-  or `public_key` under `users/` or `api_tokens/`, and for the
-  `secret_fields` of a collection. A masked value never reaches the log,
+- Masking: `value` is `"***"` (`deleted` kept) for any path under
+  `secrets/`, the whole `users/<id>/webauthn/` subtree, a last part
+  `password_hash`, `totp_secret` or `secret_hash` under `users/` or
+  `api_tokens/`, and the `secret_fields` of a collection; for a record
+  report, field by field. A masked value never reaches the log, the message,
   the alert or the server log.
-- At most one entry per path and per minute on a node: further conflicts of
-  the same path in that minute are counted and the next entry carries the
-  count in `suppressed` (in memory; a restart starts a new minute).
+- At most one entry per path and per minute per process: a module-level
+  limiter in `core.replication`, under a lock (server threads and the
+  replicator); further conflicts of that path in the minute are counted and
+  the next entry carries the count in `suppressed`. A restart starts a new
+  minute.
 - `user` is `system`; `client_ip` null. The entry replicates like any other.
 
-Alert `replication_conflict` (section 15): severity `info`, raised by the
-collector of the node that wrote the entry (its own `node_id`) when it reads
-a `replication.conflict` entry (`audit` datagram), subject the entry's path,
-details the request of the last entry; one open alert per path, auto-resolved
-24 hours after its last entry. Nothing blocks: the merged value stands, the
-operator re-applies the lost value if it was the right one.
+Alert `replication_conflict` (section 15): `collector/checks/replication_conflicts.py`,
+`observe(audit_log, node_id, now) -> list[Alert]`, run by the collector's
+check pass: one alert per path with at least one `replication.conflict`
+entry of this node in the last 24 hours, subject the path, details the
+masked `request` of the last entry plus `count`; reconciled with scope
+`replication_conflict`, so it resolves once its last entry is 24 hours old.
+Nothing blocks: the merged value stands, the operator re-applies the lost
+value if it was the right one.
 
 ## 14. Enrollment and internal CA
 
@@ -2513,7 +2576,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
-| `replication_conflict` | info | a write of this node to `cluster.toml` lost to a concurrent write of another node (`replication.conflict` audit entry, section 13); subject the entry path; details the masked request of the last entry; auto-resolved 24 h after the last entry of that path |
+| `replication_conflict` | info | a write of this node to `cluster.toml` lost to a concurrent write of another node (`replication.conflict` audit entry, section 13); subject the entry path; details the masked request of the last entry; evaluated by the check pass from this node's entries of the last 24 hours, so it resolves 24 h after the last entry of that path |
 | `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes` |
 | `root_hints_stale` | warning, info | this node's hints file predates the last root server renumbering (related version before 2023112700: warning) or is more than 5 years old (info); subject `zone:<zone>[@<view>]:hints`; details `reason` (`renumbered` or `old`), `file`, `related_version`, `last_update` |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
@@ -5401,7 +5464,9 @@ the screen (U6), daemon and lab tests (U7).
   packages: `ha-maintenance-start` to the peer), `install` (transient unit),
   `version`, `restart` (invocation ids changed), `settle`
   (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`; the audit mark is
-  this node's count when the check began: new entries keep arriving, equal counts rarely meet),
+  this node's count when the check began: new entries keep arriving, equal counts rarely meet;
+  a peer whose status does not list a non-empty local collection is compared with
+  `digest(without=<those collections>)`, section 10),
   `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` and no
   sandbox refusal from the new processes), `permissions` (the permission
   guard of the collector, probed in its own unit sandbox), `ha` (Kea HA back to a normal state), `engine_checks`

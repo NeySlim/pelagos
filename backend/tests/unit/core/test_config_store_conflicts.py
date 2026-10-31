@@ -48,3 +48,18 @@ def test_repl_config_exchanges_bases_and_tolerates_their_absence():
 @SKIP
 def test_status_lists_known_collections():
     """/repl/v1/status answers collections, sorted; a status without it reads as none."""
+
+
+@SKIP
+def test_a_masked_value_never_reaches_the_audit_line():
+    """grep of the password hash on the JSONL written."""
+
+
+@SKIP
+def test_status_parses_missing_collections_as_none():
+    """PeerStatus.collections is None for an older node's status."""
+
+
+@SKIP
+def test_migrate_settings_leaves_bases_alone():
+    """migrate_settings does not touch cluster.bases.json."""

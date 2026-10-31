@@ -34,6 +34,20 @@ How it behaves:
   different entries (a user on ns1, a setting on ns2) both keep their
   change; the same entry ends with the latest write on every node. A
   deleted record wins over a concurrent edit of its fields.
+- **Conflicts**: when two nodes write the same entry before they exchange
+  (the same user's roles on ns1 and ns2 within a few seconds), the greater
+  write wins and the other is lost. The node whose write was lost records a
+  `replication.conflict` audit entry (both authors, both values; secrets and
+  password hashes masked) and raises a `replication_conflict` alert (info),
+  which clears by itself 24 hours after the last conflict on that entry. A
+  deleted record that another node was still editing, or a record created
+  under the same name on two nodes, is reported the same way. Nothing is
+  blocked: check the value that stands and set it again if the lost one was
+  right. Detection is best effort: a write made by a node on an older
+  release is never reported. To tell an ordinary edit from a concurrent one,
+  each node keeps `cluster.bases.json` next to `cluster.toml` (what each
+  write replaced). It is not part of archives; losing it only turns
+  detection off until the next writes.
 - **No quorum**: every node stays writable alone. A node that was down or
   cut off catches up when it comes back.
 - **Offline peers**: a peer unreachable for 3 polls raises `peer_offline`.
@@ -165,6 +179,14 @@ pending plans stay until they expire, but preview them again after an
 upgrade rather than apply one built by the previous version. Check **Nodes and replication** (versions, "All peers in
 sync") before the next node. A node that sees a peer with a newer
 `cluster.toml` schema raises `config_divergence`: upgrade it too.
+
+Mixed versions: a node on an older release ignores the sections of
+`cluster.toml` it does not know (records added by a newer feature) and never
+deletes them; they come back on that node once it is upgraded. Features that
+keep such records refuse to write them (`409 collection_unavailable`) while a
+node of the cluster does not know them yet, so finish the upgrade of every
+node before using them. A rolling update from the UI does not stall on that
+difference.
 
 **Compose**: build or pull the new image, then:
 

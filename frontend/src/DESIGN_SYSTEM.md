@@ -407,6 +407,17 @@ not a flat `bg-accent-primary`. Match this when rebuilding buttons elsewhere.
 <span className="px-2 py-px rounded-full text-2xs status-success-bg status-success-text">Active</span>
 ```
 
+### Action bars and read-only notes
+- A dialog's actions go in `Modal`'s `footer`: outside the scroll, `bg-bg-secondary`,
+  top border, bottom padding of at least `env(safe-area-inset-bottom)`. `PlanPreview`
+  does the same inside `PlanPreviewModal` and is `sticky bottom-0` elsewhere: the
+  confirmation and Apply are never below the fold, on a desktop or a phone.
+- A missing action is explained, not just hidden: `ReadOnlyNote` (lock or node icon,
+  `text-xs text-text-tertiary`, one line) names the permission or links the node
+  (`NodeLink`) where the action is done.
+- A failed read shows `ErrorNotice`: a translated title per error class, never an
+  exception message; the technical text sits under Details.
+
 ## Responsive Breakpoints
 
 | Breakpoint | Min Width |

@@ -104,6 +104,21 @@ time without touching the same files:
 - `PlanPreview` / `PlanPreviewModal`: the one plan UX of section 6. Build a
   plan with a `.../plan` endpoint, pass it in, and the component handles
   confirmation, apply, per-node results, rollback and job progress.
+  Its action bar (reasons, confirmation, Close, Roll back, Apply) is pinned
+  under the scrolling body in the modal and `sticky bottom-0` elsewhere; a
+  diff over 10 lines starts folded. `preConfirmed` skips the checkbox when the
+  screen already confirmed by typing a name; `partialOption` (`{ checked,
+  onChange, nodeIds }`) adds "apply only on the reachable nodes".
+- `Modal`: `footer` renders outside the scrolling body (always visible, above
+  the phone's safe area); `bodyScroll={false}` lets the children scroll.
+- `ErrorNotice`: translated title from the error class (`errors.load_failed`,
+  `forbidden`, `not_found`, `unavailable`, `network`), technical text folded
+  under Details. `useApi` sets `error.kind` (`errorKind(err)`).
+- `ReadOnlyNote` and `useReadOnlyReason(permission, { nodeId })`: one line
+  that says why an action is missing (permission, another node, state).
+- `NodeLink`: a node name linked to the peer's `web_url` (new window), else to
+  `/nodes`; `short` shows the host label only. `useNodePeers()` resolves a node
+  by id or name.
 - `FormModal`, `ConfirmDialog` (with `typeToConfirm`), `FloatingDetailWindow`
   (register a renderer per entity type with `registerDetailRenderer`, open
   with `useOpenDetail()`), `StatusBadge`, `UtilizationBar`, `JsonTree`,

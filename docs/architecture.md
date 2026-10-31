@@ -1033,7 +1033,9 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    plans) builds a `Plan` in state `DRAFT`, runs cheap validation (parser,
    `config-test` when available, `named-checkconf` on a temp copy) and moves
    it to `VALIDATED` or `FAILED` with `validations` filled. Plans live in
-   memory on the node that created them for `settings.plans.ttl_seconds`.
+   memory on the node that created them for `settings.plans.ttl_seconds`
+   (`Plan.expires_at`, the preview expiry); a plan that finished an apply or
+   a rollback stays longer (rollback window, below).
 2. `POST /plans/{id}/apply` (section 17) checks: plan not expired, caller has
    the permission for the scope, `requires_confirmation` satisfied by body
    `{"confirm": true}`, every precondition still true (re-read now). Then
@@ -1054,8 +1056,8 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    request and response copied from the connector's audit material such as
    `BindBackend.details`, masked); peers write theirs when they apply a plan
    received over `/repl/v1/plans/apply`; the summary has `request.entry = "summary"`.
-4. `POST /plans/{id}/rollback` is allowed on `APPLIED` plans until the plan
-   expires from memory (`settings.plans.ttl_seconds` after apply), and on a
+4. `POST /plans/{id}/rollback` is allowed on `APPLIED` plans until
+   `Plan.rollback_until` (rollback window, below), and on a
    `FAILED` plan with `interrupted` (a restart caught it `APPLYING`): that
    rollback undoes the parts recorded `APPLIED`, and answers each node of an
    `interrupted` part with "check this node by hand" (state `FAILED`). After that,
@@ -1079,10 +1081,68 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    their TTL (same TTL, same `410` once expired); the others, and files it
    cannot decrypt, are removed. A plan found `APPLYING` comes back `FAILED`
    with "interrupted by a restart of the web process" (never rolled back
-   automatically). Without the master key plans stay in memory only. The UI offers
+   automatically), `finished_at` set to the load time and a new
+   `rollback_until`. Without the master key plans stay in memory only. The UI offers
    "Recompute the plan" on `410`, on `404` and when the countdown runs out:
    `PlanPreview` takes an `onRecompute` callback that builds the plan again
    from the same inputs and resolves to the new plan.
+
+Rollback window and plan list (F0-PLANS). Two optional `Plan` fields, both RFC 3339 or `null`
+and `null` on every plan built before 0.4.0:
+
+- `finished_at`: when the last apply or rollback of the plan ended (`ApplyResult.finished_at`;
+  for a job, when the job ended), or when a restart turned an `APPLYING` plan into an
+  `interrupted` `FAILED` one.
+- `rollback_until`: `finished_at + settings.plans.rollback_window_seconds` when the plan ends
+  `APPLIED`, or `FAILED` with `interrupted`; `null` in every other state (`VALIDATED`, `FAILED`
+  by validation or by an apply already undone, `ROLLED_BACK`). A rollback that ends `FAILED`
+  keeps the value it had: the plan can be rolled back again until then. The value is fixed when
+  the plan finishes; changing the setting affects plans that finish afterwards.
+
+`settings.plans.rollback_window_seconds` (integer, default 86400, 600 to 604800 seconds) is
+distinct from `settings.plans.ttl_seconds`, which only bounds the preview. `PlanStore` keeps a
+plan, in memory and in its encrypted file (step 5), until its retention deadline: `expires_at`
+for a plan that never finished, `finished_at + rollback_window_seconds` for a finished plan of
+any state (an `APPLIED`, `ROLLED_BACK` or `FAILED` plan is listed for the whole window). The
+deadline is what the tombstone records and what the plan file carries next to the plan
+(`{"plan", "parts", "kept_until"}`, the store's own format), so a restart loads every finished
+plan still inside its window, whatever the setting is now. `PlanStore.finish(plan,
+window_seconds)` replaces `touch` after an apply or a rollback; `PlanService` reads the setting.
+At most 1000 finished plans are held: past that the oldest finished plan leaves early (its id
+becomes a tombstone, `410`). Plan files written by 0.3.x (no `kept_until`) keep their
+`expires_at`, and an `APPLIED` plan from 0.3.x without `rollback_until` can be rolled back while
+the store holds it, as before.
+
+Past the deadline the plan answers `410 plan_expired` on every route, rollback included; a
+rollback asked on a plan still held but past `rollback_until` also answers `410 plan_expired`.
+The web process sweeps the store at least every 60 s (and on each read); each plan that leaves
+it by expiry is published once as `plans`/`expired` (section 18), none for a delete.
+
+A late rollback runs exactly like an immediate one: the inverse changes go through the connector
+with their guards checked against the state now, and it is refused (`409 precondition_failed`,
+nothing written) when the state moved since the apply:
+
+- `dns.rrset`: the inverse UPDATE carries prerequisites on the RRsets the plan wrote; a record
+  changed since (by another plan, a hand edit or DDNS) fails them.
+- `dns.config`, `dns.key`, `dns.acl`, `dns.zone` files: the backup is restored only when every
+  file the plan wrote still has the digest recorded at apply (`written.json`); the backup itself
+  must still exist, so a window longer than `settings.retention.backups_days` is cut short by the
+  backup purge (rollback answers "no backup found for this plan").
+- `dhcp.*` and `d2.config` (except `dhcp.lease` and `dhcp.ha`): the connector compares Kea's
+  `config-hash-get` with the hash recorded right after the apply (`<backups>/applied/<plan
+  id>.json`, the newest 256 plans per node) and refuses on any difference, so a Kea configuration
+  changed since, by any plan or by hand, refuses the rollback of every earlier `dhcp.*` plan. The
+  user rolls back the newest plan first, or builds a new plan.
+- Peers: the rollback of a part sent to a peer is sent again over `/repl/v1/plans/rollback`
+  with the whole plan; the peer checks its own guards the same way.
+
+`GET /plans` (section 17) lists the plans this node holds, newest `created_at` first, as
+`PlanSummary` items: `id`, `scope`, `node_id`, `summary`, `summary_message`, `created_by`,
+`created_at`, `state`, `expires_at`, `finished_at`, `rollback_until`, `interrupted`,
+`target_node_ids`, `requires_confirmation`. Plans live on the node that built them: the list is
+this node's (`meta.node_id`), not the cluster's. Every plan the code builds carries a
+`summary_message` (a test builds one plan per `PlanScope` and refuses a `null`), and every
+`NodeApplyResult` that `PlanService` returns for a failure carries `message_message`.
 
 Impact and the confirmation rule. Every plan the web process stores goes through
 `services.plan_impact.PlanImpact.annotate` (wrapped around `PlanStore.put` by the services
@@ -3169,9 +3229,10 @@ its engine (`dns...`: `read:dns`, `kea...`: `read:dhcp`). Answer time on a warm 
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /plans/{id}` | creator or admin | | `Plan` |
+| `GET /plans?state=&user=&scope=&page=&per_page=` | any session | | paginated `PlanSummary` (section 6) of this node, newest first, `meta.node_id`; with `read:audit` every plan, else only the caller's own (`user` naming someone else: `403`); `state`: comma-separated `PlanState` values; `scope`: a `PlanScope` value or a prefix ending in `.` (`dhcp.`); `400 validation_error` on an unknown state or scope |
+| `GET /plans/{id}` | creator, admin, or `read:audit` (read only) | | `Plan` (`410 plan_expired` past its retention deadline) |
 | `POST /plans/{id}/apply` | permission of the plan scope | `{"confirm": bool}` | `ApplyResult` or `202 Job` for `install`/`import`/`security` scopes |
-| `POST /plans/{id}/rollback` | same | | `ApplyResult` |
+| `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult`; `410 plan_expired` past `rollback_until`; `409 precondition_failed` when the state moved since the apply (section 6) |
 | `DELETE /plans/{id}` | creator or admin | | `204` |
 | `GET /jobs/{id}` | any | | `Job` |
 
@@ -3197,7 +3258,7 @@ picks raw or hourly data accordingly.
 
 | Method, path | Permission | Response |
 | --- | --- | --- |
-| `GET /audit?user=&action=&target=&node_id=&engine=&result=&from=&to=&page=&per_page=` | `read:audit` | paginated `AuditEntry` |
+| `GET /audit?user=&action=&target=&node_id=&engine=&result=&plan_id=&from=&to=&page=&per_page=` | `read:audit` | paginated `AuditEntry` (`plan_id`: exact match, the summary and every node entry of that plan) |
 | `GET /audit/{id}` | `read:audit` | `AuditEntry` |
 | `GET /audit/export?from=&to=` | `read:audit` | `application/x-ndjson` stream |
 
@@ -3648,6 +3709,7 @@ Server to client, one message per event:
 {"topic": "plans", "event": "applied" | "failed" | "rolled_back", "ts", "node_id", "data": ApplyResult}
 {"topic": "plans", "event": "validated" | "applying" | "rolling_back", "ts", "node_id", "data": {"plan_id", "scope", "state", "origin_node_id", "target_node_ids", "validations": [{"tool", "node_id", "ok"}]}}
 {"topic": "plans", "event": "step", "ts", "node_id", "data": {"plan_id", "scope", "node_id", "origin_node_id", "verb": "apply" | "rollback", "state": "running" | "done" | "failed", "ok"?, "outcome_unknown"?, "message"?, "duration_ms"?}}
+{"topic": "plans", "event": "expired", "ts", "node_id", "data": {"plan_id", "scope", "state", "finished_at", "expired_at"}}
 {"topic": "audit", "event": "entry", "ts", "node_id", "data": AuditEntry}
 {"topic": "leases", "event": "summary", "ts", "node_id", "data": {"engine", "active", "new_since_last", "expired_since_last"}}
 {"topic": "leases", "event": "lease", "ts", "node_id", "data": {"engine", "family", "change": "new" | "renewed", "lease": {...}}}

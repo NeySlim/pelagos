@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Modal Component - Radix Dialog wrapper with enhanced visuals
- * Full-screen on mobile for better UX
+ * Full-screen on mobile for better UX. `footer` stays outside the scrolling body, so
+ * its actions are always visible; `bodyScroll={false}` hands the scroll to the children
+ * (a child that renders its own pinned footer, like PlanPreview).
  */
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from '@phosphor-icons/react'
@@ -10,6 +12,10 @@ import { titleCaseClass } from '../lib/displayCase'
 import { IconButton } from './motion/Layout'
 import { useTranslation } from 'react-i18next'
 
+// A pinned action bar: outside the scroll, above the phone's home indicator.
+export const MODAL_FOOTER_CLASS =
+  'shrink-0 border-t border-border bg-bg-secondary px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:rounded-b-xl'
+
 export function Modal({ 
   open, 
   onClose, 
@@ -17,7 +23,9 @@ export function Modal({
   title, 
   children, 
   size = 'md',
-  showClose = true 
+  showClose = true,
+  footer,
+  bodyScroll = true,
 }) {
   const { t } = useTranslation()
   // Support both onClose and onOpenChange
@@ -42,7 +50,8 @@ export function Modal({
             sizes[size],
             "ui-modal bg-bg-primary sm:modal-enhanced sm:rounded-xl",
             // Enter and exit follow data-state (styles/motion.css): scale composes with the centering.
-            "flex flex-col"
+            "flex flex-col",
+            (footer || !bodyScroll) && "sm:max-h-[90vh]"
           )}
           aria-describedby={undefined}
         >
@@ -58,10 +67,16 @@ export function Modal({
             )}
           </div>
 
-          {/* Content - scrollable */}
-          <div className="flex-1 overflow-y-auto sm:max-h-[70vh]">
-            {children}
-          </div>
+          {/* Content - scrollable unless the children scroll themselves */}
+          {bodyScroll ? (
+            <div className="flex-1 min-h-0 overflow-y-auto sm:max-h-[70vh]">
+              {children}
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+          )}
+
+          {footer && <div className={cn('ui-modal-footer', MODAL_FOOTER_CLASS)} data-testid="modal-footer">{footer}</div>}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

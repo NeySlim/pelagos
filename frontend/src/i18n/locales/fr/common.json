@@ -97,7 +97,11 @@
     "replication_syncing": "La réplication rattrape son retard, réessayez dans un instant",
     "not_supported": "Non pris en charge par cette version du moteur",
     "not_implemented": "Pas encore disponible sur ce serveur",
-    "internal_error": "Erreur interne du serveur"
+    "internal_error": "Erreur interne du serveur",
+    "load_failed": "Les données n'ont pas pu être chargées",
+    "network": "Le serveur ne répond pas",
+    "unavailable": "Le service est indisponible pour le moment",
+    "details": "Détails"
   },
   "language": {
     "label": "Langue"
@@ -142,7 +146,7 @@
     "noValidations": "Aucune validation exécutée",
     "preconditions": "Préconditions",
     "requiresConfirmation": "Confirmation requise",
-    "rollback": "Annuler les modifications",
+    "rollback": "Revenir en arrière",
     "targetNodes": "Nœuds",
     "title": "Vérifier le plan",
     "valid": "réussie",
@@ -204,7 +208,19 @@
       "lease_conflict": "un autre client tient l'adresse",
       "multi_node": "des écritures différentes sur plusieurs nœuds",
       "operation": "cette opération touche le service"
-    }
+    },
+    "diffLines_one": "{{count}} ligne",
+    "diffLines_other": "{{count}} lignes",
+    "appliedOn": "Appliqué sur {{nodes}}",
+    "validatedOn": "validé sur {{node}}",
+    "partialOption": "Appliquer seulement sur les nœuds joignables ({{nodes}} hors ligne)",
+    "actionsLabel": "Actions du plan"
+  },
+  "readOnly": {
+    "permission": "Lecture seule : vos rôles n'ont pas {{permission}}",
+    "or": " ou ",
+    "nodeOn": "Cette action se fait sur",
+    "state": "Lecture seule dans l'état actuel"
   },
   "status": {
     "online": "En ligne",

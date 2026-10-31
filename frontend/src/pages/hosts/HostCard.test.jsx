@@ -164,7 +164,7 @@ describe('HostCard', () => {
     await waitFor(() => expect(mocks.api.dhcp.reservationPlan).toHaveBeenCalled())
     const [, change] = mocks.api.dhcp.reservationPlan.mock.calls[0]
     expect(change).toMatchObject({ op: 'delete', after: null, before: { identifier: MAC } })
-    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
+    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Close'))
     await waitFor(() => expect(screen.queryByTestId('plan-preview')).not.toBeInTheDocument())
     fireEvent.click(screen.getByTestId('host-edit-reservation'))
     expect(screen.getByTestId('location')).toHaveTextContent(`/dhcp/v4/reservations?q=${encodeURIComponent(MAC)}`)
@@ -196,7 +196,7 @@ describe('HostCard', () => {
     renderCard()
     fireEvent.click(await screen.findByTestId('host-delete-lease'))
     await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v6', '2001:db8::108', NS1))
-    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
+    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Close'))
     await waitFor(() => expect(screen.queryByTestId('plan-preview')).not.toBeInTheDocument())
 
     mocks.api.dhcp.reservationPlan.mockResolvedValue(plan({ scope: 'dhcp.reservation', requires_confirmation: false }))
@@ -206,7 +206,7 @@ describe('HostCard', () => {
     expect(family).toBe('v6')
     expect(change.target).toBe(`subnet6/10/reservations/duid=${DUID}`)
     expect(change.after).toMatchObject({ id_type: 'duid', identifier: DUID, ip_address: null, ip_addresses: ['2001:db8::108'] })
-    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
+    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Close'))
 
     fireEvent.click(screen.getByTestId('host-open-lease'))
     expect(mocks.openDetail).toHaveBeenCalledWith('lease', 'v6:2001:db8::108', expect.objectContaining({ family: 'v6', ip: '2001:db8::108' }))

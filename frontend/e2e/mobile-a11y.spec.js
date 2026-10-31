@@ -97,3 +97,27 @@ test.describe('at 390px', () => {
     }
   })
 })
+
+test.describe('plan on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('the plan action bar is named, fits the width and sits above the bottom edge', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/dns/zones/example.lan')
+    await page.getByTestId('record-add').click()
+    await page.getByTestId('record-owner').fill('a11y-plan')
+    await page.getByTestId('record-rdata').fill('192.0.2.93')
+    await page.getByTestId('record-editor').getByRole('button', { name: 'Preview the plan' }).click()
+    const bar = page.getByTestId('plan-actions')
+    await expect(bar).toHaveAttribute('role', 'group')
+    await expect(bar).toHaveAccessibleName('Plan actions')
+    await expect(bar.getByRole('button', { name: 'Apply' })).toBeEnabled()
+    await expect(bar.getByRole('button', { name: 'Close' })).toBeVisible()
+    const footer = await page.getByTestId('plan-footer').boundingBox()
+    expect(footer.x).toBeGreaterThanOrEqual(0)
+    expect(footer.x + footer.width).toBeLessThanOrEqual(390)
+    expect(footer.y + footer.height).toBeLessThanOrEqual(844)
+    await bar.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByTestId('plan-preview')).toHaveCount(0)
+  })
+})

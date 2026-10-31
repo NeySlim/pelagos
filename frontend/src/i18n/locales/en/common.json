@@ -97,7 +97,11 @@
     "replication_syncing": "Replication is catching up, try again shortly",
     "not_supported": "Not supported by this engine version",
     "not_implemented": "Not available yet on this server",
-    "internal_error": "Internal server error"
+    "internal_error": "Internal server error",
+    "load_failed": "The data could not be loaded",
+    "network": "The server cannot be reached",
+    "unavailable": "The service is unavailable for now",
+    "details": "Details"
   },
   "language": {
     "label": "Language"
@@ -204,7 +208,19 @@
       "lease_conflict": "another client holds the address",
       "multi_node": "different writes on several nodes",
       "operation": "this operation affects service"
-    }
+    },
+    "diffLines_one": "{{count}} line",
+    "diffLines_other": "{{count}} lines",
+    "appliedOn": "Applied on {{nodes}}",
+    "validatedOn": "validated on {{node}}",
+    "partialOption": "Apply only on the reachable nodes ({{nodes}} offline)",
+    "actionsLabel": "Plan actions"
+  },
+  "readOnly": {
+    "permission": "Read only: your roles do not have {{permission}}",
+    "or": " or ",
+    "nodeOn": "This action is done on",
+    "state": "Read only in the current state"
   },
   "status": {
     "online": "Online",

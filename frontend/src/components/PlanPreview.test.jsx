@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { PlanPreview } from './PlanPreview'
+import i18n from '../i18n'
+import { PlanPreview, PlanPreviewModal } from './PlanPreview'
 
 function makePlan(overrides = {}) {
   return {
@@ -184,5 +185,87 @@ describe('PlanPreview', () => {
     await waitFor(() => expect(screen.getByTestId('plan-job')).toHaveTextContent('install bind packages'))
     await waitFor(() => expect(onApplied).toHaveBeenCalled(), { timeout: 4000 })
     expect(jobFn).toHaveBeenCalledWith('j1')
+  })
+
+  describe('action bar', () => {
+    afterEach(() => i18n.changeLanguage('en'))
+
+    const longDiff = `--- a/example.lan.\n+++ b/example.lan.\n@@ -1,0 +1,58 @@\n${Array.from({ length: 57 }, (_, i) => `+h${i}.example.lan. 300 IN A 192.0.2.${i + 1}`).join('\n')}\n`
+
+    it('folds a diff longer than 10 lines and counts its lines', () => {
+      render(<PlanPreview plan={makePlan({ diff: longDiff })} />)
+      const diff = screen.getByTestId('plan-diff')
+      expect(diff).toHaveAttribute('data-open', 'false')
+      expect(diff).toHaveTextContent('60 lines')
+      fireEvent.click(diff.querySelector('button'))
+      expect(diff).toHaveAttribute('data-open', 'true')
+    })
+
+    it('keeps a short diff open without a counter', () => {
+      render(<PlanPreview plan={makePlan()} />)
+      expect(screen.getByTestId('plan-diff')).toHaveAttribute('data-open', 'true')
+      expect(screen.getByTestId('plan-diff')).not.toHaveTextContent(/\d+ lines?$/)
+    })
+
+    it('renders the pinned bar outside the scrolling body in the modal', () => {
+      render(<PlanPreviewModal open plan={makePlan({ diff: longDiff, requires_confirmation: true, requires_confirmation_reasons: ['delete'] })} onClose={() => {}} />)
+      const footer = screen.getByTestId('plan-footer')
+      const preview = screen.getByTestId('plan-preview')
+      expect(preview).toContainElement(footer)
+      expect(footer.parentElement).toBe(preview)
+      const scroller = preview.firstElementChild
+      expect(scroller).toHaveClass('overflow-y-auto')
+      expect(scroller).not.toContainElement(footer)
+      expect(footer).toContainElement(screen.getByTestId('plan-confirm-checkbox'))
+      expect(footer).toContainElement(screen.getByTestId('plan-confirm-reasons'))
+      expect(footer).toContainElement(screen.getByTestId('plan-apply'))
+      expect(screen.getByTestId('plan-close')).toHaveTextContent('Close')
+    })
+
+    it('pins the bar with sticky positioning outside a modal', () => {
+      render(<PlanPreview plan={makePlan()} onClose={() => {}} />)
+      expect(screen.getByTestId('plan-footer')).toHaveClass('sticky', 'bottom-0')
+    })
+
+    it('says Fermer and Revenir en arrière in French', async () => {
+      await i18n.changeLanguage('fr')
+      render(<PlanPreview plan={makePlan()} onClose={() => {}} applyFn={vi.fn().mockResolvedValue(applied())} getFn={vi.fn().mockResolvedValue(makePlan({ state: 'applied' }))} />)
+      expect(screen.getByTestId('plan-close')).toHaveTextContent('Fermer')
+      fireEvent.click(screen.getByTestId('plan-apply'))
+      await waitFor(() => expect(screen.getByTestId('plan-rollback')).toHaveTextContent('Revenir en arrière'))
+      expect(screen.getByTestId('plan-close')).toHaveTextContent('Fermer')
+    })
+
+    it('skips the checkbox when the caller already confirmed', async () => {
+      const applyFn = vi.fn().mockResolvedValue(applied())
+      render(<PlanPreview plan={makePlan({ requires_confirmation: true, requires_confirmation_reasons: ['delete'] })} preConfirmed applyFn={applyFn} getFn={vi.fn().mockResolvedValue(null)} />)
+      expect(screen.queryByTestId('plan-confirm-checkbox')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('plan-confirm-reasons')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByTestId('plan-apply'))
+      await waitFor(() => expect(applyFn).toHaveBeenCalledWith('01JBPLAN0000000000000000AA', true))
+    })
+
+    it('renders the partial option only when given', () => {
+      const { unmount } = render(<PlanPreview plan={makePlan()} />)
+      expect(screen.queryByTestId('plan-partial-checkbox')).not.toBeInTheDocument()
+      unmount()
+      const onChange = vi.fn()
+      render(<PlanPreview plan={makePlan()} partialOption={{ checked: false, onChange, nodeIds: ['n2'] }} nodeName={(id) => ({ n1: 'ns1', n2: 'ns2' })[id] || id} />)
+      expect(screen.getByTestId('plan-footer')).toHaveTextContent('Apply only on the reachable nodes (ns2 offline)')
+      fireEvent.click(screen.getByTestId('plan-partial-checkbox'))
+      expect(onChange).toHaveBeenCalledWith(true)
+    })
+  })
+
+  it('names the apply nodes and a validation run on another node', () => {
+    const validations = [
+      { ok: true, tool: 'named-checkzone', output: '', node_id: 'n1' },
+      { ok: true, tool: 'remote_rrset', output: '', node_id: 'n2' },
+    ]
+    render(<PlanPreview plan={makePlan({ validations })} nodeName={(id) => ({ n1: 'ns1', n2: 'ns2' })[id] || id} />)
+    expect(screen.getByTestId('plan-applied-on')).toHaveTextContent('Applied on ns1, ns2')
+    const items = screen.getByTestId('plan-checklist').querySelectorAll('li')
+    expect(items[0]).not.toHaveTextContent('validated on')
+    expect(items[1]).toHaveTextContent('validated on ns2')
   })
 })

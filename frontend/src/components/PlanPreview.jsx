@@ -10,6 +10,9 @@
 // step rail follows the real sequence (local apply, peers, results) from the `plans`
 // step events (one per node as it answers), the audit entries and the ApplyResult; a
 // rollback walks the rail back in amber.
+// The reasons, the confirmation and the Close, Roll back and Apply buttons form an
+// action bar that stays visible: pinned under the scrolling body in PlanPreviewModal,
+// `sticky bottom-0` when the preview sits in a page or in another dialog.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretRight, Clock } from '@phosphor-icons/react'
@@ -27,8 +30,8 @@ import {
 import { Button } from './Button'
 import { Badge } from './Badge'
 import { StatusBadge } from './StatusBadge'
-import { DiffView } from './DiffView'
-import { Modal } from './Modal'
+import { DiffView, parseUnifiedDiff } from './DiffView'
+import { Modal, MODAL_FOOTER_CLASS } from './Modal'
 import { Checklist, CheckMark, RollingNumber, StepRail, SwapText } from './motion'
 import { formatDate } from '../lib/utils'
 import { cn } from '../lib/utils'
@@ -37,6 +40,8 @@ const JOB_SCOPES = ['install', 'import', 'security', 'restore', 'kea.migration']
 const OP_VARIANT = { add: 'success', delete: 'danger', replace: 'warning' }
 // Checks tick one after the other: 200 ms per tick, the next 60 ms later.
 const TICK_GAP_MS = 60
+// A longer diff starts folded, its line count on the section header.
+const DIFF_OPEN_MAX_LINES = 10
 
 // The server no longer has the plan: expired (410) or forgotten by a restart (404).
 function isPlanGone(err) {
@@ -121,6 +126,12 @@ export function PlanPreview({
   autoRollback = false,
   // id -> display name; defaults to the names from GET /nodes
   nodeName: nodeNameProp,
+  // The caller already confirmed (the user typed the object's name): no checkbox.
+  preConfirmed = false,
+  // { checked, onChange, nodeIds, label? }: "apply only on the reachable nodes", shown only when given.
+  partialOption,
+  // 'modal': the body scrolls inside the parent flex column and the action bar is pinned below it.
+  layout = 'inline',
 }) {
   const { t } = useTranslation()
   const msg = useMessage()
@@ -154,7 +165,8 @@ export function PlanPreview({
 
   const { expired, seconds } = useCountdown(plan?.expires_at)
   const isJobScope = JOB_SCOPES.includes(plan?.scope)
-  const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || confirmed) && !busy
+  const isConfirmed = confirmed || preConfirmed
+  const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || isConfirmed) && !busy
   const applied = (result?.state || plan?.state) === 'applied'
   const canRollback = applied && !expired && !busy && !isJobScope
   const validations = useMemo(() => plan?.validations || [], [plan])
@@ -172,7 +184,7 @@ export function PlanPreview({
       setFoldSignal((n) => n + 1)
     }
     try {
-      const res = await applyFn(plan.id, plan.requires_confirmation ? confirmed : false)
+      const res = await applyFn(plan.id, plan.requires_confirmation ? isConfirmed : false)
       if (res && res.steps !== undefined) {
         setRail(null)
         setFoldSignal((n) => n + 1)
@@ -203,7 +215,7 @@ export function PlanPreview({
     } finally {
       setBusy(false)
     }
-  }, [applyFn, getFn, plan, confirmed, onApplied, isJobScope])
+  }, [applyFn, getFn, plan, isConfirmed, onApplied, isJobScope])
 
   const handleRollback = useCallback(async () => {
     setBusy(true)
@@ -308,7 +320,14 @@ export function PlanPreview({
     }
   }, [job?.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // An apply error lands below the folded sections: bring it into view above the action bar.
+  const errorRef = useRef(null)
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [error])
+
   const changeRows = useMemo(() => plan?.changes || [], [plan])
+  const diffLines = useMemo(() => parseUnifiedDiff(plan?.diff).length, [plan?.diff])
   const gone = !applied && !result && !job && (expired || plan?.state === 'expired' || isPlanGone(error))
 
   if (!plan) return null
@@ -321,7 +340,12 @@ export function PlanPreview({
   const checkItems = validations.map((v, i) => ({
     id: `${v.tool}-${v.node_id || ''}-${i}`,
     label: <span className="font-mono text-text-primary">{v.tool}</span>,
-    detail: [v.node_id ? nodeName(v.node_id) : null, shortOutput(v) || (v.ok ? t('plan.valid') : t('plan.invalid'))].filter(Boolean).join('  '),
+    detail: [
+      v.node_id && v.node_id !== plan.node_id ? t('plan.validatedOn', { node: nodeName(v.node_id) }) : null,
+      shortOutput(v) || (v.ok ? t('plan.valid') : t('plan.invalid')),
+    ]
+      .filter(Boolean)
+      .join('  '),
     state: i < ticked ? (v.ok ? 'done' : 'failed') : i === ticked ? 'running' : 'pending',
   }))
   const passed = validations.filter((v, i) => v.ok && i < ticked).length
@@ -341,9 +365,11 @@ export function PlanPreview({
     : null
   const statusKey = plan.state
   const live = level === 'full' && !expired && !applied && !result
+  const targetNames = plan.target_node_ids?.length ? plan.target_node_ids.map(nodeName).join(', ') : t('plan.allNodes')
+  const pending = !applied && !result
 
-  return (
-    <div className={cn('flex flex-col gap-3', className)} data-testid="plan-preview" data-plan-state={statusKey}>
+  const body = (
+    <>
       {/* Header */}
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="primary" size="sm">
@@ -384,7 +410,7 @@ export function PlanPreview({
         </span>
         <span data-testid="plan-target-nodes">
           {fieldLabel('plan.targetNodes')}{' '}
-          <span className="text-text-secondary">{plan.target_node_ids?.length ? plan.target_node_ids.map(nodeName).join(', ') : t('plan.allNodes')}</span>
+          <span className="text-text-secondary">{targetNames}</span>
         </span>
       </div>
 
@@ -468,6 +494,9 @@ export function PlanPreview({
           <p className="text-xs text-text-tertiary italic">{t('plan.noValidations')}</p>
         ) : (
           <>
+            <p className="mb-1 text-2xs text-text-tertiary" data-testid="plan-applied-on">
+              {t('plan.appliedOn', { nodes: targetNames })}
+            </p>
             <Checklist items={checkItems} showCount={false} testId="plan-checklist" />
             {validations.map(
               (v, i) =>
@@ -483,7 +512,14 @@ export function PlanPreview({
       </Section>
 
       {/* Diff */}
-      <Section title={t('plan.diff')} foldSignal={foldSignal} testId="plan-diff">
+      <Section
+        key={`diff-${plan.id}`}
+        title={t('plan.diff')}
+        count={diffLines > DIFF_OPEN_MAX_LINES ? t('plan.diffLines', { count: diffLines }) : undefined}
+        defaultOpen={diffLines <= DIFF_OPEN_MAX_LINES}
+        foldSignal={foldSignal}
+        testId="plan-diff"
+      >
         <DiffView diff={plan.diff} maxHeight={320} />
       </Section>
 
@@ -541,7 +577,7 @@ export function PlanPreview({
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text space-y-1" data-testid="plan-apply-error">
+        <div ref={errorRef} className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text space-y-1" data-testid="plan-apply-error">
           <div className="font-medium">{errorMessage(error)}</div>
           {error.errors?.length > 0 && (
             <ul className="list-disc ml-4 font-mono text-2xs whitespace-pre-wrap">
@@ -566,44 +602,81 @@ export function PlanPreview({
         </div>
       )}
 
-      {/* Confirmation + actions */}
-      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
-        {plan.requires_confirmation && !applied && !result && plan.requires_confirmation_reasons?.length > 0 && (
-          <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
-            {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
-          </p>
+    </>
+  )
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="plan-actions" role="group" aria-label={t('plan.actionsLabel')}>
+      {plan.requires_confirmation && pending && !preConfirmed && plan.requires_confirmation_reasons?.length > 0 && (
+        <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
+          {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
+        </p>
+      )}
+      {partialOption && pending && (
+        <label className="w-full flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={Boolean(partialOption.checked)}
+            onChange={(e) => partialOption.onChange?.(e.target.checked)}
+            disabled={busy}
+            className="accent-[var(--accent-warning)]"
+            data-testid="plan-partial-checkbox"
+          />
+          {partialOption.label || t('plan.partialOption', { nodes: (partialOption.nodeIds || []).map(nodeName).join(', ') })}
+        </label>
+      )}
+      {plan.requires_confirmation && pending && !preConfirmed && (
+        <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            className="accent-[var(--accent-warning)]"
+            data-testid="plan-confirm-checkbox"
+          />
+          {t('plan.confirmCheckbox')}
+        </label>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+        {onClose && (
+          <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={busy} data-testid="plan-close">
+            {closeLabel || t('actions.close')}
+          </Button>
         )}
-        {plan.requires_confirmation && !applied && !result && (
-          <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-              className="accent-[var(--accent-warning)]"
-              data-testid="plan-confirm-checkbox"
-            />
-            {t('plan.confirmCheckbox')}
-          </label>
+        {(canRollback || plan.state === 'rolling_back') && (
+          <Button type="button" variant="warning-soft" size="sm" onClick={handleRollback} loading={busy} loadingText={t('status.rolling_back')} data-testid="plan-rollback">
+            <ArrowCounterClockwise size={14} />
+            {t('plan.rollback')}
+          </Button>
         )}
-        <div className="ml-auto flex items-center gap-2">
-          {onClose && (
-            <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={busy}>
-              {closeLabel || (applied || result ? t('actions.close') : t('actions.cancel'))}
-            </Button>
-          )}
-          {(canRollback || plan.state === 'rolling_back') && (
-            <Button type="button" variant="warning-soft" size="sm" onClick={handleRollback} loading={busy} loadingText={t('status.rolling_back')} data-testid="plan-rollback">
-              <ArrowCounterClockwise size={14} />
-              {t('plan.rollback')}
-            </Button>
-          )}
-          {!applied && !result && plan.state !== 'rolling_back' && (
-            <Button type="button" variant="primary" size="sm" onClick={handleApply} disabled={!canApply} loading={busy} loadingText={t('status.applying')} data-testid="plan-apply">
-              <Lightning size={14} weight="fill" />
-              {t('plan.apply')}
-            </Button>
-          )}
+        {pending && plan.state !== 'rolling_back' && (
+          <Button type="button" variant="primary" size="sm" onClick={handleApply} disabled={!canApply} loading={busy} loadingText={t('status.applying')} data-testid="plan-apply">
+            <Lightning size={14} weight="fill" />
+            {t('plan.apply')}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+
+  if (layout === 'modal') {
+    return (
+      <div className="flex flex-col flex-1 min-h-0" data-testid="plan-preview" data-plan-state={statusKey}>
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+          <div className={cn('flex flex-col gap-3', className)}>{body}</div>
         </div>
+        <div className={MODAL_FOOTER_CLASS} data-testid="plan-footer">
+          {actions}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn('flex flex-col gap-3', className)} data-testid="plan-preview" data-plan-state={statusKey}>
+      {body}
+      <div className="sticky bottom-0 z-10 bg-bg-secondary border-t border-border pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]" data-testid="plan-footer">
+        {actions}
       </div>
     </div>
   )
@@ -613,10 +686,8 @@ export function PlanPreview({
 export function PlanPreviewModal({ open, onClose, plan, title, ...rest }) {
   const { t } = useTranslation()
   return (
-    <Modal open={open} onClose={onClose} title={title || t('plan.title')} size="lg">
-      <div className="p-4">
-        <PlanPreview plan={plan} onClose={onClose} {...rest} />
-      </div>
+    <Modal open={open} onClose={onClose} title={title || t('plan.title')} size="lg" bodyScroll={false}>
+      <PlanPreview plan={plan} onClose={onClose} {...rest} layout="modal" />
     </Modal>
   )
 }

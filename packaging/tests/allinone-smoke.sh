@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Smoke test of the all-in-one image: /api/v1/health answers, and kea-dhcp4 runs with the
-# seeded config and its hooks (lease_cmds answers on the control socket). With
+# seeded config and its hooks (lease_cmds answers on the control socket), then pelagos import and
+# a DHCP plan that Kea writes back to its config file under the container's AppArmor profile. With
 # KEA_SOURCE=distro the seed is docker/kea-2.6, whose hooks are bare file names.
 #
 # Usage: allinone-smoke.sh [image]      (default: pelagos-allinone:latest)
@@ -67,6 +68,50 @@ if grep -q 'libdhcp_lease_cmds.so"' <<<"$hooks"; then ok "kea-dhcp4 loaded its h
 leases="$($DOCKER exec "$name" python3 -c "$probe" lease4-get-all 2>/dev/null || true)"
 # 0: leases, 3: none; 2 is "command not supported", the hook did not load.
 if grep -qE '"result": (0|3)' <<<"$leases"; then ok "lease_cmds answers"; else fail "lease_cmds: $leases"; fi
+
+# A DHCP plan that rewrites kea-dhcp4.conf (config-write) must pass the permission guard with
+# Kea under the container's AppArmor profile (docker-default is not a Kea profile).
+# shellcheck disable=SC2016  # expands inside the container
+label="$($DOCKER exec "$name" sh -c 'for p in /proc/[0-9]*; do
+  [ "$(cat "$p/comm" 2>/dev/null)" = kea-dhcp4 ] && cat "$p/attr/current" 2>/dev/null && break; done' || true)"
+echo "kea-dhcp4 AppArmor label: ${label:-none}"
+out="$(mktemp)"
+if $DOCKER exec "$name" pelagos import --engines bind,kea4,d2 --yes >"$out" 2>&1 \
+  && grep -q '^done: import' "$out"; then
+  ok "import adopts the bundled BIND and Kea"
+else
+  fail "import of the bundled engines"
+  tail -n 20 "$out"
+fi
+rm -f "$out"
+api="https://127.0.0.1:$port/api/v1"
+jar="$(mktemp)"
+csrf=""
+for _ in $(seq 1 30); do
+  csrf="$(curl -sk -c "$jar" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"$password\"}" "$api/auth/login" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("csrf_token", ""))' 2>/dev/null || true)"
+  [[ -n "$csrf" ]] && [[ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' "$api/dhcp/v4/subnets")" == 200 ]] && break
+  sleep 2
+done
+post() { curl -sk -b "$jar" -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json' -d "$2" "$api$1"; }
+field() { python3 -c 'import json, sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1" 2>/dev/null || true; }
+subnet='{"change": {"op": "add", "target": "", "after": {"id": 77, "subnet": "198.51.100.0/24",
+  "family": "v4", "pools": [{"pool": "198.51.100.10 - 198.51.100.20"}]}}}'
+plan="$(post /dhcp/v4/subnets/plan "$subnet")"
+if [[ "$(field state <<<"$plan")" == validated ]]; then
+  ok "DHCP subnet plan validated"
+  applied="$(post "/plans/$(field id <<<"$plan")/apply" '{"confirm": false}')"
+  if [[ "$(field state <<<"$applied")" == applied ]]; then ok "DHCP subnet plan applied"; else fail "apply: $applied"; fi
+else
+  fail "DHCP subnet plan refused: $(field detail <<<"$plan")"
+fi
+rm -f "$jar"
+if $DOCKER exec "$name" grep -q '198.51.100.0/24' /etc/kea/kea-dhcp4.conf; then
+  ok "kea-dhcp4.conf rewritten by Kea with the new subnet"
+else
+  fail "kea-dhcp4.conf does not hold the new subnet"
+fi
 
 if [[ $failures -gt 0 ]]; then echo "$failures check(s) failed"; exit 1; fi
 echo "all checks passed"

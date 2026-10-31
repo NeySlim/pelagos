@@ -219,6 +219,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ),
     ("GET", "/hosts", "/hosts", None, "read:hosts"),
     ("GET", "/hosts/<path:key>", "/hosts/mac:aa:bb:cc:dd:ee:01", None, "read:hosts"),
+    ("GET", "/search", "/search?q=example", None, "read:hosts"),  # or read:dns, or read:dhcp
     (
         "POST",
         "/hosts/plan",

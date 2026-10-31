@@ -143,6 +143,9 @@ def register_api(app: Flask) -> Api:
         api.add_namespace(module.ns)
     for extra in (resolver_health.series_ns, ipv6.hosts_ns, ipv6.admin_ns):
         api.add_namespace(extra)
+    from pelagos.api import search  # F0-HOSTS
+
+    api.add_namespace(search.ns)
     from pelagos.api.models import all_models
 
     # Models are module-level RESTX objects shared by the namespaces; the document needs them all.

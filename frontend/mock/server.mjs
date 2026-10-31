@@ -26,6 +26,7 @@ import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
 import { updatesHandlers } from './updates.mjs'
+import { searchHandlers } from './search.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
 import { tokenHandlers } from './tokens.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
@@ -2807,6 +2808,7 @@ function buildHandlers(state, emit) {
     ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...ipv6Handlers(state, { Problem, invalid, createPlan, zonePlan: (args) => handlers['POST /dns/zones/plan'](args) }),
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
+    ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),
   }
   return handlers
 }

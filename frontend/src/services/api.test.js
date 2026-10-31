@@ -118,6 +118,7 @@ const invocations = [
   () => api.updates.rollout(), () => api.updates.action('r1', 'resume'), () => api.updates.history({ page: 1 }),
   () => api.ipv6.plan({ items: [] }), () => api.ipv6.replacePrefixPlan({ old_prefix: '2001:db8::/64', new_prefix: '2001:db8:1::/64' }),
   () => api.ipv6.reverseZonePlan({ prefix: '2001:db8:1::/64' }),
+  () => api.search.query('aa:bb', 5),
 ]
 
 describe('api.js', () => {

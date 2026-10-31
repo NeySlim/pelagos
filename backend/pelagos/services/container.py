@@ -40,6 +40,7 @@ from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry, bound_reads
 from pelagos.services.resolver_fallback import FallbackWriter, ResolverFallbackService
 from pelagos.services.rpz_service import RpzService
+from pelagos.services.search_service import SearchService
 from pelagos.services.token_service import TokenService
 from pelagos.services.updates_service import RolloutWriter, UpdatesService
 from pelagos.services.webauthn_service import WebAuthnService
@@ -79,6 +80,9 @@ class Services:
         # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
         self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
+        # F0-HOSTS: the hosts join cache follows lease, zone and plan events; search reads it.
+        self.events.listeners.append(self.hosts.cache.on_event)
+        self.search = SearchService(ctx, self.hosts, self.alerts)
         self.impact = PlanImpact(
             ctx, self.dns, {Engine.KEA4: self.dhcp4, Engine.KEA6: self.dhcp6}, self.registry
         )

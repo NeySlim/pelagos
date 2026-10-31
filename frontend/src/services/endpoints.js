@@ -273,6 +273,8 @@ export const ENDPOINTS = [
   'GET /admin/updates/rollout',
   'POST /admin/updates/rollout/{id}/action',
   'GET /admin/updates/history',
+  // Global search (section 17, Search)
+  'GET /search',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

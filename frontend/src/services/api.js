@@ -404,10 +404,16 @@ export const updates = {
   history: (params) => apiClient.get(`/admin/updates/history${buildQueryString(params)}`),
 }
 
+// Global search: { q, limit? } -> { q, limit, results: { zones, records, leases, reservations, hosts,
+// alerts, nodes, networks }, totals, errors }, each result { kind, id, label, sublabel, route }.
+export const search = {
+  query: (q, limit) => apiClient.get(`/search${buildQueryString({ q, limit })}`),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
   alerts, series, audit, advanced, install, admin, certs, ops, notifications, archives, ddnsFailover,
-  resolverHealth, keaMigration, ipv6, updates,
+  resolverHealth, keaMigration, ipv6, updates, search,
 }
 
 export default api

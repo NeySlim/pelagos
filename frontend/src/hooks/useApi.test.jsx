@@ -23,6 +23,7 @@ describe('useApi retries transient GET failures', () => {
     const { result } = renderHook(() => useApi(fn))
     await act(async () => {})
     expect(result.current.error?.code).toBe('network_error')
+    expect(result.current.error?.kind).toBe('network')
     expect(fn).toHaveBeenCalledTimes(1)
 
     await act(async () => vi.advanceTimersByTime(RETRY_DELAYS[0]))

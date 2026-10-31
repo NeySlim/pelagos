@@ -3,11 +3,37 @@
 // refetches when `deps` change, ignores results of superseded calls. A transient GET
 // failure (err.retryable, see apiClient) is retried in the background with a growing
 // delay, and at once when the window regains focus, the browser goes online or the
-// WebSocket reconnects; the error stays shown until a retry succeeds.
+// WebSocket reconnects; the error stays shown until a retry succeeds. The error
+// carries `kind` (see errorKind), which ErrorNotice turns into its translated title.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const RETRY_DELAYS = [5000, 10000, 20000, 30000, 60000]
 export const RECONNECTED_EVENT = 'pelagos:reconnected'
+
+const UNAVAILABLE_CODES = ['engine_unavailable', 'replication_syncing', 'module_disabled', 'not_implemented']
+
+// Class of a failed request: network, forbidden, not_found, unavailable or load_failed.
+export function errorKind(err) {
+  if (!err) return null
+  const code = err.code
+  const status = err.status
+  if (code === 'network_error' || (status === 0 && !err.problem && code)) return 'network'
+  if (code === 'forbidden' || code === 'unauthenticated' || status === 401 || status === 403) return 'forbidden'
+  if (code === 'not_found' || status === 404) return 'not_found'
+  if (UNAVAILABLE_CODES.includes(code) || status === 502 || status === 503 || status === 504) return 'unavailable'
+  return 'load_failed'
+}
+
+function withKind(err) {
+  if (err && typeof err === 'object') {
+    try {
+      err.kind = errorKind(err)
+    } catch {
+      // a frozen error keeps no kind; errorKind(err) still answers
+    }
+  }
+  return err
+}
 
 export function useApi(fn, deps = [], { enabled = true, initialData = null } = {}) {
   const [data, setData] = useState(initialData)
@@ -32,7 +58,7 @@ export function useApi(fn, deps = [], { enabled = true, initialData = null } = {
       }
       return result
     } catch (err) {
-      if (id === seq.current) setError(err)
+      if (id === seq.current) setError(withKind(err))
       return undefined
     } finally {
       if (id === seq.current && !quiet) setLoading(false)

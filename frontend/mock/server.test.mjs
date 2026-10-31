@@ -816,3 +816,24 @@ describe('mock server', () => {
     expect(failures).toEqual([])
   })
 })
+
+describe('network faults', () => {
+  it('drops or answers the next matching calls, then serves again', async () => {
+    await mock.close()
+    mock = createMockServer({ quiet: true, jobStepMs: 5 })
+    base = `http://127.0.0.1:${(await mock.listen(0)).port}/api/v1`
+    const session = await login('admin', 'admin')
+    const call = client(session)
+    const set = (body) => fetch(`${base}/_mock/network`, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json())
+    await set({ fail: 1, method: 'GET', path: '/dns/ops' })
+    await expect(call('GET', '/dns/ops')).rejects.toThrow()
+    expect((await call('GET', '/dns/ops')).status).toBe(200)
+
+    await set({ fail: 2, path: '/dns/ops', status: 502 })
+    expect((await call('GET', '/health')).status).toBe(200)
+    expect((await call('GET', '/dns/ops')).status).toBe(502)
+    expect((await call('POST', '/dns/ops', { op: 'status' })).status).toBe(502)
+    expect((await call('GET', '/dns/ops')).status).toBe(200)
+    expect((await set({})).dropped).toBe(2)
+  })
+})

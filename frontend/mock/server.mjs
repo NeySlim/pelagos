@@ -2935,6 +2935,26 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         res.end('restarting')
         return
       }
+      // Mock only: fail the next `fail` API calls ({method, path} narrow them) as a node that
+      // restarts or a network that blinks: the connection is dropped, or answered `status`
+      // (502 is what a reverse proxy, or the Vite proxy in e2e, shows). Answers the counters.
+      if (url.pathname === `${API}/_mock/network` && req.method === 'POST') {
+        const raw = await readBody(req)
+        const body = raw ? JSON.parse(raw) : {}
+        if (body.fail !== undefined) state.networkFault = { fail: Number(body.fail) || 0, method: body.method || null, path: body.path || null, status: Number(body.status) || null, dropped: 0 }
+        sendJson(res, 200, state.networkFault || { fail: 0, dropped: 0 })
+        return
+      }
+      const fault = state.networkFault
+      if (fault?.fail > 0 && url.pathname.startsWith(`${API}/`) && (!fault.method || fault.method === req.method) && (!fault.path || url.pathname === `${API}${fault.path}`)) {
+        fault.fail -= 1
+        fault.dropped += 1
+        if (fault.status) {
+          res.writeHead(fault.status, { 'content-type': 'text/plain' })
+          res.end('unavailable')
+        } else req.socket.destroy()
+        return
+      }
       // Mock only: switch the cluster to another scenario (pair, three, four); sessions stay.
       if (url.pathname === `${API}/_mock/scenario` && req.method === 'POST') {
         const raw = await readBody(req)

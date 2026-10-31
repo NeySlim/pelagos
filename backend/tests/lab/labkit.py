@@ -68,14 +68,22 @@ def lab_password(name: str, env: str | None = None) -> str:
 
 ADMIN_PASSWORD = lab_password("admin", "PELAGOS_LAB_ADMIN_PASSWORD")
 
-# ssh alias, lab address
-NS1 = ("lab-ns1", "10.99.0.11")
-NS2 = ("lab-ns2", "10.99.0.12")
-RPM = ("lab-rpm", "10.99.0.13")
-CLIENT = ("lab-client", "10.99.0.14")
-PKG_RPM = ("lab-pkg-rpm", "10.99.0.16")
-DOCKER = ("lab-docker", "10.99.0.17")
-ARM64 = ("lab-arm64", "10.99.0.18")
+def _vm(role: str, alias: str, addr: str) -> tuple[str, str]:
+    """(ssh alias, lab address) of a VM; PELAGOS_LAB_<ROLE> and PELAGOS_LAB_<ROLE>_ADDR override
+    the defaults so a second set of VMs can run beside the first."""
+    return (
+        os.environ.get(f"PELAGOS_LAB_{role}") or alias,
+        os.environ.get(f"PELAGOS_LAB_{role}_ADDR") or addr,
+    )
+
+
+NS1 = _vm("NS1", "lab-ns1", "10.99.0.11")
+NS2 = _vm("NS2", "lab-ns2", "10.99.0.12")
+RPM = _vm("RPM", "lab-rpm", "10.99.0.13")
+CLIENT = _vm("CLIENT", "lab-client", "10.99.0.14")
+PKG_RPM = _vm("PKG_RPM", "lab-pkg-rpm", "10.99.0.16")
+DOCKER = _vm("DOCKER", "lab-docker", "10.99.0.17")
+ARM64 = _vm("ARM64", "lab-arm64", "10.99.0.18")
 
 
 def ssh_argv(host: str) -> list[str]:

@@ -123,6 +123,7 @@ class NodeContext:
                 tombstone_path=paths.plan_tombstones,
                 plans_dir=paths.plans_dir,
                 box=secrets,
+                rollback_window_seconds=int(reg.get(settings, "plans.rollback_window_seconds")),
             ),
             sessions=SessionStore(
                 int(reg.get(settings, "auth.session_ttl_seconds")),

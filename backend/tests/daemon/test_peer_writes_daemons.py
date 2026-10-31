@@ -207,3 +207,43 @@ def test_peer_kea_file_adopted_from_here(pair, kea_dhcp4):
     # The rollback runs on the peer too and puts the hand edit back.
     assert pair.plans().rollback(plan, "alice").state is PlanState.ROLLED_BACK
     assert '"valid-lifetime": 7200' in main.read_text()
+
+
+def test_record_plan_rolled_back_hours_later_after_a_restart(pair, monkeypatch):
+    """F0-PLANS: an applied plan outlives the preview TTL and a restart, then rolls back on the peer."""
+    from datetime import timedelta
+
+    from pelagos.domain.common import utcnow
+
+    setup_includes(pair.registry.dns)
+    dns = DnsService(pair.web, None, pair.gateway)
+    zone = {
+        "op": "add",
+        "target": "_default/late.example.lan",
+        "after": {"kind": "primary", "ns": ["ns1.example.net."]},
+    }
+    assert pair.plans().apply(dns.plan_zone(zone, "alice"), "alice", confirm=True).state is PlanState.APPLIED
+    rec = pair.web.plan_store.put(
+        dns.plan_records(
+            "late.example.lan",
+            [{"op": "add", "target": "www/A", "after": {"ttl": 60, "rdata": ["192.0.2.92"]}}],
+            None,
+            "alice",
+        )
+    )
+    result = pair.plans().apply(rec, "alice")
+    assert result.state is PlanState.APPLIED and result.rollback_until is not None
+    # The web process restarts two hours later, well past plans.ttl_seconds.
+    later = utcnow() + timedelta(hours=2)
+    monkeypatch.setattr("pelagos.core.plans.utcnow", lambda: later)
+    monkeypatch.setattr("pelagos.services.plan_service.utcnow", lambda: later)
+    restarted = NodeContext.build(pair.web.paths)
+    held = restarted.plan_store.get(rec.id)
+    assert held.state is PlanState.APPLIED and held.rollback_until == rec.rollback_until
+    service = PlanService(restarted, ConnectorRegistry(), PeerGateway(restarted, cache_seconds=0))
+    assert service.rollback(held, "alice").state is PlanState.ROLLED_BACK
+    rrsets = {(r.name, r.rtype) for r in pair.registry.dns.read_zone("late.example.lan")}
+    assert ("www.late.example.lan.", "A") not in rrsets
+    assert held.rollback_until is None
+    entries = [e for e in pair.peer_ctx.audit_log.read() if e.plan_id == rec.id and e.node_id == pair.peer_id]
+    assert {e.request.get("verb") for e in entries} >= {"apply", "rollback"}

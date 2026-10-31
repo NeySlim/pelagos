@@ -73,6 +73,12 @@ CATALOG: dict[str, str] = {
     "plan.ptr.cleanup": "PTR cleanup: {deleted} PTR targets removed, {created} addresses added",
     "plan.ipv6.aaaa": "AAAA and PTR of {count} IPv6 addresses",
     "plan.ipv6.replace_prefix": "{old_prefix} replaced by {new_prefix}: {count} AAAA addresses in {zones}",
+    "plan.node.unknown": "unknown node",
+    "plan.node.no_engine": "engine not configured on this node",
+    "plan.node.check_by_hand": (
+        "not rolled back: a restart interrupted this part ({summary}), check this node by hand"
+    ),
+    "plan.node.failed": "{detail}",
     # Plan impact lines (services.plan_impact).
     "plan.impact.unknown": "impact of {target} not computed: {error}",
     "plan.impact.subnet_leases": "{count} active leases in {subnet}: their clients lose their address",
@@ -153,6 +159,7 @@ CATALOG: dict[str, str] = {
     "plan.kea.service_disable": "disable DHCP service ({engine})",
     "plan.kea.service_enable_on": "enable DHCP service ({engine} on {node})",
     "plan.kea.service_disable_on": "disable DHCP service ({engine} on {node})",
+    "plan.kea.ha_maintenance_update": "HA maintenance {action} on {server}: engine packages of {node}",
     "plan.install": "install {engines} ({source})",
     "plan.install.isc_kea": "ISC Kea {series}",
     "plan.install.distro_packages": "distro packages",
@@ -351,6 +358,7 @@ CATALOG: dict[str, str] = {
     ),
     "plan.resolver.return_kept_only": "end the forwarder fallback; {kept} changed by hand: left as they are",
     "plan.resolver.extend": "keep the forwarder fallback until {until}",
+    "plan.resolver.state": "{target} in cluster.toml",
     # Kea 2.6 to 3.x migration plans and their job steps (section 28).
     "plan.kea_migration.prepare": (
         "prepare the move of {nodes} to Kea {series} ({source}): archives, packages downloaded,"

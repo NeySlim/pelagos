@@ -97,6 +97,14 @@
       "unit": "seconds"
     },
     {
+      "key": "plans.rollback_window_seconds",
+      "type": "integer",
+      "default": 86400,
+      "min": 600,
+      "max": 604800,
+      "unit": "seconds"
+    },
+    {
       "key": "peers.plan_timeout_seconds",
       "type": "integer",
       "default": 300,

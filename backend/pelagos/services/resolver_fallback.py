@@ -397,7 +397,7 @@ class ResolverFallbackService:
         return Plan(
             scope=PlanScope.DNS_RESOLVER,
             node_id=self.ctx.node.id,
-            summary=f"{FALLBACK_TARGET} in cluster.toml",
+            **messages.fields("summary", messages.msg("plan.resolver.state", target=FALLBACK_TARGET)),
             created_by=user,
             changes=[Change(op, FALLBACK_TARGET, before=before, after=after)],
             diff=diff,

@@ -25,7 +25,7 @@ def test_expired_and_live_plans_answer_expired_after_a_restart(tmp_root):
     store = PlanStore(ttl_seconds=600, tombstone_path=path)
     live, old, deleted = store.put(_plan()), store.put(_plan()), store.put(_plan())
     old.expires_at = utcnow() - timedelta(seconds=5)
-    store.touch(live)
+    store.finish(live, 600)
     store.delete(deleted.id)
     store.sweep()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
@@ -79,7 +79,7 @@ def test_writes_append_to_a_journal_without_fsync(tmp_root, monkeypatch):
     monkeypatch.setattr(os, "fsync", lambda fd: synced.append(fd))
     before = path.read_bytes()
     made = [store.put(_plan()) for _ in range(20)]
-    store.touch(made[0])
+    store.finish(made[0], 600)
     store.delete(made[1].id)
     assert synced == [] and path.read_bytes() == before
     assert stat.S_IMODE(store.journal_path.stat().st_mode) == 0o600
@@ -140,7 +140,7 @@ def test_plans_and_parts_survive_a_restart_encrypted(tmp_root):
     plan.state = PlanState.APPLIED
     parts[0].state = PlanState.APPLIED
     store.update(plan)
-    store.touch(plan)
+    store.finish(plan, 600)
     file = tmp_root / "plans" / f"{plan.id}.plan"
     assert stat.S_IMODE(file.stat().st_mode) == 0o600
     assert stat.S_IMODE((tmp_root / "plans").stat().st_mode) == 0o700

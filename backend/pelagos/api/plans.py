@@ -3,23 +3,63 @@
 
 from __future__ import annotations
 
-from flask_restx import Namespace, Resource
+from typing import Any
+
+from flask_restx import Namespace, Resource, fields
 
 from pelagos.api import models as m
-from pelagos.api.common import json_body, plan_dict
+from pelagos.api.common import arg, json_body, paged, pagination, plan_dict
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, ctx, current_session, require, services
 from pelagos.auth.rbac import has_permission, host_plan_permissions
 from pelagos.core.plans import PlanExpired, PlanNotFound
-from pelagos.domain import Plan, PlanScope, to_rfc3339
+from pelagos.domain import Plan, PlanScope, PlanState, to_rfc3339
 from pelagos.services.archive_restore import restore_permissions
 from pelagos.services.hosts_service import touches
+from pelagos.services.masking import masked_text
 from pelagos.services.plan_service import JOB_SCOPES
 
 ns = Namespace("plans", description="Previewed writes and long-running jobs", path="/")
 
+# Section 6: one line of the Plans page.
+SUMMARY_FIELDS = (
+    "id", "scope", "engine", "node_id", "summary", "summary_message", "created_by", "created_at", "state",
+    "expires_at", "finished_at", "rollback_until", "interrupted", "error", "error_message",
+    "target_node_ids", "requires_confirmation",
+)  # fmt: skip
+PlanSummary = m.model("PlanSummary", {name: fields.Raw() for name in SUMMARY_FIELDS})
+PlanSummaryPage = m.page_of(PlanSummary, "PlanSummaryPage")
 
-def _plan(plan_id: str) -> Plan:
+
+def summary_dict(plan: Plan) -> dict[str, Any]:
+    data = plan.to_dict()
+    out = {name: data.get(name) for name in SUMMARY_FIELDS}
+    out["summary"] = masked_text(out["summary"] or "")
+    if out["error"]:
+        out["error"] = masked_text(out["error"])
+    return out
+
+
+def _states(raw: str | None) -> set[PlanState] | None:
+    if raw is None:
+        return None
+    try:
+        return {PlanState(s.strip()) for s in raw.split(",") if s.strip()}
+    except ValueError:
+        raise ApiError(
+            "validation_error", f"unknown state in {raw}", errors=[{"field": "state", "message": "unknown"}]
+        ) from None
+
+
+def _scope(raw: str | None) -> str | None:
+    if raw is not None and not any(s.value.startswith(raw) for s in PlanScope):
+        raise ApiError(
+            "validation_error", f"unknown scope {raw}", errors=[{"field": "scope", "message": "unknown"}]
+        )
+    return raw
+
+
+def _plan(plan_id: str, write: bool = True) -> Plan:
     try:
         plan = ctx().plan_store.get(plan_id)
     except PlanExpired as exc:
@@ -34,7 +74,9 @@ def _plan(plan_id: str) -> Plan:
         ) from None
     session = current_session()
     if plan.created_by != session.username and not has_permission(session.permissions, "*"):
-        raise ApiError("forbidden", "only the creator or an admin can use this plan")
+        # read:audit shows any plan; using it stays with its creator or an admin.
+        if write or not has_permission(session.permissions, "read:audit"):
+            raise ApiError("forbidden", "only the creator or an admin can use this plan")
     return plan
 
 
@@ -60,14 +102,42 @@ def _check_scope(plan: Plan) -> None:
         raise ApiError("forbidden", "requires ops:dhcp.ha")
 
 
+@ns.route("/plans")
+class Plans(Resource):
+    @require()
+    @ns.doc(
+        params={
+            "state": "comma-separated plan states",
+            "user": "creator (only yourself without read:audit)",
+            "scope": "a plan scope or a prefix such as dhcp.",
+            "page": "1-based",
+            "per_page": "default 50, max 500",
+        }
+    )
+    @ns.response(200, "Plans this node holds, newest first", PlanSummaryPage)
+    @ns.response(403, "forbidden: another user's plans without read:audit", m.Problem)
+    def get(self):
+        page, per_page = pagination()
+        states, scope, user = _states(arg("state")), _scope(arg("scope")), arg("user")
+        session = current_session()
+        if not has_permission(session.permissions, "read:audit"):
+            if user not in (None, session.username):
+                raise ApiError("forbidden", "requires read:audit to list another user's plans")
+            user = session.username
+        rows, total = ctx().plan_store.list(
+            states=states, user=user, scope=scope, page=page, per_page=per_page
+        )
+        return paged([summary_dict(p) for p in rows], page, per_page, total, {"node_id": ctx().node.id})
+
+
 @ns.route("/plans/<string:plan_id>")
 class OnePlan(Resource):
     @require()
-    @ns.response(200, "The plan (creator or admin)", m.Plan)
+    @ns.response(200, "The plan (creator, admin, or read only with read:audit)", m.Plan)
     @ns.response(404, "not_found: unknown plan", m.Problem)
-    @ns.response(410, "plan_expired: the plan's TTL ran out", m.Problem)
+    @ns.response(410, "plan_expired: the plan is no longer held", m.Problem)
     def get(self, plan_id: str):
-        return plan_dict(_plan(plan_id))
+        return plan_dict(_plan(plan_id, write=False))
 
     @require()
     @ns.response(204, "Plan dropped")
@@ -121,7 +191,8 @@ class ApplyPlan(Resource):
 class RollbackPlan(Resource):
     @require()
     @ns.response(200, "Rolled back on every node it was applied to", m.ApplyResult)
-    @ns.response(409, "plan_state: only applied plans, or plans a restart interrupted, roll back", m.Problem)
+    @ns.response(409, "plan_state, or precondition_failed: the state moved since the apply", m.Problem)
+    @ns.response(410, "plan_expired: past rollback_until", m.Problem)
     def post(self, plan_id: str):
         plan = _plan(plan_id)
         _check_scope(plan)

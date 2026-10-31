@@ -315,6 +315,27 @@ class TestReferencePair:
         audit = api(A1).get("/audit?action=dns.rrset")["items"]
         assert any(e.get("plan_id") == plan["id"] for e in audit)
 
+    def test_06b_applied_plan_listed_with_its_rollback_window(self):
+        """F0-PLANS: the window itself is covered by the unit tier (no clock to move here)."""
+        from pelagos.domain.common import from_rfc3339
+
+        change = {"op": "add", "target": "late/A", "after": {"ttl": 300, "rdata": ["10.99.0.81"]}}
+        plan = api(A2).post("/dns/zones/example.lan/records/plan", {"changes": [change]})
+        result = api(A2).apply(plan)
+        assert result["state"] == "applied" and result["rollback_until"], result
+        left = (from_rfc3339(result["rollback_until"]) - from_rfc3339(result["finished_at"])).total_seconds()
+        assert left == 86400
+        listed = api(A2).get("/plans?state=applied&scope=dns.")
+        assert listed["meta"]["node_id"] == node_id(A2)
+        assert [p["rollback_until"] for p in listed["items"] if p["id"] == plan["id"]] == [
+            result["rollback_until"]
+        ]
+        done = api(A2).post(f"/plans/{plan['id']}/rollback", {})
+        assert done["state"] == "rolled_back" and done["rollback_until"] is None, done
+        assert api(A1).get("/dns/zones/example.lan/records?name=late")["items"] == []
+        entries = api(A1).get(f"/audit?plan_id={plan['id']}")["items"]
+        assert {e["plan_id"] for e in entries} == {plan["id"]} and len(entries) >= 2
+
     def test_07_host_joins_a_real_lease(self):
         _, mac = client_nic()
         body = {

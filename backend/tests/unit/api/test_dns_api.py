@@ -176,7 +176,9 @@ def test_plan_ownership_expiry_and_delete(role_client, node_ctx):
         dora, [{"op": "add", "target": "own/A", "after": {"ttl": 60, "rdata": ["192.0.2.62"]}}]
     ).get_json()
     other = role_client("viewer")
-    assert other.get(f"/api/v1/plans/{plan['id']}").status_code == 403
+    # read:audit reads any plan; using it stays with the creator or an admin (F0-PLANS).
+    assert other.get(f"/api/v1/plans/{plan['id']}").status_code == 200
+    assert other.delete(f"/api/v1/plans/{plan['id']}").status_code == 403
     assert role_client("admin").get(f"/api/v1/plans/{plan['id']}").status_code == 200
     # PlanStore sweeps expired plans on read and keeps a tombstone: the API answers 410.
     node_ctx.plan_store.get(plan["id"]).expires_at = utcnow() - timedelta(seconds=1)

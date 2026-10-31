@@ -326,7 +326,8 @@
         "api_token_audit_reads_enabled": "Audit token reads"
       },
       "plans": {
-        "ttl_seconds": "Plan lifetime"
+        "ttl_seconds": "Plan lifetime",
+        "rollback_window_seconds": "Rollback window"
       },
       "peers": {
         "plan_timeout_seconds": "Peer plan answer timeout",
@@ -526,7 +527,8 @@
         "api_token_audit_reads_enabled": "Every call made with a token is audited; off: only writes (POST, PUT, PATCH, DELETE)."
       },
       "plans": {
-        "ttl_seconds": "A plan not applied within this delay expires."
+        "ttl_seconds": "A plan not applied within this delay expires.",
+        "rollback_window_seconds": "An applied plan can be rolled back, and a finished plan is listed, this long after it ends."
       },
       "peers": {
         "plan_timeout_seconds": "Engine plans applied or rolled back on another node.",

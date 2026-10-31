@@ -18,6 +18,7 @@ from typing import Any
 
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
 from pelagos.core import ha_maintenance, permguard, plan_secrets
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     ApplyResult,
@@ -29,7 +30,9 @@ from pelagos.domain import (
     PlanState,
     Precondition,
     PreconditionKind,
+    messages,
     normalize_name,
+    to_rfc3339,
     utcnow,
 )
 from pelagos.services import d2_secrets, key_sync
@@ -45,6 +48,8 @@ log = logging.getLogger(__name__)
 # A part a restart caught mid-apply: which of its nodes applied it is unknown.
 CHECK_BY_HAND = "not rolled back: a restart interrupted this part ({}), check this node by hand"
 JOB_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION})
+# The web process publishes plans/expired without waiting for a read of the store.
+SWEEP_SECONDS = 60
 
 
 class PlanError(Exception):
@@ -70,6 +75,51 @@ class PlanService:
         self._in_flight = 0  # applies and rollbacks running in this process
         # Parts without an engine, applied here by a writer of cluster.toml (ddns.roles).
         self.cluster_parts: dict[PlanScope, Any] = {}
+        self._stop = threading.Event()
+        self._sweeper: threading.Thread | None = None
+        ctx.plan_store.on_expired = self._expired
+
+    # Rollback window ----------------------------------------------------
+
+    def window_seconds(self) -> int:
+        return int(reg.get(self.ctx.settings(), "plans.rollback_window_seconds"))
+
+    def _finish(self, plan: Plan) -> None:
+        self.ctx.plan_store.finish(plan, self.window_seconds())
+
+    def start_sweeper(self) -> None:
+        """Web process only: sweeps the store so expired plans are published without a read."""
+        if self._sweeper is not None:
+            return
+
+        def loop() -> None:
+            while not self._stop.wait(SWEEP_SECONDS):
+                try:
+                    self.ctx.plan_store.sweep()
+                except Exception:
+                    log.exception("plan store sweep failed")
+
+        self._sweeper = threading.Thread(target=loop, name="pelagos-plan-sweep", daemon=True)
+        self._sweeper.start()
+
+    def close(self) -> None:
+        self._stop.set()
+
+    def _expired(self, plan: Plan) -> None:
+        events = self.events  # resolved now: tests and the container may swap the hub
+        if events is None:
+            return
+        events.publish(
+            "plans",
+            "expired",
+            {
+                "plan_id": plan.id,
+                "scope": plan.scope.value,
+                "state": plan.state.value,
+                "finished_at": to_rfc3339(plan.finished_at) if plan.finished_at else None,
+                "expired_at": to_rfc3339(plan.expires_at),
+            },
+        )
 
     def busy(self) -> bool:
         return self._in_flight > 0
@@ -253,14 +303,18 @@ class PlanService:
         if plan.state is PlanState.APPLIED:
             key_sync.sync_quietly(self.ctx, self.registry, parts)
         self.ctx.plan_store.update(plan)
-        self.ctx.plan_store.touch(plan)
+        self._finish(plan)
         note = self._audit_summary(plan, user, client_ip)
         if note:
             results.append(
                 NodeApplyResult(node_id=self.ctx.node.id, ok=plan.state is PlanState.APPLIED, message=note)
             )
         result = ApplyResult(
-            plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
+            plan_id=plan.id,
+            state=plan.state,
+            results=_masked(results),
+            finished_at=plan.finished_at or utcnow(),
+            rollback_until=plan.rollback_until,
         )
         self._publish(result)
         return result
@@ -403,7 +457,7 @@ class PlanService:
                 raise
             finally:
                 self.ctx.plan_store.update(plan)
-                self.ctx.plan_store.touch(plan)
+                self._finish(plan)
                 self._audit_summary(plan, user, client_ip)
                 ok = plan.state is PlanState.APPLIED
                 self._publish(
@@ -411,6 +465,7 @@ class PlanService:
                         plan_id=plan.id,
                         state=plan.state,
                         results=[NodeApplyResult(node_id=self.ctx.node.id, ok=ok, message=plan.error or "")],
+                        rollback_until=plan.rollback_until,
                     )
                 )
             return None
@@ -452,6 +507,29 @@ class PlanService:
         finally:
             self._track(-1)
 
+    def _check_window(self, plan: Plan) -> None:
+        """410 past rollback_until; a plan finished without one (a job, an update) never rolls back.
+        Plans from 0.3.x carry no finished_at: they roll back while the store holds them."""
+        if plan.rollback_until is not None:
+            if utcnow() > plan.rollback_until:
+                raise PlanError(
+                    "plan_expired",
+                    f"plan {plan.id} could be rolled back until {plan.rollback_until.isoformat()}",
+                )
+        elif plan.finished_at is not None:
+            raise PlanError("plan_state", f"plan {plan.id} does not roll back")
+
+    def _check_rollback(self, plan: Plan, interrupted: bool) -> None:
+        """Each local connector's optional `check_rollback` for every part to undo (section 6)."""
+        for part in self._parts_of(plan):
+            if interrupted and (part.interrupted or part.state is not PlanState.APPLIED):
+                continue
+            if self.ctx.node.id not in (part.target_node_ids or [self.ctx.node.id]):
+                continue
+            check = getattr(self._backend(part), "check_rollback", None)
+            if callable(check):
+                check(part)
+
     def _mark(self, plan: Plan, part: Plan, state: PlanState) -> None:
         """Record one part's progress on disk, so a restart knows which parts a node finished."""
         if part is not plan:
@@ -468,6 +546,14 @@ class PlanService:
                     "only applied plans, or plans a restart interrupted, roll back;"
                     f" plan is {plan.state.value}",
                 )
+            self._check_window(plan)
+            # A guard that refuses here leaves the plan as it is: nothing ran, nothing is audited.
+            try:
+                self._check_rollback(plan, interrupted)
+            except PreconditionFailed as exc:
+                raise PlanError("precondition_failed", str(exc)) from exc
+            except ConnectorError as exc:
+                raise PlanError("engine_unavailable", str(exc)) from exc
             plan.state = PlanState.APPLYING  # in flight: a second rollback or apply gets plan_state
             self.ctx.plan_store.update(plan)
         self._phase(plan, "rolling_back")
@@ -478,7 +564,12 @@ class PlanService:
                 targets = part.target_node_ids or [self.ctx.node.id]
                 if interrupted and part.interrupted:
                     results.extend(
-                        NodeApplyResult(node_id=n, ok=False, message=CHECK_BY_HAND.format(part.summary))
+                        NodeApplyResult(
+                            node_id=n,
+                            ok=False,
+                            message=CHECK_BY_HAND.format(part.summary),
+                            message_message=messages.msg("plan.node.check_by_hand", summary=part.summary),
+                        )
                         for n in targets
                     )
                     continue
@@ -502,12 +593,19 @@ class PlanService:
             part.interrupted = False
         plan.interrupted = False
         key_sync.sync_quietly(self.ctx, self.registry, parts)
+        if plan.state is PlanState.FAILED and plan.error and plan.error_message is None:
+            plan.error_message = permguard.message_for_text(plan.error)
         self.ctx.plan_store.update(plan)
+        self._finish(plan)
         note = self._audit_summary(plan, user, client_ip, verb="rollback")
         if note:
             results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=note))
         result = ApplyResult(
-            plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
+            plan_id=plan.id,
+            state=plan.state,
+            results=_masked(results),
+            finished_at=plan.finished_at or utcnow(),
+            rollback_until=plan.rollback_until,
         )
         self._publish(result)
         return result
@@ -654,10 +752,27 @@ class PlanService:
         return None
 
 
+# Fixed failure texts of this module and their catalog keys.
+_FIXED_MESSAGES = {
+    "unknown node": "plan.node.unknown",
+    "no backend": "plan.node.no_engine",
+    "engine not configured on this node": "plan.node.no_engine",
+}
+
+
 def _masked(results: list[NodeApplyResult]) -> list[NodeApplyResult]:
-    """Messages come from engines and peers; key material in them never reaches an answer."""
+    """Messages come from engines and peers; key material in them never reaches an answer. Every
+    failure gets a translatable form; an engine's own text stays as the detail."""
     for r in results:
         r.message = masked_text(r.message or "")
+        if not r.ok and r.message_message is None:
+            key = _FIXED_MESSAGES.get(r.message)
+            r.message_message = (
+                messages.msg(key)
+                if key
+                else permguard.message_for_text(r.message)
+                or messages.msg("plan.node.failed", detail=r.message)
+            )
     return results
 
 

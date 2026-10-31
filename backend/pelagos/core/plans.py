@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Plan store with TTL on the node that created the plan (section 6).
+"""Plan store on the node that created the plan (section 6).
 
 Plans live in memory and, when the store has a directory and the master key, in one file per plan
 (`<plans_dir>/<id>.plan`, 0600, the plan and its parts encrypted with the master key, AAD
-`plan-store/<id>`), so a restart of the web process keeps them, until their TTL, for apply and
-rollback. Their ids, with when they stop being valid, are also kept in a small file under the var
+`plan-store/<id>`), so a restart of the web process keeps them, until `expires_at`, for apply and
+rollback. `expires_at` is the preview TTL until the plan finishes, then the rollback window.
+Their ids, with when they stop being valid, are also kept in a small file under the var
 directory (0600, the service user's), so once the TTL ran out the API still answers
 `410 plan_expired` instead of `404`. That file is bounded (MAX_TOMBSTONES ids) and pruned of ids
 expired for more than TOMBSTONE_TTL.
@@ -25,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from pelagos.core.locks import FileLock
 from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
-from pelagos.domain.plan import Plan, PlanState
+from pelagos.domain.plan import Plan, PlanScope, PlanState
 
 if TYPE_CHECKING:
     from pelagos.core.secrets import SecretBox
@@ -36,6 +37,12 @@ log = logging.getLogger(__name__)
 MAX_TOMBSTONES = 10000
 TOMBSTONE_TTL = timedelta(days=7)
 JOURNAL_MAX_BYTES = 64 * 1024
+# Finished plans held for their rollback window; past it the oldest finished leaves early.
+MAX_FINISHED = 1000
+# Job scopes: their rollback has no backend, so they never get a rollback_until.
+NO_ROLLBACK_SCOPES = frozenset(
+    {PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION}
+)
 _PLAN_FILE = re.compile(r"^[0-9A-Za-z]{1,64}\.plan$")
 # A plan found APPLYING after a restart: its apply or rollback died with the previous process.
 INTERRUPTED = (
@@ -65,8 +72,15 @@ class PlanStore:
         tombstone_path: Path | None = None,
         plans_dir: Path | None = None,
         box: SecretBox | None = None,
+        rollback_window_seconds: int = 86400,
+        max_finished: int = MAX_FINISHED,
     ) -> None:
         self.ttl = timedelta(seconds=ttl_seconds)
+        # Used for plans a restart interrupted; finish() gets the current setting from its caller.
+        self.rollback_window = timedelta(seconds=rollback_window_seconds)
+        self.max_finished = max_finished
+        # Called with each plan that leaves by expiry, outside the lock (plans/expired event).
+        self.on_expired: Callable[[Plan], None] | None = None
         self.max_tombstones = max_tombstones
         self.tombstone_path = tombstone_path
         # Plans reach the disk only encrypted: without the master key they stay in memory.
@@ -138,29 +152,88 @@ class PlanStore:
         self._append({plan_id: None})
         self._unlink(plan_id)
 
-    def touch(self, plan: Plan) -> None:
-        """Applied plans stay available for rollback for one more TTL."""
-        plan.expires_at = utcnow() + self.ttl
+    def finish(self, plan: Plan, window_seconds: int) -> None:
+        """An apply or rollback ended: the plan stays `window_seconds` more, rollable back only
+        while APPLIED (or FAILED and interrupted) outside the scopes that never roll back."""
+        now = utcnow()
+        _finish(plan, now, timedelta(seconds=window_seconds))
         self._append({plan.id: plan.expires_at})
         self._save(plan)
+        self._cap_finished()
+
+    def list(
+        self,
+        states: set[PlanState] | frozenset[PlanState] | None = None,
+        user: str | None = None,
+        scope: str | None = None,
+        page: int = 1,
+        per_page: int = 50,
+    ) -> tuple[list[Plan], int]:
+        """Plans held, newest `created_at` first; `scope` is a value or a prefix such as `dhcp.`."""
+        self.sweep()
+        with self._lock:
+            plans = list(self._plans.values())
+        kept = [
+            p
+            for p in plans
+            if (states is None or p.state in states)
+            and (user is None or p.created_by == user)
+            and (scope is None or p.scope.value == scope or p.scope.value.startswith(scope))
+        ]
+        kept.sort(key=lambda p: p.created_at, reverse=True)
+        start = (max(page, 1) - 1) * per_page
+        return kept[start : start + per_page], len(kept)
 
     def sweep(self) -> int:
         now = utcnow()
         with self._lock:
             expired = [pid for pid, p in self._plans.items() if p.expires_at <= now]
-            for pid in expired:
-                plan = self._plans.pop(pid)
-                self._parts.pop(pid, None)
-                if plan.state in (PlanState.DRAFT, PlanState.VALIDATED):
-                    plan.state = PlanState.EXPIRED
-                self._expired[pid] = plan.expires_at
-            while len(self._expired) > self.max_tombstones:
-                self._expired.popitem(last=False)
-        for pid in expired:
-            self._unlink(pid)
-        if expired:
-            self.compact()
+            gone = [self._drop_locked(pid) for pid in expired]
+        self._after_drop(gone)
         return len(expired)
+
+    def _drop_locked(self, pid: str) -> Plan:
+        plan = self._plans.pop(pid)
+        self._parts.pop(pid, None)
+        if plan.state in (PlanState.DRAFT, PlanState.VALIDATED):
+            plan.state = PlanState.EXPIRED
+        self._expired[pid] = plan.expires_at
+        while len(self._expired) > self.max_tombstones:
+            self._expired.popitem(last=False)
+        return plan
+
+    def _after_drop(self, gone: list[Plan]) -> None:
+        for plan in gone:
+            self._unlink(plan.id)
+        if gone:
+            self.compact()
+        hook = self.on_expired
+        for plan in gone:
+            if hook is not None:
+                try:
+                    hook(plan)
+                except Exception:
+                    log.exception("plans/expired hook failed for %s", plan.id)
+
+    def _cap_finished(self) -> None:
+        """Past max_finished finished plans, the oldest leave now (tombstone until now: 410)."""
+        now = utcnow()
+        with self._lock:
+            finished = sorted(
+                (
+                    p
+                    for p in self._plans.values()
+                    if p.finished_at is not None and p.state is not PlanState.APPLYING
+                ),
+                key=lambda p: p.finished_at or now,
+            )
+            extra = finished[: max(0, len(finished) - self.max_finished)]
+            for plan in extra:
+                plan.expires_at = now
+            gone = [self._drop_locked(p.id) for p in extra]
+        if gone:
+            self._append({p.id: p.expires_at for p in gone})
+        self._after_drop(gone)
 
     def __len__(self) -> int:
         with self._lock:
@@ -235,7 +308,7 @@ class PlanStore:
                 plan.state = PlanState.FAILED
                 plan.error = INTERRUPTED
                 plan.interrupted = True
-                plan.expires_at = max(plan.expires_at, now + self.ttl)
+                _finish(plan, now, self.rollback_window)
                 for part in parts or []:
                     if part.state is PlanState.APPLYING:
                         part.state = PlanState.FAILED
@@ -354,3 +427,10 @@ class PlanStore:
             os.truncate(self.journal_path, 0)
         except FileNotFoundError:
             pass
+
+
+def _finish(plan: Plan, now: datetime, window: timedelta) -> None:
+    plan.finished_at = now
+    plan.expires_at = now + window
+    rollable = plan.state is PlanState.APPLIED or (plan.state is PlanState.FAILED and plan.interrupted)
+    plan.rollback_until = plan.expires_at if rollable and plan.scope not in NO_ROLLBACK_SCOPES else None

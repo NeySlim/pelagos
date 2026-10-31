@@ -1415,6 +1415,11 @@
     "effect",
     "server"
   ],
+  "plan.kea.ha_maintenance_update": [
+    "action",
+    "node",
+    "server"
+  ],
   "plan.kea.ha_remove": [
     "engine"
   ],
@@ -1501,6 +1506,14 @@
     "nodes",
     "series"
   ],
+  "plan.node.check_by_hand": [
+    "summary"
+  ],
+  "plan.node.failed": [
+    "detail"
+  ],
+  "plan.node.no_engine": [],
+  "plan.node.unknown": [],
   "plan.ptr.cleanup": [
     "created",
     "deleted"
@@ -1523,6 +1536,9 @@
   ],
   "plan.resolver.return_kept_only": [
     "kept"
+  ],
+  "plan.resolver.state": [
+    "target"
   ],
   "plan.restore": [
     "archive",

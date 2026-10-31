@@ -227,6 +227,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         {"hostname": "new", "ip": "192.0.2.77", "zone": "example.lan"},
         HOST,
     ),
+    ("GET", "/plans", "/plans", None, ANY),
     ("GET", "/plans/<string:plan_id>", "/plans/unknown", None, ANY),
     ("DELETE", "/plans/<string:plan_id>", "/plans/unknown", None, ANY),
     ("POST", "/plans/<string:plan_id>/apply", "/plans/unknown/apply", {}, ANY),

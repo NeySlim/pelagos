@@ -201,6 +201,10 @@ class Plan(Model):
     requires_confirmation_reasons: list[str] = field(default_factory=list)
     # The `update` member of an update plan (scope update, section 29); None for other scopes.
     update: dict[str, Any] | None = None
+    # When the last apply or rollback ended; None before (and on plans from 0.3.x).
+    finished_at: datetime | None = None
+    # Set only while the plan can be rolled back (section 6, rollback window).
+    rollback_until: datetime | None = None
 
     @property
     def permission(self) -> str:
@@ -229,6 +233,8 @@ class ApplyResult(Model):
     state: PlanState
     results: list[NodeApplyResult] = field(default_factory=list)
     finished_at: datetime = field(default_factory=utcnow)
+    # The plan's rollback_until after this apply or rollback (section 6).
+    rollback_until: datetime | None = None
 
 
 class JobState(enum.StrEnum):

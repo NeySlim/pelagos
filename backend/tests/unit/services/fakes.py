@@ -130,6 +130,8 @@ class FakeDnsBackend(DnsBackend):
         self.ops: list[tuple[str, ...]] = []
         self.applied: list[str] = []
         self.rolled_back: list[str] = []
+        # F0-PLANS: a refusal check_rollback raises (a test sets it: the state moved since the apply).
+        self.rollback_refusal: str | None = None
         self.details: dict[str, dict[str, Any]] = {}
         self.catalog: list[str] = ["member1.example.lan."]
         self.policies: dict[str, list[dict[str, str]]] = {}
@@ -704,6 +706,11 @@ class FakeDnsBackend(DnsBackend):
         )
         return _validated(plan, "rndc")
 
+    def check_rollback(self, plan: Plan) -> None:
+        if self.rollback_refusal is not None:
+            pre = Precondition(PreconditionKind.FILE_SHA256, "named.conf", "recorded", self.node_id)
+            raise PreconditionFailed(pre, self.rollback_refusal)
+
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._check()
         self._mutate([c.inverse() for c in reversed(plan.changes)])
@@ -1018,6 +1025,9 @@ class FakeDhcpBackend(DhcpBackend):
         super().__init__(ctx or fake_context(node_id, family.kea_engine.value), family)
         self.node_id = self.ctx.node_id
         self.failure: ConnectorError | None = None
+        # F0-PLANS: config_hash answers this instead (a hand edit), and the hash after each apply.
+        self.hash_override: str | None = None
+        self.applied_hash: dict[str, str] = {}
         self.running = True
         self.enabled = True
         self.version = "3.2.1"
@@ -1109,6 +1119,8 @@ class FakeDhcpBackend(DhcpBackend):
 
     def config_hash(self) -> str:
         self._check()
+        if self.hash_override is not None:
+            return self.hash_override
         return hashlib.sha256(json.dumps(self.config, sort_keys=True).encode()).hexdigest()
 
     def _all_subnet_raws(self) -> list[tuple[dict[str, Any], str | None]]:
@@ -1554,10 +1566,24 @@ class FakeDhcpBackend(DhcpBackend):
                 raise PreconditionFailed(pre, self.ha.state or "")
         self._mutate(plan.changes)
         self.applied.append(plan.id)
+        self.applied_hash[plan.id] = self.config_hash()
         return NodeApplyResult(node_id=self.node_id, ok=True, message="applied, config-write done")
+
+    def check_rollback(self, plan: Plan) -> None:
+        """The Kea guard of section 6: the configuration still hashes as right after the apply."""
+        recorded = self.applied_hash.get(plan.id)
+        if recorded is None or plan.scope in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+            return
+        observed = self.config_hash()
+        if observed != recorded:
+            pre = Precondition(
+                PreconditionKind.CONFIG_HASH, f"{self.engine_name}:config", recorded, self.node_id
+            )
+            raise PreconditionFailed(pre, observed)
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._check()
+        self.applied_hash.pop(plan.id, None)
         self._mutate([c.inverse() for c in reversed(plan.changes)])
         self.rolled_back.append(plan.id)
         return NodeApplyResult(node_id=self.node_id, ok=True, message="rolled back", rolled_back=True)

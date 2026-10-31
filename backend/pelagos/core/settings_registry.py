@@ -103,6 +103,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("auth.api_token_audit_reads_enabled", "boolean", True, group="api_tokens"),
     # Plans and peers
     S("plans.ttl_seconds", "integer", 600, 60, DAY, "seconds"),
+    S("plans.rollback_window_seconds", "integer", DAY, 600, 7 * DAY, "seconds"),
     S("peers.plan_timeout_seconds", "integer", 300, 10, DAY, "seconds"),
     S("peers.installer_plan_timeout_seconds", "integer", 1800, 60, DAY, "seconds"),
     S("peers.action_timeout_seconds", "integer", 120, 5, 3600, "seconds"),

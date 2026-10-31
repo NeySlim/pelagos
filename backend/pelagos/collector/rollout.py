@@ -1125,7 +1125,12 @@ class LiveView:
             scope=PlanScope.DHCP_HA,
             node_id=self.ctx.node.id,
             engine=Engine(engine),
-            summary=f"HA maintenance {action} on {peer.name or node_id}: engine packages of {me}",
+            **messages.fields(
+                "summary",
+                messages.msg(
+                    "plan.kea.ha_maintenance_update", action=action, server=peer.name or node_id, node=me
+                ),
+            ),
             created_by="system",
             changes=[
                 Change(ChangeOp.REPLACE, "ha/maintenance", before=None, after=action, node_ids=[node_id])

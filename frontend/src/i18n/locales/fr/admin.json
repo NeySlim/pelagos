@@ -326,7 +326,8 @@
         "api_token_audit_reads_enabled": "Auditer les lectures par jeton"
       },
       "plans": {
-        "ttl_seconds": "Durée de vie d'un plan"
+        "ttl_seconds": "Durée de vie d'un plan",
+        "rollback_window_seconds": "Fenêtre de retour arrière"
       },
       "peers": {
         "plan_timeout_seconds": "Délai de réponse d'un pair à un plan",
@@ -526,7 +527,8 @@
         "api_token_audit_reads_enabled": "Chaque appel fait avec un jeton est audité ; désactivé : seulement les écritures (POST, PUT, PATCH, DELETE)."
       },
       "plans": {
-        "ttl_seconds": "Un plan non appliqué dans ce délai expire."
+        "ttl_seconds": "Un plan non appliqué dans ce délai expire.",
+        "rollback_window_seconds": "Un plan appliqué peut être annulé, et un plan terminé reste listé, pendant ce délai après sa fin."
       },
       "peers": {
         "plan_timeout_seconds": "Plans de moteur appliqués ou annulés sur un autre nœud.",

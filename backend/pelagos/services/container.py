@@ -271,6 +271,8 @@ class Services:
 
     def start_event_listener(self) -> None:
         """Bind events.sock so collector events reach WebSocket clients; skipped when the dir is missing."""
+        # F0-PLANS: the web process publishes plans/expired on its own.
+        self.plans.start_sweeper()
         path = self.ctx.paths.events_sock
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +283,8 @@ class Services:
             self.listener = None
 
     def close(self) -> None:
+        # F0-PLANS
+        self.plans.close()
         self.groups.stop()
         if self.listener is not None:
             self.listener.stop()

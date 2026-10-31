@@ -222,6 +222,7 @@ class AuditLog:
         node_id: str | None = None,
         engine: str | None = None,
         result: str | None = None,
+        plan_id: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         page: int = 1,
@@ -233,6 +234,7 @@ class AuditLog:
                 and (action is None or e.action.startswith(action))
                 and (target is None or e.target.startswith(target))
                 and (node_id is None or e.node_id == node_id)
+                and (plan_id is None or e.plan_id == plan_id)
                 and (engine is None or (e.engine is not None and e.engine.value == engine))
                 and (result is None or e.result.value == result)
                 and (since is None or e.ts >= since)
@@ -251,7 +253,7 @@ class AuditLog:
                 else bisect.bisect_right(self._by_ts, until.timestamp(), key=lambda t: t[0])
             )
             hi = max(lo, hi)
-            if all(f is None for f in (user, action, target, node_id, engine, result)):
+            if all(f is None for f in (user, action, target, node_id, engine, result, plan_id)):
                 # Newest first straight from the (ts, id) index: only the page is decoded.
                 end = hi - start
                 offsets = [self._by_ts[i][2] for i in range(end - 1, max(lo, end - per_page) - 1, -1)]

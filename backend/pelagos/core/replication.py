@@ -1209,15 +1209,26 @@ class _ConflictLimiter:
         self._skipped: dict[str, int] = {}
 
     def admit(self, path: str, now: float | None = None) -> int | None:
-        """The count of conflicts suppressed since the last entry, or None to suppress this one."""
+        """The count of conflicts suppressed since the last entry, or None to suppress this one.
+
+        Only `written` takes the slot: an entry that failed to reach the log leaves it free."""
         now = time.monotonic() if now is None else now
         with self._lock:
             last = self._last.get(path)
             if last is not None and now - last < CONFLICT_WINDOW_SECONDS:
                 self._skipped[path] = self._skipped.get(path, 0) + 1
                 return None
+            return self._skipped.get(path, 0)
+
+    def written(self, path: str, suppressed: int, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        with self._lock:
             self._last[path] = now
-            return self._skipped.pop(path, 0)
+            left = self._skipped.get(path, 0) - suppressed
+            if left > 0:
+                self._skipped[path] = left
+            else:
+                self._skipped.pop(path, None)
 
     def reset(self) -> None:
         with self._lock:
@@ -1241,19 +1252,27 @@ class ConflictReporter:
         self.config_store = config_store
 
     def __call__(self, discarded: list[cm.Discarded]) -> None:
-        node_id = self.config_store.local_node_id()
+        # Runs after the merge was written: a failure here must never reach the merge's caller.
         try:
-            names = {n.id: n.name for n in self.config_store.load_cluster().nodes}
-        except (OSError, ConfigError, ValueError):
-            names = {}
-        for item in discarded:
-            suppressed = CONFLICT_LIMITER.admit(item.path)
-            if suppressed is None:
-                continue
+            node_id = self.config_store.local_node_id()
             try:
+                names = {n.id: n.name for n in self.config_store.load_cluster().nodes}
+            except (OSError, ConfigError, ValueError):
+                names = {}
+        except Exception as exc:
+            log.warning("conflict audit entries not written: %s: %s", type(exc).__name__, exc)
+            return
+        for item in discarded:
+            try:
+                suppressed = CONFLICT_LIMITER.admit(item.path)
+                if suppressed is None:
+                    continue
                 self.audit_log.append(conflict_entry(item, node_id, names, suppressed))
-            except OSError as exc:
-                log.warning("conflict audit entry for %s not written: %s", item.path, exc)
+                CONFLICT_LIMITER.written(item.path, suppressed)
+            except Exception as exc:
+                log.warning(
+                    "conflict audit entry for %s not written: %s: %s", item.path, type(exc).__name__, exc
+                )
 
 
 def conflict_entry(item: cm.Discarded, node_id: str, names: dict[str, str], suppressed: int) -> AuditEntry:

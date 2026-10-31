@@ -274,3 +274,20 @@ def test_status_parses_missing_collections_as_none(pair, monkeypatch):  # noqa: 
 def test_bases_path_sits_next_to_cluster_toml(tmp_path: Path):
     store = ConfigStore(tmp_path / "node.toml", tmp_path / "cluster.toml")
     assert store.bases_path == tmp_path / "cluster.bases.json"
+
+
+def test_a_failing_reporter_never_reaches_the_merge_and_keeps_the_slot(monkeypatch, two, tmp_path):
+    a, b = two
+    audit = AuditLog(tmp_path / "audit.jsonl")
+    real = audit.append
+
+    def broken(entry):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(audit, "append", broken)
+    _conflict(a, b, audit)  # merge_remote still returns True
+    assert audit.read() == []
+    monkeypatch.setattr(audit, "append", real)
+    _conflict(a, b, audit, _roles("again"), _roles("bee"))
+    [entry] = audit.read()  # the failed entry did not take the minute's slot
+    assert entry.request["suppressed"] == 0

@@ -15,6 +15,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { ReverseZoneList } from './Ipv6PlanDialogs'
 import { CLASS_VARIANT, IPV6_TAB, missingReverseZones, reverseZoneBody, staleAaaa } from './ipv6'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 export function HostIpv6Section({ hostKey, flow, refreshKey = 0 }) {
   const { t } = useTranslation(['ipv6', 'hosts'])
@@ -42,7 +43,7 @@ export function HostIpv6Section({ hostKey, flow, refreshKey = 0 }) {
   }
 
   if (rows.loading && !rows.data) return <LoadingSpinner size="sm" />
-  if (rows.error) return <p className="status-warning-text" data-testid="host-ipv6-error">{errorMessage(rows.error)}</p>
+  if (rows.error) return <ErrorNotice error={rows.error} onRetry={rows.refetch} testId="host-ipv6-error" />
   if (!items.length) return <p className="text-text-tertiary" data-testid="host-ipv6-none">{t('card.none')}</p>
 
   return (

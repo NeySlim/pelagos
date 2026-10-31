@@ -4,6 +4,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { createWsClient, WsState } from '../services/ws'
+import { RECONNECTED_EVENT } from './useApi'
 
 const WebSocketContext = createContext(null)
 
@@ -18,7 +19,19 @@ export function WebSocketProvider({ children, client }) {
 
   useEffect(() => {
     const ws = clientRef.current
-    const offState = ws.onStateChange(setState)
+    let seen = false
+    let lost = false
+    const offState = ws.onStateChange((next) => {
+      setState(next)
+      if (next !== WsState.CONNECTED) {
+        lost = seen
+        return
+      }
+      // Back after a drop: the node may have been unreachable, so failed reads try again.
+      if (lost) window.dispatchEvent(new Event(RECONNECTED_EVENT))
+      seen = true
+      lost = false
+    })
     const offAll = ws.on('*', setLastMessage)
     return () => {
       offState()

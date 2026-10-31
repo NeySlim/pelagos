@@ -18,6 +18,7 @@ import {
   SEVERITY_VARIANT, defaultTarget, engineUnused, fullyValidated, groupFindings, isActive, nodeEngines, obsoleteEngines, parseTarget,
   targetKey, unusedFindings, usedCounts,
 } from './keaMigration'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 function NodesCard({ nodes }) {
   const { t } = useTranslation('install')
@@ -266,7 +267,7 @@ export default function KeaMigrationPage() {
       {overview.loading && !data ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : overview.error && !data ? (
-        <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(overview.error)}</p></Card>
+        <Card className="p-4" hover={false}><ErrorNotice error={overview.error} onRetry={overview.refetch} /></Card>
       ) : (
         <div className="space-y-4 max-w-5xl">
           {/* A failed refresh keeps what is shown (the wizard follows the record by itself). */}

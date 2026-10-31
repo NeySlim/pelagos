@@ -22,6 +22,7 @@ import {
 } from './findings'
 import HAGuardCard from './HAGuardCard'
 import PermissionsCard from './PermissionsCard'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 function Finding({ finding, checked, onToggle, disabled, showNode, onExcept, action, onAction }) {
   const { t } = useTranslation('install')
@@ -279,7 +280,7 @@ export default function SecurityPage() {
       {findingsQ.loading && !findingsQ.data ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : findingsQ.error ? (
-        <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(findingsQ.error)}</p></Card>
+        <Card className="p-4" hover={false}><ErrorNotice error={findingsQ.error} onRetry={findingsQ.refetch} /></Card>
       ) : (
         <div className="space-y-4 max-w-5xl">
           {perNode.length > 1 && (

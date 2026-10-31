@@ -11,6 +11,7 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { modulesPatch, setClusterModule } from './settingsForm'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 const CLUSTER = ['dhcpv6', 'advanced_editor']
 const ENGINES = ['bind', 'kea4', 'kea6', 'd2']
@@ -63,7 +64,7 @@ export default function ModulesPage() {
       }
     >
       {!draft ? (
-        modulesQ.error ? <p className="text-sm status-danger-text" role="alert">{errorMessage(modulesQ.error)}</p> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
+        modulesQ.error ? <ErrorNotice error={modulesQ.error} onRetry={modulesQ.refetch} /> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : (
         <div className="space-y-4 max-w-4xl">
           <Card className="p-4 space-y-4" hover={false} data-testid="modules-cluster">

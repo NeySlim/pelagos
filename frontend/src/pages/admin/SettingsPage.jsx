@@ -13,6 +13,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { parseNumber } from './settingsForm'
 import { sectionsOf, validateSettings, getPath, setPath, durationParts, matchesQuery, viewKeyRows, rowsToViewKeys } from './settingsSchema'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const testId = (key) => `setting-${key.replace(/\./g, '-')}`
@@ -212,7 +213,7 @@ export default function SettingsPage() {
       }
     >
       {!draft || !schema ? (
-        loadError ? <p className="text-sm status-danger-text" role="alert">{t('settings.loadError')}: {errorMessage(loadError)}</p> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
+        loadError ? <ErrorNotice error={loadError} prefix={t('settings.loadError')} onRetry={() => Promise.all([schemaQ.error && schemaQ.refetch(), settingsQ.error && settingsQ.refetch()])} /> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : (
         <div className="space-y-4 max-w-5xl">
           <div className="flex flex-col gap-3 md:flex-row md:items-center">

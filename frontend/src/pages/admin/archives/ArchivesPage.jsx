@@ -20,6 +20,7 @@ import { downloadBlob, formatDate } from '../../../lib/utils'
 import DestinationDialog, { TestResult } from './DestinationDialog'
 import RestoreWizard from './RestoreWizard'
 import { RECIPIENT_RE, SETTING_GROUPS, destinationTarget, formatBytes, settingsChanges, settingsErrors, settingsForm } from './archivesForm'
+import { ErrorNotice } from '../../../components/ErrorNotice'
 
 function Field({ label, children, testId }) {
   return (
@@ -590,7 +591,7 @@ export default function ArchivesPage() {
       }
     >
       {!data ? (
-        overviewQ.error ? <p className="text-sm status-danger-text" role="alert">{errorMessage(overviewQ.error)}</p> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
+        overviewQ.error ? <ErrorNotice error={overviewQ.error} onRetry={overviewQ.refetch} /> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : (
         <div className="space-y-4 max-w-6xl">
           {job && (

@@ -253,6 +253,7 @@ export default function ResolverPage() {
             rowKey={(r) => `${r.zone.view}/${r.zone.name}`}
             loading={forwardZones.loading && !forwardZones.data}
             error={forwardZones.error}
+            onRetry={forwardZones.refetch}
             dense
             emptyTitle={t('resolver.noForwardZones')}
             testId="resolver-forward-zones"

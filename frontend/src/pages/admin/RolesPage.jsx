@@ -11,6 +11,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { ROLE_NAME_RE, fieldErrors, groupPermissions, roleDescription } from './validation'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 function PermissionGrid({ permissions, value, onChange, readOnly }) {
   const { t } = useTranslation('admin')
@@ -123,7 +124,7 @@ export default function RolesPage() {
       {rolesQ.loading && !rolesQ.data ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : rolesQ.error ? (
-        <p className="text-sm status-danger-text" role="alert">{errorMessage(rolesQ.error)}</p>
+        <ErrorNotice error={rolesQ.error} onRetry={rolesQ.refetch} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4">
           <div className="space-y-1.5" data-testid="roles-list">

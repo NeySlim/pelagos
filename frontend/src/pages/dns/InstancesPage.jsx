@@ -18,6 +18,7 @@ import { dnsTarget } from '../../hooks/useLiveRates'
 import { KeyValue } from './common'
 import { useNodeNames } from './helpers'
 import { formatBytes, formatCount, formatPercent, headlineCounters, topCounters, uptimeSeconds } from './instanceStats'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 const HEADLINES = ['queries', 'responses', 'recursive', 'updates', 'updateFailures', 'transfers', 'validated', 'validationFailures']
 
@@ -69,7 +70,7 @@ function InstanceCard({ item, nameOf }) {
       {stats.loading && !s ? (
         <div className="flex justify-center py-4"><LoadingSpinner size="sm" /></div>
       ) : stats.error ? (
-        <p className="text-xs status-danger-text" role="alert">{errorMessage(stats.error)}</p>
+        <ErrorNotice error={stats.error} onRetry={stats.refetch} className="text-xs" />
       ) : (
         <>
           {caps.statistics_channel !== false && <LiveRatePanel target={dnsTarget(item.node_id)} title={t('instances.liveRate')} testId="dns-instance-live" />}

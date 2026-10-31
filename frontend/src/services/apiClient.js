@@ -2,12 +2,17 @@
 // HTTP client for /api/v1: session cookie, X-CSRF-Token on unsafe methods, RFC 7807
 // problem documents turned into ApiError. A 401 `unauthenticated` (lost session) fires
 // `pelagos:unauthenticated` so AuthContext can drop the session without a hard reload.
+// A GET that fails on the network or with 502/503/504 is sent again after a short backoff;
+// other methods never are (they may have reached the server).
 
+import i18n from '../i18n'
 import { renderMessage } from '../i18n/message'
 
 export const API_BASE_URL = '/api/v1'
 const CSRF_TOKEN_KEY = 'pelagos_csrf_token'
 const UNSAFE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH']
+const TRANSIENT_STATUSES = [502, 503, 504]
+export const GET_RETRY_DELAYS = [500, 1000, 2000]
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'network_error', problem = null, errors = [] } = {}) {
@@ -17,7 +22,33 @@ export class ApiError extends Error {
     this.code = code
     this.problem = problem
     this.errors = errors
+    // Set by the client: a GET that may succeed if sent again (useApi retries those).
+    this.retryable = false
   }
+}
+
+// A failure the same GET may not meet again: network error, gateway or restart status.
+export function isTransient(err) {
+  return err instanceof ApiError && (err.code === 'network_error' || TRANSIENT_STATUSES.includes(err.status))
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const done = () => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function problemToError(status, data) {
@@ -35,6 +66,7 @@ let memoryCsrf = null
 class APIClient {
   constructor() {
     this.baseURL = API_BASE_URL
+    this.retryDelays = GET_RETRY_DELAYS
   }
 
   getCsrfToken() {
@@ -61,8 +93,21 @@ class APIClient {
   }
 
   async request(endpoint, options = {}) {
-    const url = `${this.baseURL}${endpoint}`
     const method = (options.method || 'GET').toUpperCase()
+    const delays = method === 'GET' && options.retry !== false ? this.retryDelays : []
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.send(endpoint, method, options)
+      } catch (err) {
+        if (method === 'GET' && isTransient(err)) err.retryable = true
+        if (!err?.retryable || attempt >= delays.length) throw err
+        await wait(delays[attempt], options.signal)
+      }
+    }
+  }
+
+  async send(endpoint, method, options) {
+    const url = `${this.baseURL}${endpoint}`
     const headers = { Accept: 'application/json', ...options.headers }
     if (UNSAFE_METHODS.includes(method)) {
       const csrf = this.getCsrfToken()
@@ -167,6 +212,7 @@ export function errorItemText(item) {
 // Human message for an error coming out of apiClient (or anything else).
 export function errorMessage(err, fallback = 'Request failed') {
   if (!err) return fallback
+  if (err instanceof ApiError && err.code === 'network_error' && !err.problem) return i18n.t('common:errors.network_error')
   if (err instanceof ApiError) {
     const base = problemText(err)
     if (err.errors?.length) {

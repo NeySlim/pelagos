@@ -15,6 +15,7 @@ import { formatDate } from '../../../lib/utils'
 import SourceDialog from './SourceDialog'
 import UploadDialog from './UploadDialog'
 import { AUTOMATIC, LEVEL_BADGE, commonNodeSource, expiryLevel } from './certsForm'
+import { ErrorNotice } from '../../../components/ErrorNotice'
 
 const JOB_POLL_MS = 1500
 
@@ -272,7 +273,7 @@ export default function CertificatesPage() {
       }
     >
       {!data ? (
-        overviewQ.error ? <p className="text-sm status-danger-text" role="alert">{errorMessage(overviewQ.error)}</p> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
+        overviewQ.error ? <ErrorNotice error={overviewQ.error} onRetry={overviewQ.refetch} /> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : (
         <div className="space-y-4 max-w-6xl">
           <Card className="p-4 space-y-2" hover={false} data-testid="cert-cluster">

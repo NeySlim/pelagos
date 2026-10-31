@@ -10,6 +10,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { useMessage } from '../../i18n/message'
 import { failedChecks, fixableIds } from './permissions'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 export default function PermissionsCard({ node }) {
   const { t } = useTranslation('install')
@@ -21,7 +22,7 @@ export default function PermissionsCard({ node }) {
   const data = q.data
 
   if (q.loading && !data) return <Card className="p-4" hover={false}><LoadingSpinner size="sm" /></Card>
-  if (q.error) return <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(q.error)}</p></Card>
+  if (q.error) return <Card className="p-4" hover={false}><ErrorNotice error={q.error} onRetry={q.refetch} /></Card>
   if (!data) return null
   const checks = data.checks || []
   const failed = failedChecks(checks)

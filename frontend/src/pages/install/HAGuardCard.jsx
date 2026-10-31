@@ -10,6 +10,7 @@ import { useApi } from '../../hooks'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { guardBadge, parsePeers, ADOPT_FINDING } from './guard'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 function Row({ label, children }) {
   return (
@@ -32,7 +33,7 @@ export default function HAGuardCard({ node, onChanged }) {
   useEffect(() => setText(current.join('\n')), [guard]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (guardQ.loading && !guard) return <Card className="p-4" hover={false}><LoadingSpinner size="sm" /></Card>
-  if (guardQ.error) return <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(guardQ.error)}</p></Card>
+  if (guardQ.error) return <Card className="p-4" hover={false}><ErrorNotice error={guardQ.error} onRetry={guardQ.refetch} /></Card>
   if (!guard?.listeners?.length && !guard?.managed && !guard?.legacy) return null
   const badge = guardBadge(guard)
   const peers = parsePeers(text)

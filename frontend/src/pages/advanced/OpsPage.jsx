@@ -15,6 +15,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { NodeSelect } from './NodeSelect'
 import { paramKind, buildParams, runBlocker, groupOps } from './opsForm'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 const TABS = [
   { id: 'bind', engine: 'bind', permission: 'read:dns', icon: Globe },
@@ -173,7 +174,7 @@ export default function OpsPage() {
             aria-label={t('ops.filter')}
           />
           {catalogQ.loading && <div className="flex justify-center py-4"><LoadingSpinner size="sm" /></div>}
-          {catalogQ.error && <p className="text-xs status-danger-text" role="alert">{errorMessage(catalogQ.error)}</p>}
+          {catalogQ.error && <ErrorNotice error={catalogQ.error} onRetry={catalogQ.refetch} className="text-xs" />}
           {catalogQ.data?.error && <p className="text-xs status-warning-text">{catalogQ.data.error}</p>}
           <OpList title={t('ops.reads')} ops={groups.reads} selected={selected} onSelect={setSelected} allowed={groups.allowed} />
           <OpList title={t('ops.changes')} ops={groups.changes} selected={selected} onSelect={setSelected} allowed={groups.allowed} />

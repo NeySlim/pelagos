@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { api } from './api'
-import { apiClient, ApiError, buildQueryString, errorMessage } from './apiClient'
+import { apiClient, ApiError, buildQueryString, errorMessage, GET_RETRY_DELAYS } from './apiClient'
 import { ENDPOINTS, matchEndpoint } from './endpoints'
 
 const calls = []
@@ -190,5 +190,74 @@ describe('api.js', () => {
   it('builds query strings without empty values', () => {
     expect(buildQueryString({ a: 1, b: '', c: null, d: [1, 2], e: false })).toBe('?a=1&d=1&d=2&e=false')
     expect(buildQueryString({})).toBe('')
+  })
+
+  describe('retries', () => {
+    beforeEach(() => {
+      apiClient.retryDelays = [1, 1, 1]
+    })
+    afterEach(() => {
+      apiClient.retryDelays = GET_RETRY_DELAYS
+    })
+
+    it('sends a GET again after a network failure and answers with the retry', async () => {
+      let n = 0
+      global.fetch = vi.fn(async () => {
+        n += 1
+        if (n < 3) throw new TypeError('Failed to fetch')
+        return jsonResponse(200, { items: [] })
+      })
+      await expect(api.dns.zones()).resolves.toEqual({ items: [] })
+      expect(global.fetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('gives up after the last delay with a retryable network error', async () => {
+      global.fetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      const err = await api.dns.zones().catch((e) => e)
+      expect(global.fetch).toHaveBeenCalledTimes(4)
+      expect(err.code).toBe('network_error')
+      expect(err.retryable).toBe(true)
+      expect(errorMessage(err)).toBe('The server cannot be reached')
+    })
+
+    it('retries a GET answered 502, 503 or 504, not 500', async () => {
+      for (const status of [502, 503, 504]) {
+        const answers = [jsonResponse(status, 'down', 'text/plain'), jsonResponse(200, { ok: status })]
+        global.fetch = vi.fn(async () => answers.shift())
+        await expect(apiClient.get('/health')).resolves.toEqual({ ok: status })
+      }
+      global.fetch = vi.fn(async () => jsonResponse(500, { code: 'internal_error' }, 'application/problem+json'))
+      const err = await apiClient.get('/health').catch((e) => e)
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      expect(err.retryable).toBe(false)
+    })
+
+    it.each(['post', 'put', 'patch', 'delete'])('never sends a %s again', async (method) => {
+      global.fetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      const err = await apiClient[method]('/dns/rpz/refresh', {}).catch((e) => e)
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+      expect(err.code).toBe('network_error')
+      expect(err.retryable).toBe(false)
+    })
+
+    it('honours retry: false and an abort during the backoff', async () => {
+      global.fetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      await apiClient.get('/health', { retry: false }).catch(() => {})
+      expect(global.fetch).toHaveBeenCalledTimes(1)
+
+      apiClient.retryDelays = [60000]
+      const ctl = new AbortController()
+      const pending = apiClient.get('/health', { signal: ctl.signal }).catch((e) => e)
+      await new Promise((r) => setTimeout(r, 5))
+      ctl.abort()
+      expect((await pending).name).toBe('AbortError')
+      expect(global.fetch).toHaveBeenCalledTimes(2)
+    })
   })
 })

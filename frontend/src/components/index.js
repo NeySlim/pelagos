@@ -45,6 +45,7 @@ export {
 
 // Pelagos components
 export { DataTable } from './DataTable'
+export { ErrorNotice } from './ErrorNotice'
 export { ConfirmDialog } from './ConfirmDialog'
 export { StatusBadge, statusVariant } from './StatusBadge'
 export { UtilizationBar, utilizationLevel } from './UtilizationBar'

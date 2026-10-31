@@ -19,6 +19,7 @@ import { errorMessage } from '../../../services/apiClient'
 import { formatDate } from '../../../lib/utils'
 import ChannelDialog from './ChannelDialog'
 import { MUTE_PRESETS, channelTarget, muteUntil } from './notifyForm'
+import { ErrorNotice } from '../../../components/ErrorNotice'
 
 const STATE_BADGE = { ok: 'success', failing: 'danger', disabled: 'secondary' }
 
@@ -360,7 +361,7 @@ export default function NotificationsPage() {
       }
     >
       {!data ? (
-        overviewQ.error ? <p className="text-sm status-danger-text" role="alert">{errorMessage(overviewQ.error)}</p> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
+        overviewQ.error ? <ErrorNotice error={overviewQ.error} onRetry={overviewQ.refetch} /> : <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
       ) : (
         <div className="space-y-4 max-w-6xl">
           <StatusCard data={data} nameOf={nameOf} onMute={() => setMuteOpen(true)} onUnmute={() => setUnmuting(true)} />

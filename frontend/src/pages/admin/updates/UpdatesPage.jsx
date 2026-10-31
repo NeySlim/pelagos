@@ -7,7 +7,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  ArrowCircleUp, ArrowsClockwise, UploadSimple, Package, ClockCounterClockwise, Gear, ArrowCounterClockwise, Cube, Warning, CaretRight,
+  ArrowCircleUp, ArrowsClockwise, UploadSimple, Package, ClockCounterClockwise, Gear, ArrowCounterClockwise, Cube, CaretRight,
 } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, LoadingSpinner, DataTable, Input, ToggleSwitch, StatusBadge, FormSelect } from '../../../components'
 import { useApi, usePaginatedApi, useWsTopic, useNodeNames } from '../../../hooks'
@@ -23,6 +23,7 @@ import { useRolloutWatch } from './useRolloutWatch'
 import {
   SETTING_NUMBERS, compareVersions, engineKey, engineSelection, isActive, preselectedEngines, nodesBehind, previousVersion, settingsChanges, settingsErrors, settingsForm,
 } from './updatesLib'
+import { ErrorNotice } from '../../../components/ErrorNotice'
 
 function CardTitle({ icon: Icon, children, actions }) {
   return (
@@ -401,7 +402,7 @@ export default function UpdatesPage() {
     <PageLayout icon={ArrowCircleUp} title={t('title')} subtitle={t('subtitle')} tabs={tabs} activeTab={tab} onTabChange={setTab} testId="updates-page">
       <div className="space-y-4">
         {overviewQ.error && !data && (
-          <p role="alert" className="text-sm status-danger-text flex items-center gap-2"><Warning size={14} />{errorMessage(overviewQ.error)}</p>
+          <ErrorNotice error={overviewQ.error} onRetry={overviewQ.refetch} />
         )}
         {showRollout && (
           <RolloutPanel

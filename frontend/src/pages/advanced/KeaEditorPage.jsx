@@ -14,6 +14,7 @@ import { cn } from '../../lib/utils'
 import { NodeSelect } from './NodeSelect'
 import { unifiedDiff, jsonText } from './lineDiff'
 import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema, schemaKeyAt, isSchemaRoot, schemaRoot, normalizeSchema } from './keaJson'
+import { ErrorNotice } from '../../components/ErrorNotice'
 
 // A whole-configuration replace goes to the node it was loaded from, never to the HA partner:
 // interfaces, this-server-name and sockets differ per node.
@@ -223,7 +224,7 @@ export default function KeaEditorPage() {
         </div>
       ) : configQ.error ? (
         <Card className="p-4" hover={false}>
-          <p className="text-sm status-danger-text" role="alert">{errorMessage(configQ.error)}</p>
+          <ErrorNotice error={configQ.error} onRetry={configQ.refetch} />
         </Card>
       ) : draft ? (
         <div className="space-y-4">

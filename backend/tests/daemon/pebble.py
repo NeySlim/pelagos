@@ -19,6 +19,7 @@ import shutil
 import ssl
 import subprocess
 import tarfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from datetime import timedelta
@@ -58,11 +59,16 @@ def binary(cache: Path) -> str:
     if target.exists():
         return str(target)
     url = RELEASE.format(v=VERSION, arch=arch)
-    try:
-        with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310
-            data = resp.read()
-    except OSError as exc:
-        raise PebbleUnavailable(f"download of {url} failed: {exc}") from exc
+    # GitHub downloads from CI runners sometimes reset the connection: a few tries before giving up.
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310
+                data = resp.read()
+            break
+        except OSError as exc:
+            if attempt == 3:
+                raise PebbleUnavailable(f"download of {url} failed: {exc}") from exc
+            time.sleep(5 * (attempt + 1))
     digest = hashlib.sha256(data).hexdigest()
     if digest != SHA256[arch]:
         raise PebbleUnavailable(f"{url}: sha256 {digest}, expected {SHA256[arch]}")

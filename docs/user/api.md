@@ -286,6 +286,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | Method, path | Permission | Purpose |
 | --- | --- | --- |
 | `GET /hosts`, `GET /hosts/{key}` | `read:hosts` | host cards (`q`, `subnet_id`, `zone`, `only_inconsistent`) |
+| `GET /search` | `read:hosts`, `read:dns` or `read:dhcp` | search everything at once (`q`, `limit` per group): see below |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname", "ip", "mac"?, "zone", "reverse_zone"?, "view"?, "reverse_view"?, "ttl"?, "reservation": bool, "subnet_id"?, "notes"?}` |
 | `GET /alerts`, `GET /alerts/summary` | `read:alerts` | alerts (`kind`, `severity`, `state`, `node_id`, `engine`) |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` |
@@ -297,6 +298,31 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 
 In `POST /hosts/plan`, `reverse_view` defaults to `view`; `"_default"` puts
 the PTR in the default view.
+
+`GET /search?q=` answers groups of results, each `{"kind", "id", "label",
+"sublabel", "route"}` (`route` is the page of the web UI that shows it):
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://ns1.example.lan:8443/api/v1/search?q=aa:bb:cc&limit=5"
+```
+
+```json
+{"q": "aa:bb:cc", "limit": 5,
+ "results": {"leases": [{"kind": "lease", "id": "v4:192.0.2.100", "label": "192.0.2.100",
+   "sublabel": "pc1.example.lan. aa:bb:cc:dd:ee:01", "route": "/dhcp/v4/leases?q=192.0.2.100"}],
+   "zones": [], "records": [], "reservations": [], "hosts": [...], "alerts": [], "nodes": [], "networks": []},
+ "totals": {"leases": 1, "hosts": 1, ...}, "errors": {}}
+```
+
+Names match anywhere (`pc1`), addresses from their start (`192.0.2.1`
+finds `192.0.2.10` and `192.0.2.100`), MAC addresses, DUIDs and client
+identifiers by their hex digits with or without separators (`aabbcc`,
+`aa-bb-cc`). A group you lack the permission for comes back empty (leases
+and reservations need `read:dhcp`, zones and records `read:dns`, alerts
+`read:alerts`, nodes `read:nodes`). Search and `GET /hosts` read the engines
+at most every `collector.hosts_cache_max_age_seconds` (60 s), sooner when a
+zone serial moves, a lease appears or a plan is applied.
 
 ### Plans, jobs, advanced, install, administration
 

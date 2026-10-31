@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-31, F0-HOSTS: host join cache and GET /search
+New `GET /search?q=&limit=` (section 17, Search; `api/search.py`, `services/search_service.py`):
+results grouped by kind, each `{kind, id, label, sublabel, route}`, filtered per group by the
+caller's permissions (`read:hosts`, `read:dns` or `read:dhcp` to call it). New setting
+`collector.hosts_cache_max_age_seconds` (60). `HostsService` reads leases, reservations and zone
+records through `services/host_cache.py` (section 15, Host join cache): keyed by SOA serial and
+Kea config hash, refreshed by `leases`, `zones` and `plans` events and by age; the web
+consistency pass reads the same entries. `HostsService.__init__` takes an optional `cache`;
+`snapshot()` is new. Additive. B1-DISCOVERY and E2-IPAM read `HostsService.snapshot()` instead of
+reading the engines; U1-SHELL calls `api.search.query` (mock `frontend/mock/search.mjs`).
+
 ## 2026-10-31, FIX-WEBURL: web_url is validated
 `POST /repl/v1/enroll` answers `400 validation_error` (with `errors: [{field: "web_url", ...}]`) when
 `web_url` is present but is not an http(s) URL with a host of at most 2048 characters. `Peer.web_url`

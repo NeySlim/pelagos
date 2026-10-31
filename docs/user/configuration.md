@@ -373,6 +373,7 @@ ISC security advisories:
 | `consistency_seconds` | `900` | 60 to 604800 s | DNS/DHCP consistency pass and security audit |
 | `live_seconds` | `5` | 1 to 300 s | live pass: HA heartbeats of the local Kea servers and the lease watch |
 | `lease_watch_max_leases` | `50000` | 0 to 10000000 leases | largest lease table the lease watch walks; above it only the lease counts move live (0: off) |
+| `hosts_cache_max_age_seconds` | `60` | 0 to 3600 s | the web process keeps the leases, reservations and zone records it read for the hosts view and search at most this long; a zone whose serial moved, a new lease or an applied plan reads again sooner (0: every request reads again) |
 
 ### Retention (`[settings.retention]`)
 

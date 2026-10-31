@@ -1588,6 +1588,7 @@ peer_poll_seconds = 30
 consistency_seconds = 900
 live_seconds = 5                         # HA heartbeats, lease watch (section 15)
 lease_watch_max_leases = 50000           # largest lease table the lease watch walks
+hosts_cache_max_age_seconds = 60         # web process: host join cache (section 15)
 
 [settings.retention]                     # section 15
 pool_raw_days = 7
@@ -2394,6 +2395,40 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 "hashes"}]`).
 
 
+#### Host join cache
+
+The web process (F0-HOSTS) keeps the reads behind the hosts join in memory
+(`services/host_cache.py`), one entry per source: `leases:<node>:<engine>`
+(every lease, `DhcpService.all_leases`), `reservations:<node>:<engine>` and
+`zone:<view>/<zone>:<node>` (`DnsService.records`, an AXFR), `<node>` being
+this node's id or `peer` when the read goes to a peer. An entry is read again
+when:
+
+- its freshness key moved: the zone's SOA serial on each node, as
+  `GET /dns/zones` lists it (the serials are read anyway to list the zones,
+  so a stable zone costs one SOA query, not an AXFR), and the local Kea's
+  `config-hash-get` for the reservations; an unknown key (named stopped, a
+  read through a peer) leaves the age and the events to decide;
+- it is older than `collector.hosts_cache_max_age_seconds` (60 s; 0 turns the
+  cache off);
+- an `EventHub` event names its source: `leases`/`lease` with `change: "new"`,
+  `leases`/`coalesced` with new leases, `leases`/`summary` with
+  `new_since_last` or `expired_since_last`, for that engine (a renewal only
+  moves times: the age refreshes it); `zones`/`serial` and `zones`/`transfer`
+  for that zone and view; `plans`/`applied` and `plans`/`rolled_back` for
+  every entry.
+
+One caller reads an entry at a time (a lock per entry); a failed read caches
+nothing. `HostsService.collect_records` (`GET /hosts`, `GET /hosts/{key}`,
+the IPv6 view) and `consistency_pass` (`POST /alerts/consistency/run`) read
+through the same entries, so the pass does not read again what the hosts
+view just read; a read without a view shares the entry of the view it
+reaches (`_default`, else the first view holding the zone). The joined hosts
+and their sources are also kept as a derived entry (`join:snapshot`) that
+`GET /search` reads without asking the engines; any invalidation drops it.
+Plan building (`POST /hosts/plan`) still reads the zones it checks directly.
+The collector's own pass is unchanged: it reads the engines itself.
+
 #### Consistency exceptions ("Ignore: admin's choice")
 
 An acknowledgement ends when the alert reopens; an exception is permanent. It
@@ -2825,9 +2860,36 @@ configuration; the problem document carries `"engine"` and `"divergences":
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest |
+| `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest; sources come through the host join cache (section 15): a zone is read again only when its serial moved, a source at the latest after `collector.hosts_cache_max_age_seconds` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
+
+### Search
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /search?q=&limit=` | `read:hosts`, `read:dns` or `read:dhcp` (`403` with none) | | `{"q", "limit", "results": {"zones", "records", "leases", "reservations", "hosts", "alerts", "nodes", "networks"}, "totals": {group: matches}, "errors": {...}}`; each result `{"kind": "zone"\|"record"\|"lease"\|"reservation"\|"host"\|"alert"\|"node"\|"network", "id", "label", "sublabel", "route"}` |
+
+Added by F0-HOSTS. `limit` is per group (default 8, 1 to 50, `400` below 1);
+an empty `q` answers empty groups. Each group needs its own permission and
+stays empty without it: `zones` and `records` `read:dns`, `leases` and
+`reservations` `read:dhcp`, `hosts` `read:hosts`, `alerts` `read:alerts`
+(open alerts, the `q` filter of `GET /alerts`), `nodes` `read:nodes`;
+`networks` is reserved for the IPAM networks (empty until then). Matching is
+case-insensitive: names (zone, owner name, lease and reservation hostname,
+reservation identifier, node name, id and URL) by substring, addresses (A and
+AAAA data, lease, reservation and host addresses) by prefix, MAC, DUID and
+client identifiers by their hex digits with or without separators (`:`, `-`,
+`.`). Results rank exact, then prefix, then substring, then by label;
+`totals` counts the matches before `limit`. Records skip SOA, NS and the
+DNSSEC types. `route` is the UI path that shows the object: `/dns/zones/<zone
+without the final dot, @ for the root>[?view=][&q=<owner>]`,
+`/dhcp/<family>/leases?q=<ip>`, `/dhcp/<family>/reservations?q=<identifier>`,
+`/hosts?q=<name or address>`, `/alerts?alert=<id>`, `/nodes`. The engine
+groups come from the host join snapshot (section 15, Host join cache), never
+from a fresh engine read; `errors` are the sources that snapshot could not
+read, as `GET /hosts` `meta.errors`. Answer time on a warm cache stays under
+200 ms with 20 000 leases and 5 000 records.
 
 ### Plans and jobs
 

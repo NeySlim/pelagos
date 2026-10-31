@@ -397,7 +397,8 @@ export const updates = {
   // {kind: pelagos|engine_packages|rollback, version?, packages?, order?, node_ids?, auto_rollback?,
   //  accept_unsigned?, confirm_version?}; apply with plans.apply(id, true, { password })
   plan: (body) => apiClient.post('/admin/updates/plan', body),
-  rollout: () => apiClient.get('/admin/updates/rollout'),
+  // The rollout watcher judges reachability itself: no transparent retries.
+  rollout: () => apiClient.get('/admin/updates/rollout', { retry: false }),
   // action: resume|cancel|rollback; rollback takes the user's password
   action: (id, action, password) => apiClient.post(`/admin/updates/rollout/${enc(id)}/action`, password ? { action, password } : { action }),
   history: (params) => apiClient.get(`/admin/updates/history${buildQueryString(params)}`),

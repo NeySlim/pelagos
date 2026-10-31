@@ -10,6 +10,7 @@ import {
   formatBytes,
   formatCount,
   formatMb,
+  formatMib,
   latestStatus,
   levelsOf,
   sameForm,
@@ -35,6 +36,7 @@ describe('rpz helpers', () => {
     expect(formatMb(94.4)).toBe('90 MiB')
     expect(formatMb(1520)).toBe('1.4 GiB')
     expect(formatBytes(7_300_000)).toBe('7 MiB')
+    expect(formatMib(4096)).toBe('4 GiB')
     expect(formatBytes(48_000)).toBe('47 KiB')
     expect(estimatedMb(118000, 800)).toBe(94.4)
   })

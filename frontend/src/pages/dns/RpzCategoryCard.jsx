@@ -20,6 +20,7 @@ import {
   formFromSelection,
   formatCount,
   formatMb,
+  formatMib,
   levelsOf,
   sameForm,
   selectedLists,
@@ -38,7 +39,7 @@ function Estimate({ estimate, acknowledged, onAcknowledge }) {
         <div key={n.node_id} className="flex items-start gap-2" data-testid="rpz-estimate-node">
           <Warning size={16} className={n.level === 'high' ? 'status-danger-text mt-0.5' : 'status-warning-text mt-0.5'} />
           <span>
-            {t('rpzsub.estimate.node', { name: n.name, peak: formatMb(n.peak_mb), ram: formatMb(n.ram_mb), percent: n.percent_of_ram })}{' '}
+            {t('rpzsub.estimate.node', { name: n.name, peak: formatMb(n.peak_mb), ram: formatMib(n.ram_mb), percent: n.percent_of_ram })}{' '}
             <Badge variant={LEVEL_VARIANT[n.level]} size="sm">{t(`rpzsub.estimate.${n.level}`)}</Badge>
           </span>
         </div>

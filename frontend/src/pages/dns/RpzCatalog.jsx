@@ -22,7 +22,7 @@ import {
   formatBytes,
   formatCount,
   formatEpoch,
-  formatMb,
+  formatMib,
   latestStatus,
   validUrl,
   worstStatus,
@@ -184,7 +184,7 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
             {nodes.map((n) => (
               <li key={n.id} data-testid="rpz-node">
                 <span className="font-medium">{n.name}</span>{' '}
-                <span className="text-text-tertiary">{n.ram_mb ? t('rpzsub.ram', { ram: formatMb(n.ram_mb) }) : ''}</span>{' '}
+                <span className="text-text-tertiary">{n.ram_mb ? t('rpzsub.ram', { ram: formatMib(n.ram_mb) }) : ''}</span>{' '}
                 <Badge variant={n.error ? 'danger' : n.pending ? 'warning' : 'success'} size="sm">
                   {n.error ? t('rpzsub.nodeError') : n.pending ? t('rpzsub.pending') : t('rpzsub.upToDate')}
                 </Badge>

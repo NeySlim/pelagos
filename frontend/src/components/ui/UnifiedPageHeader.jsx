@@ -206,8 +206,7 @@ export function UnifiedPageHeader({
                   type="button"
                   aria-current={isActive ? 'true' : undefined}
                   onClick={() => onTabChange?.(tab.id)}
-                  aria-label={tab.label}
-                  title={tab.label}
+                  title={isMobile ? tab.label : undefined}
                   className={cn(
                     "ui-tab flex items-center gap-1.5 rounded-t-lg text-sm font-medium whitespace-nowrap shrink-0 transition-all",
                     isMobile && "snap-start",

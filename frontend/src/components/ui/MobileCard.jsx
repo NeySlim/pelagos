@@ -35,11 +35,12 @@ import { IconBadge } from '../IconBadge'
 
 // A clickable card is a focus stop that Enter and Space activate. With an inner action
 // it gets no button role (no nested interactive controls) but stays reachable.
-function clickableProps(onClick, hasActions) {
+function clickableProps(onClick, hasActions, title) {
   if (!onClick) return {}
   return {
     tabIndex: 0,
     role: hasActions ? undefined : 'button',
+    'aria-label': typeof title === 'string' ? title : undefined,
     onKeyDown: (e) => {
       if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
       e.preventDefault()
@@ -103,7 +104,7 @@ export function MobileCard({
         className
       )}
       onClick={onClick}
-      {...clickableProps(onClick, Boolean(actions))}
+      {...clickableProps(onClick, Boolean(actions), title)}
     >
       {/* Main row: Icon + Content + Badge/Actions */}
       <div className={cn('flex items-start', style.gap)}>
@@ -132,7 +133,12 @@ export function MobileCard({
               {titleExtra}
             </div>
             {badge && <div className="shrink-0">{badge}</div>}
-            {actions && <div className="shrink-0">{actions}</div>}
+            {actions && (
+              // The action is its own target: it must not open the card as well.
+              <div className="shrink-0" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                {actions}
+              </div>
+            )}
           </div>
 
           {/* Subtitle */}

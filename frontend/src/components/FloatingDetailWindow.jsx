@@ -24,11 +24,14 @@ export function getDetailRenderer(type) {
 
 // Window ids opened with { wide: true }: the window manager owns no per-window options.
 const wideIds = new Set()
+const WIDE_W = 720
 
 export function useOpenDetail() {
   const { openWindow } = useWindowManager()
   return useCallback((type, entityId, data, options = {}) => {
+    // The latest open decides; a mounted window consumes its entry.
     if (options.wide) wideIds.add(`${type}:${entityId}`)
+    else wideIds.delete(`${type}:${entityId}`)
     openWindow(type, entityId, data)
   }, [openWindow])
 }
@@ -44,10 +47,14 @@ export function FloatingDetailWindow({ windowInfo }) {
   const Icon = renderer?.icon || Info
   const Component = renderer?.component
   const close = () => closeWindow(windowInfo.id)
-  const wide = wideIds.has(windowInfo.id)
+  // Read once at mount so the width is per open; tiling keeps its own widths.
+  const [wide] = useState(() => {
+    const asked = wideIds.delete(windowInfo.id)
+    return asked && !windowInfo.tileKey
+  })
   const dp = windowInfo.defaultPos
-  // A wide window re-centres on its larger default width.
-  const defaultPos = wide && dp ? { ...dp, w: 720, x: Math.max(20, dp.x - 100) } : dp
+  // A wide window re-centres by the real width change.
+  const defaultPos = wide && dp ? { ...dp, w: WIDE_W, x: Math.max(20, Math.round(dp.x - (WIDE_W - dp.w) / 2)) } : dp
 
   return (
     <FloatingWindow

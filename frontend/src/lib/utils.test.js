@@ -69,6 +69,8 @@ describe('formatSize and formatNumber', () => {
     expect(formatSize(2 * 1024 ** 4)).toBe('2 TiB')
     expect(formatSize(null)).toBe('')
     expect(formatSize('x')).toBe('')
+    expect(formatSize(true)).toBe('')
+    expect(formatSize([5])).toBe('')
     await i18n.changeLanguage('fr')
     expect(formatSize(1.8 * 1024 ** 2)).toBe('1,8 Mio')
     expect(formatSize(8.2 * 1024 ** 3)).toBe('8,2 Gio')

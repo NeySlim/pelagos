@@ -8,6 +8,13 @@ export const ACTIONS = ['nxdomain', 'nodata', 'redirect', 'passthru']
 
 export const formatCount = (n) => (n === null || n === undefined ? '' : new Intl.NumberFormat('en-US').format(n).replace(/,/g, ' '))
 
+// Server RAM figures are MiB (MemTotal kB // 1024).
+export function formatMib(mib) {
+  if (mib === null || mib === undefined) return ''
+  return formatSize(mib * 1024 ** 2)
+}
+
+// Estimates (entries_mb, estimatedMb) are decimal MB.
 export function formatMb(mb) {
   if (mb === null || mb === undefined) return ''
   return formatSize(mb >= 1000 ? mb * 1e6 : Math.round(mb) * 1e6)

@@ -156,6 +156,23 @@ describe('DataTable on a phone', () => {
     expect(within(cards[0]).queryByText('Zone:')).toBeNull()
   })
 
+  it('the primary action does not also open the card', () => {
+    mockMobile = true
+    const onRowClick = vi.fn()
+    const onAction = vi.fn()
+    const primaryAction = (row) => <button type="button" onClick={() => onAction(row.id)}>open-{row.id}</button>
+    render(<DataTable columns={columns} rows={rows} mobileCard={{ ...card, primaryAction }} onRowClick={onRowClick} />)
+    const action = screen.getByRole('button', { name: 'open-1' })
+    fireEvent.click(action)
+    fireEvent.keyDown(action, { key: 'Enter' })
+    fireEvent.keyDown(action, { key: ' ' })
+    expect(onAction).toHaveBeenCalledWith(1)
+    expect(onRowClick).not.toHaveBeenCalled()
+    // The card itself is named after its title and still opens.
+    fireEvent.click(screen.getByLabelText('pc10'))
+    expect(onRowClick).toHaveBeenCalledWith(rows[0])
+  })
+
   it('keeps the table without mobileCard, or on desktop', () => {
     mockMobile = true
     const { rerender } = render(<DataTable columns={columns} rows={rows} />)

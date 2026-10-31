@@ -84,7 +84,8 @@ export function formatRelativeTime(date, t) {
 const SIZE_UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
 
 export function formatSize(bytes) {
-  if (bytes === null || bytes === undefined || bytes === '' || !Number.isFinite(Number(bytes))) return ''
+  if (typeof bytes !== 'number' && typeof bytes !== 'string') return ''
+  if (bytes === '' || !Number.isFinite(Number(bytes))) return ''
   let value = Number(bytes)
   let step = 0
   while (Math.abs(value) >= 1024 && step < SIZE_UNITS.length - 1) {

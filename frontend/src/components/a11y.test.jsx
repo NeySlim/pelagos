@@ -101,6 +101,15 @@ describe('UnifiedPageHeader tabs on mobile', () => {
   })
 })
 
+describe('UnifiedPageHeader tab names', () => {
+  it('the accessible name keeps the count and desktop tabs carry no title', () => {
+    render(<UnifiedPageHeader title="DHCP" tabs={[{ id: 'a', label: 'Leases', count: 3 }]} activeTab="a" />)
+    const tab = screen.getByRole('button', { name: /Leases/ })
+    expect(tab).toHaveAccessibleName(/Leases.*3/)
+    expect(tab).not.toHaveAttribute('title')
+  })
+})
+
 describe('SearchBar and WebSocketIndicator names', () => {
   it('SearchBar names its field after the placeholder unless told otherwise', () => {
     const { rerender } = render(<SearchBar placeholder="Find a host" />)

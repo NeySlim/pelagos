@@ -495,7 +495,7 @@ export function PlanPreview({
         ) : (
           <>
             <p className="mb-1 text-2xs text-text-tertiary" data-testid="plan-applied-on">
-              {t('plan.appliedOn', { nodes: targetNames })}
+              {t(applied ? 'plan.appliedOn' : 'plan.appliesTo', { nodes: targetNames })}
             </p>
             <Checklist items={checkItems} showCount={false} testId="plan-checklist" />
             {validations.map(
@@ -607,7 +607,7 @@ export function PlanPreview({
 
   const actions = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="plan-actions" role="group" aria-label={t('plan.actionsLabel')}>
-      {plan.requires_confirmation && pending && !preConfirmed && plan.requires_confirmation_reasons?.length > 0 && (
+      {plan.requires_confirmation && pending && plan.requires_confirmation_reasons?.length > 0 && (
         <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
           {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
         </p>

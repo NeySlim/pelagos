@@ -212,6 +212,7 @@
     "diffLines_one": "{{count}} ligne",
     "diffLines_other": "{{count}} lignes",
     "appliedOn": "Appliqué sur {{nodes}}",
+    "appliesTo": "S'applique à {{nodes}}",
     "validatedOn": "validé sur {{node}}",
     "partialOption": "Appliquer seulement sur les nœuds joignables ({{nodes}} hors ligne)",
     "actionsLabel": "Actions du plan"

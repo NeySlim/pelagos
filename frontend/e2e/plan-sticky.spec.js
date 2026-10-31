@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // The plan action bar stays on screen: with a 60-line diff, folded then opened, the
 // confirmation checkbox and Apply are visible without scrolling, on a desktop and on
-// a phone, in a pair and in a three-node cluster; then Roll back sits in the same bar.
+// a phone, in a pair and in a three-node cluster. The record editor shows PlanPreview
+// inline (sticky bar, then Roll back in it); HA maintenance shows PlanPreviewModal.
 import { test, expect } from '@playwright/test'
 
 const scenario = (page, name) => page.request.post('/api/v1/_mock/scenario', { data: { name } }).then((r) => r.json())
@@ -14,9 +15,10 @@ async function signIn(page) {
   await expect(page).not.toHaveURL(/\/login$/)
 }
 
-// The record plan comes back with a 60-line diff and a confirmation to give.
+// Every built plan comes back with a 60-line diff and a confirmation to give.
 async function longPlans(page) {
-  await page.route('**/api/v1/dns/zones/*/records/plan', async (route) => {
+  await page.route(/\/api\/v1\/.*\/plan$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
     const response = await route.fetch()
     const plan = await response.json()
     const rows = Array.from({ length: 57 }, (_, i) => `+pad${i}.example.lan. 300 IN A 192.0.2.${i + 100}`)
@@ -54,7 +56,7 @@ for (const [device, viewport] of Object.entries(VIEWPORTS)) {
     test.use({ viewport })
 
     for (const name of ['pair', 'three']) {
-      test(`${name}: the confirmation and Apply stay visible over a 60-line diff`, async ({ page }) => {
+      test(`${name}: record editor, the inline bar stays visible over a 60-line diff`, async ({ page }) => {
         await scenario(page, name)
         await signIn(page)
         await longPlans(page)
@@ -65,6 +67,8 @@ for (const [device, viewport] of Object.entries(VIEWPORTS)) {
         await page.getByTestId('record-editor').getByRole('button', { name: 'Preview the plan' }).click()
 
         const preview = page.getByTestId('plan-preview')
+        const footer = preview.getByTestId('plan-footer')
+        await expect(footer).toHaveClass(/sticky/)
         const diff = preview.getByTestId('plan-diff')
         await expect(diff).toHaveAttribute('data-open', 'false')
         await expect(diff).toContainText('60 lines')
@@ -80,6 +84,7 @@ for (const [device, viewport] of Object.entries(VIEWPORTS)) {
         await onScreen(page, confirm)
         await onScreen(page, apply)
         await onScreen(page, preview.getByTestId('plan-close'))
+        await onScreen(page, footer)
         await expect(preview.getByTestId('plan-close')).toHaveText('Close')
 
         await confirm.check()
@@ -90,6 +95,39 @@ for (const [device, viewport] of Object.entries(VIEWPORTS)) {
         await onScreen(page, rollback)
         await rollback.click()
         await expect(preview.getByTestId('plan-result')).toContainText(/Rolled back/i)
+      })
+
+      test(`${name}: HA maintenance, the modal footer stays visible over a 60-line diff`, async ({ page }) => {
+        await scenario(page, name)
+        await signIn(page)
+        await longPlans(page)
+        await page.goto('/dhcp/v4/ha')
+        await page.getByTestId('ha-maintenance-start').first().click()
+        await page.getByTestId('confirm-type-input').fill('ns1')
+        await page.getByTestId('confirm-button').click()
+
+        // PlanPreviewModal: the bar is pinned under the scrolling body, not sticky.
+        const preview = page.getByRole('dialog').getByTestId('plan-preview')
+        const footer = preview.getByTestId('plan-footer')
+        await expect(footer).not.toHaveClass(/sticky/)
+        await expect(preview.locator(':scope > .overflow-y-auto')).toHaveCount(1)
+        const diff = preview.getByTestId('plan-diff')
+        await expect(diff).toContainText('60 lines')
+        const confirm = preview.getByTestId('plan-confirm-checkbox')
+        const apply = preview.getByTestId('plan-apply')
+        await onScreen(page, footer)
+        await onScreen(page, confirm)
+        await onScreen(page, apply)
+        await diff.getByRole('button', { name: /Diff/ }).click()
+        await expect(diff).toHaveAttribute('data-open', 'true')
+        await expect(diff).toContainText('pad56.example.lan.')
+        await onScreen(page, footer)
+        await onScreen(page, confirm)
+        await onScreen(page, apply)
+        await confirm.check()
+        await apply.click()
+        await expect(preview.getByTestId('plan-result')).toBeVisible()
+        await onScreen(page, preview.getByTestId('plan-close'))
       })
     }
   })

@@ -212,6 +212,7 @@
     "diffLines_one": "{{count}} line",
     "diffLines_other": "{{count}} lines",
     "appliedOn": "Applied on {{nodes}}",
+    "appliesTo": "Applies to {{nodes}}",
     "validatedOn": "validated on {{node}}",
     "partialOption": "Apply only on the reachable nodes ({{nodes}} offline)",
     "actionsLabel": "Plan actions"

@@ -12,6 +12,7 @@ vi.mock('../services/api', () => ({
         items: [
           { peer: { id: 'n1', name: 'ns1.example.lan', web_url: 'https://ns1.example.lan:8443/' } },
           { peer: { id: 'n2', name: 'ns2.example.lan', web_url: null } },
+          { peer: { id: 'n3', name: 'ns3.example.lan', web_url: 'javascript:alert(1)' } },
         ],
       }),
     },
@@ -43,6 +44,14 @@ describe('NodeLink', () => {
     renderLink({ nodeId: 'n1', short: true })
     const link = await screen.findByText('ns1')
     expect(link).toHaveAttribute('title', 'https://ns1.example.lan:8443/')
+  })
+
+  it('never links a web_url that is not http or https', async () => {
+    renderLink({ nodeId: 'n3' })
+    const link = await screen.findByText('ns3.example.lan')
+    expect(link).toHaveAttribute('href', '/nodes')
+    expect(link).not.toHaveAttribute('target')
+    expect(link).not.toHaveAttribute('title')
   })
 
   it('falls back to the id of an unknown node', async () => {

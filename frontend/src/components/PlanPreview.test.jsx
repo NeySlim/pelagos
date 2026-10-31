@@ -240,7 +240,7 @@ describe('PlanPreview', () => {
       const applyFn = vi.fn().mockResolvedValue(applied())
       render(<PlanPreview plan={makePlan({ requires_confirmation: true, requires_confirmation_reasons: ['delete'] })} preConfirmed applyFn={applyFn} getFn={vi.fn().mockResolvedValue(null)} />)
       expect(screen.queryByTestId('plan-confirm-checkbox')).not.toBeInTheDocument()
-      expect(screen.queryByTestId('plan-confirm-reasons')).not.toBeInTheDocument()
+      expect(screen.getByTestId('plan-confirm-reasons')).toHaveTextContent('a configuration object is deleted')
       fireEvent.click(screen.getByTestId('plan-apply'))
       await waitFor(() => expect(applyFn).toHaveBeenCalledWith('01JBPLAN0000000000000000AA', true))
     })
@@ -257,15 +257,18 @@ describe('PlanPreview', () => {
     })
   })
 
-  it('names the apply nodes and a validation run on another node', () => {
+  it('names the apply nodes and a validation run on another node', async () => {
     const validations = [
       { ok: true, tool: 'named-checkzone', output: '', node_id: 'n1' },
       { ok: true, tool: 'remote_rrset', output: '', node_id: 'n2' },
     ]
-    render(<PlanPreview plan={makePlan({ validations })} nodeName={(id) => ({ n1: 'ns1', n2: 'ns2' })[id] || id} />)
-    expect(screen.getByTestId('plan-applied-on')).toHaveTextContent('Applied on ns1, ns2')
+    const applyFn = vi.fn().mockResolvedValue(applied())
+    render(<PlanPreview plan={makePlan({ validations })} applyFn={applyFn} getFn={vi.fn().mockResolvedValue(null)} nodeName={(id) => ({ n1: 'ns1', n2: 'ns2' })[id] || id} />)
+    expect(screen.getByTestId('plan-applied-on')).toHaveTextContent('Applies to ns1, ns2')
     const items = screen.getByTestId('plan-checklist').querySelectorAll('li')
     expect(items[0]).not.toHaveTextContent('validated on')
     expect(items[1]).toHaveTextContent('validated on ns2')
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(screen.getByTestId('plan-applied-on')).toHaveTextContent('Applied on ns1, ns2'))
   })
 })

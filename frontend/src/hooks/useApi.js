@@ -17,7 +17,7 @@ export function errorKind(err) {
   if (!err) return null
   const code = err.code
   const status = err.status
-  if (code === 'network_error' || (status === 0 && !err.problem && code)) return 'network'
+  if (code === 'network_error') return 'network'
   if (code === 'forbidden' || code === 'unauthenticated' || status === 401 || status === 403) return 'forbidden'
   if (code === 'not_found' || status === 404) return 'not_found'
   if (UNAVAILABLE_CODES.includes(code) || status === 502 || status === 503 || status === 504) return 'unavailable'

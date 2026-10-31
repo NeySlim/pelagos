@@ -193,7 +193,6 @@ class HealthChecks:
             self._versions,
             self._advisories,
             self._kea_series,
-            self._replication_conflicts,  # F0-REPL
         ):
             try:
                 out.append(check())
@@ -561,6 +560,7 @@ class HealthChecks:
             self._delegation,
             self._roots,
             self._fetch_tracker,
+            self._replication_conflicts,  # F0-REPL
         ):
             try:
                 out.append(check())

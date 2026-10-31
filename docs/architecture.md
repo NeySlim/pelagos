@@ -3288,6 +3288,65 @@ Section 29. Every route takes `admin:updates`.
 | `POST /admin/updates/rollout/{id}/action` | `admin:updates` | `{"action": "resume"|"cancel"|"rollback","password"?}` (`password` for `rollback`) | `Rollout` (the new one after `rollback`); `404` for another id, `409` when the action does not fit the state |
 | `GET /admin/updates/history?page=&per_page=` | `admin:updates` | | paginated summaries `{"id","kind","version","state","created_by","created_at","finished_at","nodes": [{"node_id","state","from_version","to_version","error"}]}` |
 
+### Desired state verbs
+
+Idempotent writes for scripts, Ansible and Terraform (F0-DESIRED). Each `PUT` reads the
+object, compares it with the body and, when they differ, builds the change through the
+existing plan endpoint of that object (`POST /dns/zones/{zone}/records/plan`,
+`POST /dns/zones/plan`, `POST /dhcp/{family}/<kind>/plan`) and applies it with
+`PlanService.apply`; `DELETE` does the same with a `delete` change. No other write path
+exists: validation, preconditions, impact, confirmation, audit and rollback are those of
+the plan (`POST /plans/{id}/rollback` undoes a desired write). Permissions are those of the
+plan endpoint; `GET` takes `read:dns` or `read:dhcp`.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /dns/zones/{zone}/rrsets/{owner}/{type}?view=` | `read:dns` | | `RRset`, `ETag` header; `404` when absent |
+| `PUT /dns/zones/{zone}/rrsets/{owner}/{type}` | `write:dns.records` | `{"ttl"?, "records": [rdata...], "view"?, "ptr"?, "confirm"?}` (`ttl` absent: kept, else `dns.default_ttl_seconds`; `ptr` as on `records/plan`) | `DesiredAnswer` |
+| `DELETE /dns/zones/{zone}/rrsets/{owner}/{type}?view=` | `write:dns.records` | | `DesiredAnswer` |
+| `PUT /dns/zones/{zone}` | `write:dns.zones` | Zone fields (`kind` required for a new zone; `name`, `role`, `source`, `config_path`, `extra` refused), `"view"?` | `DesiredAnswer` (the `GET` is the zone detail above) |
+| `DELETE /dns/zones/{zone}?view=` | `write:dns.zones` | | `DesiredAnswer` |
+| `GET /dhcp/{family}/reservations/{id_type}={identifier}?subnet_id=&node_id=` | `read:dhcp` | | `Reservation`, `ETag`; `subnet_id` absent: the global reservation |
+| `PUT /dhcp/{family}/reservations/{id_type}={identifier}` | `write:dhcp.reservations` | Reservation fields, `subnet_id` in the body (absent: global) | `DesiredAnswer` |
+| `DELETE /dhcp/{family}/reservations/{id_type}={identifier}?subnet_id=` | `write:dhcp.reservations` | | `DesiredAnswer` |
+| `PUT /dhcp/{family}/subnets/{id}` | `write:dhcp.subnets` | Subnet fields (`id` must match the path) | `DesiredAnswer` (the `GET` is the subnet read above) |
+| `DELETE /dhcp/{family}/subnets/{id}` | `write:dhcp.subnets` | | `DesiredAnswer` |
+| `GET /dhcp/{family}/client-classes/{name}` | `read:dhcp` | | `ClientClass`, `ETag` |
+| `PUT /dhcp/{family}/client-classes/{name}` | `write:dhcp.classes` | ClientClass fields | `DesiredAnswer` |
+| `DELETE /dhcp/{family}/client-classes/{name}` | `write:dhcp.classes` | | `DesiredAnswer` |
+| `GET /dhcp/{family}/options/{space}/{code}` | `read:dhcp` | | global `OptionData` (`code`: number or name), `ETag` |
+| `PUT /dhcp/{family}/options/{space}/{code}` | `write:dhcp.options` | OptionData fields (`code` or `name` must match the path) | `DesiredAnswer` |
+| `DELETE /dhcp/{family}/options/{space}/{code}` | `write:dhcp.options` | | `DesiredAnswer` |
+
+`DesiredAnswer` is `{"changed": false, "etag"}` when the object already is as asked (no
+plan is built or kept), `{"changed": true, "etag", "plan": Plan}` with `?dry_run=1` (the
+plan stays in the store until its TTL, like any preview), and `{"changed": true,
+"plan_id", "result": ApplyResult}` once applied (`result.state` tells the outcome, as on
+`POST /plans/{id}/apply`).
+
+- Comparison: only the fields the body gives count; a field absent from the body is left
+  as it is; a list given is the whole list (same length, same order, each item compared
+  by the fields it gives); `null` matches an absent or empty value; `raw` is never
+  compared. RRset rdata are compared as sets in canonical form, the TTL only when given.
+  A field the object does not model is `400 validation_error` (it would never converge).
+  Kea dashed keys are not accepted: the body speaks domain fields.
+- Shape errors (owner, type, TTL, identifier type, target) are `400 validation_error`
+  from `services.plan_targets`; an engine refusal is `422 engine_validation_failed` with
+  the plan, as on the plan endpoints.
+- Confirmation is the rule of `POST /plans/{id}/apply`: an API token always needs
+  `confirm` (`"confirm": true` in the body, or `?confirm=1`, which `DELETE` without body
+  uses), a session only when the plan has `requires_confirmation`. Otherwise `428
+  confirmation_required` with the plan in the problem document (`plan`), still stored.
+- `ETag`: the zone's SOA serial for an RRset (read where the records are read), a hash
+  of the declaration for a zone, the Kea configuration hash of this node for Kea objects
+  (the `hash` of `GET /dhcp/{family}/config`). Every `DesiredAnswer` that reads carries
+  it in `etag` and in the `ETag` header. `If-Match` on `PUT` or `DELETE` names the ETag
+  the client read: another value is `412 precondition_failed` (`*` matches any existing
+  object). The plan's own preconditions still guard the apply.
+- Audit: the plan's entries, unchanged, with `request.op = "desired"`.
+- The verbs build on the node that answers: Kea objects need Kea on that node (as the
+  plan endpoints), RRsets are applied on the zone's primary.
+
 ## 18. WebSocket
 
 `GET /api/v1/ws` upgrades to a WebSocket on the same origin, authenticated

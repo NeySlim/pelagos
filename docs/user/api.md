@@ -198,6 +198,48 @@ curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/plans/$ID/rollback
 - `GET /plans/{id}` and `DELETE /plans/{id}` are for the plan's creator or an
   administrator.
 
+## Idempotent writes
+
+For scripts and configuration tools (Ansible, Terraform), some objects also take a `PUT`
+that states the wanted object and a `DELETE` that removes it. Pelagos reads the object,
+and builds and applies a plan only when it differs, so running the same call twice is
+safe. The plan is an ordinary one: it shows in the audit log (`request.op` is
+`desired`) and rolls back with `POST /plans/{id}/rollback`.
+
+```sh
+# Converge www.example.lan. A to two addresses (an API token needs "confirm": true)
+curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -X PUT \
+  -d '{"ttl": 300, "records": ["192.0.2.10", "192.0.2.11"], "confirm": true}' \
+  $NODE/api/v1/dns/zones/example.lan/rrsets/www/A
+# {"changed": true, "plan_id": "...", "result": {"state": "applied", ...}}
+# The same call again: {"changed": false, "etag": "2026103101"}
+
+# Preview only, as Ansible --check or terraform plan
+curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -X PUT \
+  -d '{"subnet_id": 1, "ip_address": "192.0.2.42", "hostname": "nas"}' \
+  "$NODE/api/v1/dhcp/v4/reservations/hw-address=aa:bb:cc:dd:ee:42?dry_run=1"
+# {"changed": true, "etag": "...", "plan": {...}}
+```
+
+| Object | Path |
+| --- | --- |
+| RRset | `/dns/zones/{zone}/rrsets/{owner}/{type}` (`GET` too) |
+| Zone declaration | `/dns/zones/{zone}` |
+| Reservation | `/dhcp/{family}/reservations/{id_type}={identifier}` (`GET` too; `subnet_id` in the body, or in the query for `GET` and `DELETE`) |
+| Subnet | `/dhcp/{family}/subnets/{id}` |
+| Client class | `/dhcp/{family}/client-classes/{name}` (`GET` too) |
+| Global option | `/dhcp/{family}/options/{space}/{code}` (`code`: number or name; `GET` too) |
+
+- Only the fields you give are compared and changed; a list you give replaces the
+  whole list. An unknown field is refused (`400`).
+- `?dry_run=1` returns the plan without applying it. `"confirm": true` (or
+  `?confirm=1`) is needed with an API token, and with a session when the plan asks for
+  confirmation; otherwise the answer is `428` with the plan.
+- Optimistic concurrency: send back the `ETag` of a `GET` (or of a previous answer) in
+  `If-Match`; if the object changed meanwhile, the answer is `412` and nothing is
+  written.
+- `DELETE` of an object that does not exist answers `{"changed": false}`.
+
 ## Endpoints
 
 Permissions are those of [Configuration: roles](configuration.md#roles-and-permissions).

@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-31, F0-DESIRED: desired state verbs
+Section 17 gains "Desired state verbs": `GET|PUT|DELETE /dns/zones/{zone}/rrsets/{owner}/{type}`,
+`PUT|DELETE /dns/zones/{zone}`, `GET|PUT|DELETE /dhcp/{family}/reservations/{id_type}={identifier}`,
+`PUT|DELETE /dhcp/{family}/subnets/{id}`, `GET|PUT|DELETE /dhcp/{family}/client-classes/{name}`,
+`GET|PUT|DELETE /dhcp/{family}/options/{space}/{code}` (`api/desired_state.py`,
+`services/desired_state.py`). They compare and call the existing plan builders and
+`PlanService.apply`: no new write path, confirmation rule of `/plans/{id}/apply`. Additive; the
+existing `GET /dns/zones/{zone}` and `GET /dhcp/{family}/subnets/{id}` are unchanged. Plan audit
+entries written by these verbs carry `request.op = "desired"`. Frontend: `endpoints.js`, `api.js`
+(`api.desired`), mock `desired.mjs`. Reacts: E2-ANSIBLE, E3-TERRAFORM (clients of these verbs).
+
 ## 2026-10-31, F0-HOSTS: host join cache and GET /search
 New `GET /search?q=&limit=` (section 17, Search; `api/search.py`, `services/search_service.py`):
 results grouped by kind, each `{kind, id, label, sublabel, route}`, filtered per group by the

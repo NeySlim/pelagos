@@ -22,9 +22,15 @@ export function getDetailRenderer(type) {
   return renderers.get(type)
 }
 
+// Window ids opened with { wide: true }: the window manager owns no per-window options.
+const wideIds = new Set()
+
 export function useOpenDetail() {
   const { openWindow } = useWindowManager()
-  return useCallback((type, entityId, data) => openWindow(type, entityId, data), [openWindow])
+  return useCallback((type, entityId, data, options = {}) => {
+    if (options.wide) wideIds.add(`${type}:${entityId}`)
+    openWindow(type, entityId, data)
+  }, [openWindow])
 }
 
 export function FloatingDetailWindow({ windowInfo }) {
@@ -38,11 +44,16 @@ export function FloatingDetailWindow({ windowInfo }) {
   const Icon = renderer?.icon || Info
   const Component = renderer?.component
   const close = () => closeWindow(windowInfo.id)
+  const wide = wideIds.has(windowInfo.id)
+  const dp = windowInfo.defaultPos
+  // A wide window re-centres on its larger default width.
+  const defaultPos = wide && dp ? { ...dp, w: 720, x: Math.max(20, dp.x - 100) } : dp
 
   return (
     <FloatingWindow
       storageKey={`${WINDOW_POS_PREFIX}${windowInfo.id}`}
-      defaultPos={windowInfo.defaultPos}
+      defaultPos={defaultPos}
+      wide={wide}
       forcePosition={Boolean(windowInfo.tileKey)}
       minimized={minimized}
       onMinimizeToggle={() => setMinimized((m) => !m)}

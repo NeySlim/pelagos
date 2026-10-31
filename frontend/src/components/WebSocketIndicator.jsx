@@ -25,6 +25,8 @@ export function WebSocketIndicator({ className, showLabel = false, variant = 'de
       <span className={cn('inline-flex', className)}>
         <StatusDot
           title={t(config.labelKey)}
+          role="img"
+          aria-label={t(config.labelKey)}
           data-testid="ws-dot"
           data-ws-state={state}
           size={10}
@@ -41,6 +43,7 @@ export function WebSocketIndicator({ className, showLabel = false, variant = 'de
       type="button"
       onClick={() => !isConnected && connect()}
       title={t(config.labelKey)}
+      aria-label={t(config.labelKey)}
       className={cn('flex items-center gap-1.5 p-1 rounded hover:bg-bg-tertiary transition-colors', className)}
     >
       <Icon size={16} weight="bold" className={cn(config.color, config.spin && 'animate-spin')} />

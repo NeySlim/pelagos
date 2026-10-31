@@ -192,24 +192,25 @@ export function UnifiedPageHeader({
       {hasTabs && (
         <div className={cn(
           'ui-tabs-row overflow-x-auto scrollbar-hide',
+          isMobile && 'snap-x snap-proximity',
           isMobile ? 'px-3' : 'px-6'
         )}>
           <div ref={tabsRef} className="ui-tabs relative flex gap-0.5 min-w-max pb-0">
             {tabs.map((tab) => {
               const TabIcon = tab.icon
               const isActive = activeTab === tab.id
-              // Only an icon can stand in for the label: an icon-less tab always shows its text.
-              const iconOnly = isMobile && !isActive && Boolean(TabIcon)
+              // Tabs keep their label on phones too: the row scrolls sideways instead.
               return (
                 <button
                   key={tab.id}
                   type="button"
                   aria-current={isActive ? 'true' : undefined}
                   onClick={() => onTabChange?.(tab.id)}
-                  aria-label={iconOnly ? tab.label : undefined}
-                  title={iconOnly ? tab.label : undefined}
+                  aria-label={tab.label}
+                  title={tab.label}
                   className={cn(
-                    "ui-tab flex items-center gap-1.5 rounded-t-lg text-sm font-medium transition-all",
+                    "ui-tab flex items-center gap-1.5 rounded-t-lg text-sm font-medium whitespace-nowrap shrink-0 transition-all",
+                    isMobile && "snap-start",
                     isActive && "is-active",
                     "border-b-2 -mb-px",
                     isMobile ? "px-2.5 py-1.5" : "px-3 py-2",
@@ -221,9 +222,7 @@ export function UnifiedPageHeader({
                   {TabIcon && (
                     <TabIcon size={isMobile ? 14 : 16} weight={isActive ? "fill" : "regular"} />
                   )}
-                  <span className={iconOnly ? "hidden" : ""}>
-                    {tab.label}
-                  </span>
+                  <span>{tab.label}</span>
                   {tab.count !== undefined && (
                     <span className={cn(
                       'px-1.5 py-0.5 rounded-full text-2xs font-medium',

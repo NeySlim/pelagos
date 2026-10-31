@@ -288,6 +288,8 @@ export function DetailField({
   copyable = false,
   fullWidth = false,
   compact = false,
+  // Dates and other values that must stay on one line.
+  nowrap = false,
   className 
 }) {
   // useClipboard owns both the "did it work" answer and the reset timer.
@@ -312,7 +314,8 @@ export function DetailField({
       )}>{label}</dt>
       <dd 
         className={cn(
-          "font-mono text-text-primary break-all",
+          "font-mono text-text-primary",
+          nowrap ? "whitespace-nowrap" : "break-all",
           compact ? "text-2xs" : "text-xs",
           copyable && "cursor-pointer hover:text-accent-primary transition-colors flex items-center gap-2"
         )}

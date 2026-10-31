@@ -12,6 +12,7 @@ export function SearchBar({
   value = '', 
   onChange, 
   onClear,
+  ariaLabel,
   debounce = 300,
   className 
 }) {
@@ -51,11 +52,14 @@ export function SearchBar({
         value={internalValue}
         onChange={(e) => setInternalValue(e.target.value)}
         placeholder={placeholder ?? i18n.t('table.search')}
+        aria-label={ariaLabel || placeholder || i18n.t('table.search')}
         className="w-full pl-7 pr-7 py-1.5 bg-bg-tertiary border border-border rounded-md text-sm text-text-primary placeholder-text-secondary focus:outline-none focus:ring-1 focus:ring-accent-primary focus:border-transparent transition-all"
       />
       {internalValue && (
         <button
+          type="button"
           onClick={handleClear}
+          aria-label={i18n.t('common:common.clear')}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors"
         >
           <X size={14} />

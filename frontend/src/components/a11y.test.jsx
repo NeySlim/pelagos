@@ -11,6 +11,8 @@ import { SelectComponent } from './Select'
 import { ToggleSwitch } from './ui/ToggleSwitch'
 import TagsInput from './ui/TagsInput'
 import { UnifiedPageHeader } from './ui/UnifiedPageHeader'
+import { SearchBar } from './SearchBar'
+import { WebSocketIndicator } from './WebSocketIndicator'
 import { UtilizationBar } from './UtilizationBar'
 import { PlanPreview } from './PlanPreview'
 import { RouteStatus } from './RouteStatus'
@@ -81,6 +83,39 @@ describe('UnifiedPageHeader on mobile', () => {
   it('renders nothing extra when there are no actions', () => {
     const { container } = render(<UnifiedPageHeader title="Subnets" isMobile />)
     expect(container.querySelector('[data-testid="page-actions-mobile"]')).toBeNull()
+  })
+})
+
+describe('UnifiedPageHeader tabs on mobile', () => {
+  it('keep their text for every tab, with the label as accessible name', () => {
+    const Icon = () => <svg />
+    const tabs = [{ id: 'a', label: 'Subnets', icon: Icon }, { id: 'b', label: 'Leases', icon: Icon }]
+    render(<UnifiedPageHeader title="DHCP" isMobile tabs={tabs} activeTab="a" />)
+    for (const label of ['Subnets', 'Leases']) {
+      const tab = screen.getByRole('button', { name: label })
+      expect(tab).toHaveTextContent(label)
+      expect(tab).toHaveAttribute('title', label)
+      expect(tab.querySelector('span')).not.toHaveClass('hidden')
+    }
+    expect(document.querySelector('.ui-tabs-row')).toHaveClass('overflow-x-auto', 'snap-x')
+  })
+})
+
+describe('SearchBar and WebSocketIndicator names', () => {
+  it('SearchBar names its field after the placeholder unless told otherwise', () => {
+    const { rerender } = render(<SearchBar placeholder="Find a host" />)
+    expect(screen.getByRole('textbox', { name: 'Find a host' })).toBeInTheDocument()
+    rerender(<SearchBar placeholder="Find a host" ariaLabel="Hosts" />)
+    expect(screen.getByRole('textbox', { name: 'Hosts' })).toBeInTheDocument()
+    rerender(<SearchBar />)
+    expect(screen.getByRole('textbox')).toHaveAccessibleName()
+  })
+
+  it('WebSocketIndicator announces the connection state', () => {
+    render(<WebSocketIndicator />)
+    const button = screen.getByRole('button')
+    expect(button).toHaveAccessibleName(/live updates/i)
+    expect(button).toHaveAttribute('title', button.getAttribute('aria-label'))
   })
 })
 

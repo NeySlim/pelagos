@@ -30,6 +30,8 @@ export function FloatingWindow({
   defaultPos,
   forcePosition = false,
   constraints,
+  // Wide detail content (tables inside the window): 720 px instead of 480.
+  wide = false,
   minimized = false,
   onMinimizeToggle,
   onClose,
@@ -57,7 +59,7 @@ export function FloatingWindow({
     storageKey,
     defaultPos,
     forcePosition,
-    constraints,
+    constraints: wide ? { ...constraints, defW: Math.max(constraints?.defW || 0, 720) } : constraints,
     panelRef,
     bodyRef,
     minimized,

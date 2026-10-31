@@ -14,16 +14,22 @@ What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
-Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until` (optional, `null` by default;
-a 0.3.x peer drops them in `Model.from_dict`). Setting `plans.rollback_window_seconds` (default
-86400, 600 to 604800): finished plans stay in `PlanStore`, in memory and in their encrypted file,
-for that window instead of `plans.ttl_seconds`, which now only bounds the preview; plan files gain
-`kept_until`. `PlanStore.finish` replaces `touch`, `PlanStore.list` and `on_expired` are new.
+Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains
+`rollback_until` (optional, `null` by default; a 0.3.x peer drops unknown keys in
+`Model.from_dict`). Setting `plans.rollback_window_seconds` (default 86400, 600 to 604800).
+`Plan.expires_at` keeps its meaning (when the plan stops being usable) and becomes the retention
+deadline: the preview TTL until the plan finishes, then `finished_at` plus the window.
+`rollback_until` is set only while the plan can be rolled back (`APPLIED`, or `FAILED` and
+`interrupted`; never for job scopes and `update`); a failed rollback is terminal.
+`PlanStore(ttl_seconds, rollback_window_seconds)`, `PlanStore.finish` replaces `touch`,
+`PlanStore.list` and `on_expired` are new. Optional connector hook `check_rollback(plan)`, called
+before a rollback starts: a refusal is `409 precondition_failed` and leaves the plan `APPLIED`.
 Rollback answers `410 plan_expired` past `rollback_until`. New `GET /plans` (paginated
 `PlanSummary`, every plan with `read:audit`, else the caller's own), `GET /plans/{id}` readable with
 `read:audit`, `GET /audit?plan_id=`, WebSocket event `plans`/`expired`. Every plan carries a
 `summary_message`. Sections 6, 17 and 18 updated. WP-FRONTEND (U1-PLANS) builds the Plans page on
-this contract and the mock; no other package must react.
+this contract and the mock. WP-BIND, WP-KEA (W1-ROLLBACK-GUARDS) implement `check_rollback` and keep
+their rollback guards for the whole window.
 
 ## 2026-10-31, F0-DESIRED: desired state verbs
 Section 17 gains "Desired state verbs": `GET|PUT|DELETE /dns/zones/{zone}/rrsets/{owner}/{type}`,

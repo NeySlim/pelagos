@@ -231,7 +231,8 @@ section 10, "Settings naming".
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `ttl_seconds` | `600` | 60 to 86400 s | lifetime of a plan before apply, and of an applied plan for rollback |
+| `ttl_seconds` | `600` | 60 to 86400 s | lifetime of a plan before apply |
+| `rollback_window_seconds` | `86400` | 600 to 604800 s | how long a finished plan is listed, and an applied plan can be rolled back; a configuration rollback also needs its backup, kept at most `retention.backups_days` |
 
 ### Peers (`[settings.peers]`)
 

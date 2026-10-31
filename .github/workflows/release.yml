@@ -4,7 +4,8 @@
 # of scripts/release-check.sh, then a DRAFT GitHub release with the tested debs and rpms,
 # release.json, NOTES.md (docs/releases/<version>.md) and SHA256SUMS, and the tested images on
 # ghcr.io (<version> and latest). Publishing the draft stays a human click. A new run on the same
-# tag replaces the assets of the draft; a published release is never touched.
+# tag replaces the assets of the draft; on a published release it changes nothing there and only
+# pushes the images (a manual run with the tag of a release published before this workflow).
 name: release
 
 on:
@@ -123,25 +124,35 @@ jobs:
           name: release-${{ needs.prepare.outputs.version }}
           path: dist/${{ needs.prepare.outputs.version }}
           if-no-files-found: error
-      - name: Draft GitHub release (never published here)
+      - name: Release state
+        id: state
         run: |
           state="$(gh api --paginate "repos/$GH_REPO/releases" \
             --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"")"
           read -r id draft <<<"$state"
-          if [ -z "$state" ]; then
+          published=false
+          [ -n "$state" ] && [ "$draft" != true ] && published=true
+          printf 'id=%s\npublished=%s\n' "$id" "$published" | tee -a "$GITHUB_OUTPUT"
+      - name: Published release left as it is (the images are still pushed)
+        if: steps.state.outputs.published == 'true'
+        run: |
+          echo "release $TAG is already published: not modified" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Draft GitHub release (never published here)
+        if: steps.state.outputs.published != 'true'
+        env:
+          ID: ${{ steps.state.outputs.id }}
+        run: |
+          if [ -z "$ID" ]; then
             gh release create "$TAG" --draft --verify-tag --title "Pelagos $VERSION" \
               --notes-file "dist/$VERSION/NOTES.md" "dist/$VERSION"/*
-          elif [ "$draft" = true ]; then
+          else
             # Same tag again: notes and every asset of the draft are replaced.
-            for asset in $(gh api --paginate "repos/$GH_REPO/releases/$id/assets" --jq '.[].id'); do
+            for asset in $(gh api --paginate "repos/$GH_REPO/releases/$ID/assets" --jq '.[].id'); do
               gh api -X DELETE "repos/$GH_REPO/releases/assets/$asset"
             done
-            gh api -X PATCH "repos/$GH_REPO/releases/$id" -f name="Pelagos $VERSION" \
+            gh api -X PATCH "repos/$GH_REPO/releases/$ID" -f name="Pelagos $VERSION" \
               -F "body=@dist/$VERSION/NOTES.md" >/dev/null
             gh release upload "$TAG" "dist/$VERSION"/*
-          else
-            echo "release $TAG is already published: left as it is" >&2
-            exit 1
           fi
           gh release view "$TAG" --json isDraft,assets --jq '{isDraft, assets: [.assets[].name]}'
 

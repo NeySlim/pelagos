@@ -68,6 +68,7 @@ def lab_password(name: str, env: str | None = None) -> str:
 
 ADMIN_PASSWORD = lab_password("admin", "PELAGOS_LAB_ADMIN_PASSWORD")
 
+
 def _vm(role: str, alias: str, addr: str) -> tuple[str, str]:
     """(ssh alias, lab address) of a VM; PELAGOS_LAB_<ROLE> and PELAGOS_LAB_<ROLE>_ADDR override
     the defaults so a second set of VMs can run beside the first."""

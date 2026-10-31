@@ -23,8 +23,8 @@ die() { echo "remote-test: $*" >&2; exit 2; }
 make_archive() { # <mode> <out>
   if [ "$1" = worktree ]; then
     git ls-files -co --exclude-standard -z |
-      tar --null --ignore-failed-read -T - -cf "$2" \
-        --exclude=node_modules --exclude=.venv --exclude=dist --exclude=build 2>/dev/null
+      tar --exclude=node_modules --exclude=.venv --exclude=dist --exclude=build \
+        --null --ignore-failed-read -T - -cf "$2"
   else
     git archive --format=tar -o "$2" HEAD
   fi
@@ -38,8 +38,7 @@ run_suites() { # <mode> <logdir> <lot> <suite>...
   for suite in "$@"; do [[ $suite =~ ^[a-z0-9-]+$ ]] || die "bad suite name: $suite"; done
   mkdir -p "$logdir/$lot"
   tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' RETURN
-  make_archive "$mode" "$tmp/tree.tar" || die "cannot archive the tree"
+  make_archive "$mode" "$tmp/tree.tar" || { rm -rf "$tmp"; die "cannot archive the tree"; }
   local -A pids=()
   for suite in "$@"; do
     echo "remote-test: start $suite (log $logdir/$lot/$suite.log)"
@@ -62,16 +61,17 @@ run_suites() { # <mode> <logdir> <lot> <suite>...
       rc=1
     fi
   done
+  rm -rf "$tmp"
   return "$rc"
 }
 
 self_test() {
   command -v shellcheck >/dev/null || die "shellcheck not installed"
   shellcheck "$0"
-  local here tmp rc
+  local here rc tmp
   here=$(readlink -f "$0")
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
+  tmp=$(mktemp -d); selftmp=$tmp
+  trap 'rm -rf "$selftmp"' EXIT
   mkdir "$tmp/bin" "$tmp/repo"
   # Fake ssh: store the archive listing, fail for the suite named "bad".
   cat >"$tmp/bin/ssh" <<'F'

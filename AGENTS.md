@@ -37,14 +37,16 @@ literally.
   `fix`, `docs`, `test`, `chore`, `refactor`, `build`, `ci`. Scope is the
   work package or directory (`bind`, `kea`, `core`, `api`, `frontend`,
   `installer`, `packaging`, `lab`, `docs`).
-- Work on `main` directly from your worktree. Before pushing: `make lint`
-  and the tests of the modules you touched (see [When to run what](#when-to-run-what)),
-  then `git pull --rebase origin main`, re-run those tests if the rebase
-  pulled changes into your files, then `git push`. CI runs the whole unit
-  tier.
+- Work on `main` directly from your worktree. During a multi-lot program,
+  work on a branch `lot/<id>` instead (lowercase id, for instance
+  `lot/f0-test`) and push only that branch: the orchestrator fast-forwards
+  `main` after a green CI and a review. Before pushing: `make lint` and the
+  tests of the modules you touched (see [When to run what](#when-to-run-what)),
+  then rebase on `origin/main`, re-run those tests if the rebase pulled
+  changes into your files, then `git push`. CI runs on `main` and on every
+  `lot/**` branch.
 - Never force-push `main`. Never rewrite published history.
-- Push a finished batch of commits at once, not each commit as it lands:
-  Actions minutes are limited.
+- Push a finished batch of commits at once, not each commit as it lands.
 
 ## Module ownership
 
@@ -129,14 +131,22 @@ owning package's test directory.
   `make test-daemon` (or the matching `tests/daemon/` files) when the module
   talks to BIND or Kea, plus `npx vitest run <files>` for the frontend. No
   full suite on every commit.
-- **CI on push and pull request:** one fast job (lint, unit tier with
+- **Heavy suites on the shared test host:** the full unit tier, vitest, the
+  daemon tier and Playwright do not run on a shared development machine. Set
+  `PELAGOS_TEST_HOST` to the ssh alias of the test host and run
+  `scripts/dev/remote-test.sh <lot> unit vitest daemon e2e-smoke` (or
+  `make test-remote LOT=<lot> SUITES="unit vitest"`) from the worktree after
+  committing; `--worktree` includes uncommitted changes. Logs stay local, one
+  per suite. See `scripts/dev/README.md`.
+- **CI on push (`main` and `lot/**`) and pull request:** one fast job (lint, unit tier with
   `pytest -n auto`, vitest, frontend build, under 10 minutes). The daemon
   tier runs when `backend/pelagos/connectors/` or the fixtures change, a
   Playwright smoke (`make test-e2e-smoke`) when `frontend/` changes, the
   amd64 packages when `packaging/` or `docker/` change. Release tags (the
   `release` workflow) and the nightly run take the full suite (unit on Python 3.12 and 3.13, daemon
   tier, every Playwright spec, packages amd64 and arm64). One green run is
-  enough.
+  enough. A manual run (workflow_dispatch, input `full`) takes the full suite on a
+  branch before merge.
 - **Lab tier:** the full `make test-lab` runs once a week. Before a release,
   run only the lab scenarios the change touches (`make test-lab
   LAB_ARGS=tests/lab/<file>`) and an install and upgrade smoke

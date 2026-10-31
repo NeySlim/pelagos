@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# Every push and pull request runs one fast job (lint, unit tier in parallel, vitest, frontend
-# build). The heavy jobs run only when their inputs changed: the daemon tier for the connectors
+# Every push (main and lot/** branches) and pull request runs one fast job (lint, unit tier in
+# parallel, vitest, frontend build). The heavy jobs run only when their inputs changed: the daemon tier for the connectors
 # and fixtures, a Playwright smoke for the frontend. The release workflow (workflow_call on the
 # tag), the nightly run (when main moved in the last day) and a manual run take the full suite:
 # unit tier on Python 3.12 too, daemon tier, every Playwright spec.
@@ -8,11 +8,16 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'lot/**']
   pull_request:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full suite (unit on both Python versions, daemon, every Playwright spec)
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       ref:
@@ -44,16 +49,22 @@ jobs:
           fetch-depth: 0
       - name: Commit messages (72 characters, one line, no trailer, no em dash)
         if: ${{ !inputs.ref && (github.event_name == 'push' || github.event_name == 'pull_request') }}
-        run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # A new branch has no previous push (all-zero sha): compare with main.
+          case "$BASE" in *[!0]*) ;; *) BASE=$(git rev-parse --verify -q origin/main || true) ;; esac
+          scripts/check-commits.sh "$BASE" "${{ github.sha }}"
       - name: Mode
         id: mode
         env:
           RELEASE_REF: ${{ inputs.ref }}
+          FULL_INPUT: ${{ inputs.full }}
         run: |
           run=true full=false
           case "$GITHUB_EVENT_NAME" in
             schedule) full=true; [ -n "$(git log -1 --since=25.hours --format=%h)" ] || run=false ;;
-            workflow_dispatch) full=true ;;
+            workflow_dispatch) [ "$FULL_INPUT" = false ] || full=true ;;
           esac
           # Called by the release workflow: the full suite on the tag.
           [ -z "$RELEASE_REF" ] || full=true
@@ -62,6 +73,8 @@ jobs:
         id: paths
         if: steps.mode.outputs.full != 'true'
         with:
+          # On a lot branch: changes against main; on main: against the previous push.
+          base: main
           filters: |
             daemon:
               - backend/pelagos/connectors/**

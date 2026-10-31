@@ -15,7 +15,7 @@ VERSION   := $(shell packaging/version.sh python)
 IMAGE     ?= pelagos
 DOCKER    ?= docker
 
-.PHONY: dev venv npm lint lint-backend lint-frontend lint-commits fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e test-e2e-smoke
+.PHONY: dev venv npm lint lint-backend lint-frontend lint-commits fmt test test-unit test-vitest test-daemon test-remote test-lab lab-demo test-e2e test-e2e-smoke
 .PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys settings-schema notify-catalogs
 .PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging release release-check
 
@@ -81,6 +81,12 @@ test-e2e-smoke:
 # README and user documentation screenshots from the mock server, Instrument theme, dark and light.
 screenshots:
 	cd $(FRONTEND) && node e2e/screenshots.mjs ../docs/images
+
+# Suites on the shared test host (PELAGOS_TEST_HOST, see scripts/dev/README.md).
+LOT ?= $(shell git rev-parse --abbrev-ref HEAD | sed 's|^lot/||')
+SUITES ?= unit vitest
+test-remote:
+	scripts/dev/remote-test.sh $(REMOTE_ARGS) $(LOT) $(SUITES)
 
 test-lab:
 	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_ARGS)

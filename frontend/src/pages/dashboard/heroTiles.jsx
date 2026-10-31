@@ -4,7 +4,8 @@
 // busiest pools against their thresholds, HA pills). Mission Control keeps its radar in
 // the center, loaded on demand under its effects only. Live rates come from useLiveRates
 // through DashboardPage.
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { Globe, Network } from '@phosphor-icons/react'
@@ -19,7 +20,7 @@ import { LatestLease } from './LatestLease'
 import { dhcpFamily, haTone, mergePools, poolThresholds, rateFormat, splitRate } from './summary'
 import { flattenHa } from '../dhcp/haSetup'
 
-const MissionRadarTile = lazy(() => import('./radarTile'))
+const MissionRadarTile = lazyPage(() => import('./radarTile'))
 
 const RCODE_TONE = { NOERROR: 'success', NXDOMAIN: 'warning', SERVFAIL: 'danger', REFUSED: 'neutral' }
 const HISTOGRAM_BARS = 12

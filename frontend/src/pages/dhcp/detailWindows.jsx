@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Registers the `lease` floating window at startup (imported by routes.js), so any
 // page can open a lease card; the card itself loads on first use.
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Clock } from '@phosphor-icons/react'
 import { registerDetailRenderer } from '../../components/FloatingDetailWindow'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 
-const LeaseWindow = lazy(() => import('./LeaseDetail'))
+const LeaseWindow = lazyPage(() => import('./LeaseDetail'))
 
 export function LazyLeaseWindow(props) {
   return (

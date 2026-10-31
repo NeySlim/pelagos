@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Hosts area: the lease / reservation / records join, host card, create host plan.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Desktop } from '@phosphor-icons/react'
 import './detailWindows'
 
-const HostsPage = lazy(() => import('./HostsPage'))
+const HostsPage = lazyPage(() => import('./HostsPage'))
 
 export default {
   id: 'hosts',

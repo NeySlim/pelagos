@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Alerts area: alerts and DNS/DHCP inconsistencies with filter chips and ack, admin exceptions.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Bell, EyeSlash } from '@phosphor-icons/react'
 
-const AlertsPage = lazy(() => import('./AlertsPage'))
-const ExceptionsPage = lazy(() => import('./ExceptionsPage'))
+const AlertsPage = lazyPage(() => import('./AlertsPage'))
+const ExceptionsPage = lazyPage(() => import('./ExceptionsPage'))
 
 export default {
   id: 'alerts',

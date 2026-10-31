@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Install and import area: detection, install/import plan wizard, security audit.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { ArrowsLeftRight, DownloadSimple, ShieldWarning } from '@phosphor-icons/react'
 
-const InstallPage = lazy(() => import('./InstallPage'))
-const SecurityPage = lazy(() => import('./SecurityPage'))
-const KeaMigrationPage = lazy(() => import('./KeaMigrationPage'))
+const InstallPage = lazyPage(() => import('./InstallPage'))
+const SecurityPage = lazyPage(() => import('./SecurityPage'))
+const KeaMigrationPage = lazyPage(() => import('./KeaMigrationPage'))
 
 const perm = 'admin:install'
 

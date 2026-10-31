@@ -7,6 +7,7 @@ import { AuthProvider, ThemeProvider, NotificationProvider, MobileProvider, Wind
 import { WebSocketProvider } from './hooks/useWebSocket'
 import { AppShell } from './components/AppShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { RouteError } from './components/RouteError'
 import { LoadingSpinner } from './components/LoadingSpinner'
 import { DetailWindowLayer } from './components/FloatingDetailWindow'
 import { RouteStatus } from './components/RouteStatus'
@@ -85,7 +86,7 @@ function Providers({ wsClient }) {
 // A data router, so links and navigate() can run inside view transitions.
 export default function App({ wsClient }) {
   const [router] = useState(() =>
-    withViewTransitions(createBrowserRouter([{ path: '*', element: <Providers wsClient={wsClient} /> }]), { idOf: resolveActiveNavId }),
+    withViewTransitions(createBrowserRouter([{ path: '*', element: <Providers wsClient={wsClient} />, errorElement: <RouteError /> }]), { idOf: resolveActiveNavId }),
   )
   return (
     <ErrorBoundary>

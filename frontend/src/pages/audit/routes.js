@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Audit area: audit log table, filters, entry detail with diff, export.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { ClipboardText } from '@phosphor-icons/react'
 
-const AuditPage = lazy(() => import('./AuditPage'))
+const AuditPage = lazyPage(() => import('./AuditPage'))
 
 export default {
   id: 'audit',

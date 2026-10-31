@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // DHCP area: every screen exists once per family; pages receive `family` as a prop.
 // The v6 routes and nav entries are gated by the cluster module `dhcpv6`.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import {
   Network, TreeStructure, SlidersHorizontal, Tag, Clock, BookmarkSimple, Heartbeat, ArrowsClockwise, PuzzlePiece, ChartBar,
 } from '@phosphor-icons/react'
 import './detailWindows'
 
 const screens = [
-  { id: 'subnets', path: 'subnets', icon: Network, component: lazy(() => import('./SubnetsPage')) },
-  { id: 'sharedNetworks', path: 'shared-networks', icon: TreeStructure, component: lazy(() => import('./SharedNetworksPage')) },
-  { id: 'options', path: 'options', icon: SlidersHorizontal, component: lazy(() => import('./OptionsPage')) },
-  { id: 'classes', path: 'classes', icon: Tag, component: lazy(() => import('./ClassesPage')) },
-  { id: 'leases', path: 'leases', icon: Clock, component: lazy(() => import('./LeasesPage')) },
-  { id: 'reservations', path: 'reservations', icon: BookmarkSimple, component: lazy(() => import('./ReservationsPage')) },
-  { id: 'ha', path: 'ha', icon: Heartbeat, component: lazy(() => import('./HaPage')) },
-  { id: 'ddns', path: 'ddns', icon: ArrowsClockwise, component: lazy(() => import('./DdnsPage')) },
-  { id: 'hooks', path: 'hooks', icon: PuzzlePiece, component: lazy(() => import('./HooksPage')) },
-  { id: 'stats', path: 'stats', icon: ChartBar, component: lazy(() => import('./StatsPage')) },
+  { id: 'subnets', path: 'subnets', icon: Network, component: lazyPage(() => import('./SubnetsPage')) },
+  { id: 'sharedNetworks', path: 'shared-networks', icon: TreeStructure, component: lazyPage(() => import('./SharedNetworksPage')) },
+  { id: 'options', path: 'options', icon: SlidersHorizontal, component: lazyPage(() => import('./OptionsPage')) },
+  { id: 'classes', path: 'classes', icon: Tag, component: lazyPage(() => import('./ClassesPage')) },
+  { id: 'leases', path: 'leases', icon: Clock, component: lazyPage(() => import('./LeasesPage')) },
+  { id: 'reservations', path: 'reservations', icon: BookmarkSimple, component: lazyPage(() => import('./ReservationsPage')) },
+  { id: 'ha', path: 'ha', icon: Heartbeat, component: lazyPage(() => import('./HaPage')) },
+  { id: 'ddns', path: 'ddns', icon: ArrowsClockwise, component: lazyPage(() => import('./DdnsPage')) },
+  { id: 'hooks', path: 'hooks', icon: PuzzlePiece, component: lazyPage(() => import('./HooksPage')) },
+  { id: 'stats', path: 'stats', icon: ChartBar, component: lazyPage(() => import('./StatsPage')) },
 ]
 
 const families = [

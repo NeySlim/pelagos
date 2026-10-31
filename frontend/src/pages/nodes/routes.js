@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Nodes area: nodes, replication state, enroll token dialog.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { HardDrives } from '@phosphor-icons/react'
 
-const NodesPage = lazy(() => import('./NodesPage'))
+const NodesPage = lazyPage(() => import('./NodesPage'))
 
 export default {
   id: 'nodes',

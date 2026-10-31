@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Advanced configuration area: grammar-driven named.conf editor, Kea JSON editor,
 // history of write pipeline backups. Gated by the `advanced_editor` module.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Code, BracketsCurly, ClockCounterClockwise, Terminal } from '@phosphor-icons/react'
 
-const BindEditorPage = lazy(() => import('./BindEditorPage'))
-const KeaEditorPage = lazy(() => import('./KeaEditorPage'))
-const HistoryPage = lazy(() => import('./HistoryPage'))
-const OpsPage = lazy(() => import('./OpsPage'))
+const BindEditorPage = lazyPage(() => import('./BindEditorPage'))
+const KeaEditorPage = lazyPage(() => import('./KeaEditorPage'))
+const HistoryPage = lazyPage(() => import('./HistoryPage'))
+const OpsPage = lazyPage(() => import('./OpsPage'))
 
 const read = 'read:advanced'
 const module = 'advanced_editor'

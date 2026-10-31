@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // DNS area: zones and records, resolver, ACLs and keys, secondaries, DNSSEC, RPZ, catalog zones,
 // instance statistics, orphan PTRs.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Globe, ArrowsLeftRight, Key, CopySimple, ShieldCheck, Prohibit, BookOpen, ChartBar, LinkBreak } from '@phosphor-icons/react'
 
-const ZonesPage = lazy(() => import('./ZonesPage'))
-const ZoneDetailPage = lazy(() => import('./ZoneDetailPage'))
-const ResolverPage = lazy(() => import('./ResolverPage'))
-const AclsKeysPage = lazy(() => import('./AclsKeysPage'))
-const SecondariesPage = lazy(() => import('./SecondariesPage'))
-const DnssecPage = lazy(() => import('./DnssecPage'))
-const RpzPage = lazy(() => import('./RpzPage'))
-const CatalogsPage = lazy(() => import('./CatalogsPage'))
-const InstancesPage = lazy(() => import('./InstancesPage'))
-const PtrOrphansPage = lazy(() => import('./PtrOrphansPage'))
+const ZonesPage = lazyPage(() => import('./ZonesPage'))
+const ZoneDetailPage = lazyPage(() => import('./ZoneDetailPage'))
+const ResolverPage = lazyPage(() => import('./ResolverPage'))
+const AclsKeysPage = lazyPage(() => import('./AclsKeysPage'))
+const SecondariesPage = lazyPage(() => import('./SecondariesPage'))
+const DnssecPage = lazyPage(() => import('./DnssecPage'))
+const RpzPage = lazyPage(() => import('./RpzPage'))
+const CatalogsPage = lazyPage(() => import('./CatalogsPage'))
+const InstancesPage = lazyPage(() => import('./InstancesPage'))
+const PtrOrphansPage = lazyPage(() => import('./PtrOrphansPage'))
 
 const read = 'read:dns'
 

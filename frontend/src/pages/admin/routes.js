@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Administration area: users, API tokens, roles, modules, certificates, notifications, backups, IPv6
 // sources, updates, settings.
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { Users, UserGear, SquaresFour, Gear, Certificate, BellRinging, Archive, Globe, Code, ArrowCircleUp } from '@phosphor-icons/react'
 
-const UsersPage = lazy(() => import('./UsersPage'))
-const RolesPage = lazy(() => import('./RolesPage'))
-const ModulesPage = lazy(() => import('./ModulesPage'))
-const SettingsPage = lazy(() => import('./SettingsPage'))
-const CertificatesPage = lazy(() => import('./certs/CertificatesPage'))
-const NotificationsPage = lazy(() => import('./notifications/NotificationsPage'))
-const ArchivesPage = lazy(() => import('./archives/ArchivesPage'))
-const Ipv6ObservationPage = lazy(() => import('./ipv6/Ipv6ObservationPage'))
-const UpdatesPage = lazy(() => import('./updates/UpdatesPage'))
-const ApiTokensPage = lazy(() => import('./ApiTokensPage'))
+const UsersPage = lazyPage(() => import('./UsersPage'))
+const RolesPage = lazyPage(() => import('./RolesPage'))
+const ModulesPage = lazyPage(() => import('./ModulesPage'))
+const SettingsPage = lazyPage(() => import('./SettingsPage'))
+const CertificatesPage = lazyPage(() => import('./certs/CertificatesPage'))
+const NotificationsPage = lazyPage(() => import('./notifications/NotificationsPage'))
+const ArchivesPage = lazyPage(() => import('./archives/ArchivesPage'))
+const Ipv6ObservationPage = lazyPage(() => import('./ipv6/Ipv6ObservationPage'))
+const UpdatesPage = lazyPage(() => import('./updates/UpdatesPage'))
+const ApiTokensPage = lazyPage(() => import('./ApiTokensPage'))
 
 export default {
   id: 'admin',

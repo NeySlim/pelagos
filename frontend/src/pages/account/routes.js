@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Account area: password, TOTP enrollment with QR, preferences. Reached from the
 // user menu (group null keeps it out of the grouped navigation).
-import { lazy } from 'react'
+import { lazyPage } from '../../lib/lazyPage'
 import { UserCircle } from '@phosphor-icons/react'
 
-const AccountPage = lazy(() => import('./AccountPage'))
+const AccountPage = lazyPage(() => import('./AccountPage'))
 
 export default {
   id: 'account',

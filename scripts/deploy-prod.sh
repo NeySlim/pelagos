@@ -4,7 +4,10 @@
 # a machine that reaches every node over ssh (key login, passwordless sudo on the nodes).
 #
 # Usage: deploy-prod.sh [--dry-run] [--timeout SECONDS] [--ssh-option OPT]... RELEASE_DIR HOST...
-#   RELEASE_DIR  a release directory (make release): pelagos_<version>_<arch>.deb and SHA256SUMS
+#        deploy-prod.sh [options] --tag vX.Y.Z [--repo OWNER/NAME] HOST...
+#   RELEASE_DIR  a release directory: pelagos_<version>_<arch>.deb and SHA256SUMS
+#   --tag        fetch the assets of that GitHub release, draft included (gh, logged in with
+#                access to the repository, default NeySlim/pelagos): the files the release workflow tested
 #   HOST         ssh destinations in upgrade order: standby and secondaries first, primary last
 #   --dry-run    check everything (checksums, access, health, convergence, Kea HA), change nothing
 #   --timeout    seconds to wait for health and convergence after each node (default 300)
@@ -16,21 +19,35 @@
 # collector's sandbox before and after. The first problem stops the run.
 set -euo pipefail
 
-dry=0 timeout=300 settle=30 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
+dry=0 timeout=300 settle=30 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10) tag="" repo="NeySlim/pelagos"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) dry=1 ;;
     --timeout) timeout="${2:?--timeout needs seconds}"; shift ;;
     --settle) settle="${2:?--settle needs seconds}"; shift ;;
+    --tag) tag="${2:?--tag needs a release tag}"; shift ;;
+    --repo) repo="${2:?--repo needs OWNER/NAME}"; shift ;;
     --ssh-option) ssh_opts+=(-o "${2:?--ssh-option needs an option}"); shift ;;
-    -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,19p' "$0"; exit 0 ;;
     -*) echo "deploy: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
   shift
 done
-[[ $# -ge 2 ]] || { sed -n '6,11p' "$0" >&2; exit 2; }
-release="$(cd "$1" && pwd)"; shift
+if [[ -n "$tag" ]]; then
+  [[ $# -ge 1 ]] || { sed -n '6,14p' "$0" >&2; exit 2; }
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "deploy: $tag is not vX.Y.Z" >&2; exit 2; }
+  release="$(mktemp -d)"
+  trap 'rm -rf "$release"' EXIT
+  gh release download "$tag" --repo "$repo" --dir "$release" ||
+    { echo "deploy: cannot download the assets of $tag from $repo (gh auth status?)" >&2; exit 1; }
+  # Packages of a tag must be the ones its release.json names, version included.
+  [[ "$(sed -n 's/^  "version": "\(.*\)",\{0,1\}$/\1/p' "$release/release.json" 2>/dev/null)" == "${tag#v}" ]] ||
+    { echo "deploy: release.json of $tag is missing or not ${tag#v}" >&2; exit 1; }
+else
+  [[ $# -ge 2 ]] || { sed -n '6,14p' "$0" >&2; exit 2; }
+  release="$(cd "$1" && pwd)"; shift
+fi
 hosts=("$@")
 
 say() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }

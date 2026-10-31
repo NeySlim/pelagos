@@ -23,7 +23,18 @@ const flag = (query, body, name) => {
   return ['1', 'true', 'yes', 'on'].includes((query.get(name) || '').toLowerCase())
 }
 
-export function desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, call, emit }) {
+// Fields each PUT takes (the domain fields of services/desired_state.py); anything else is a 400.
+const FIELDS = {
+  rrsets: ['ttl', 'records', 'ptr', 'view'],
+  zones: ['kind', 'rclass', 'file', 'dynamic', 'primaries', 'also_notify', 'allow_transfer', 'update_policy', 'allow_update', 'forwarders', 'forward', 'dnssec_policy', 'inline_signing', 'notes', 'view'],
+  reservations: ['subnet_id', 'ip_address', 'ip_addresses', 'prefixes', 'hostname', 'client_classes', 'options', 'next_server', 'server_hostname', 'boot_file_name', 'user_context'],
+  subnets: ['id', 'subnet', 'shared_network', 'pools', 'pd_pools', 'options', 'reservations', 'client_classes', 'relay', 'interface', 'valid_lifetime', 'min_valid_lifetime', 'max_valid_lifetime', 'preferred_lifetime', 'reservations_global', 'reservations_in_subnet', 'reservations_out_of_pool', 'ddns', 'user_context'],
+  'client-classes': ['test', 'options', 'option_def', 'only_in_additional_list', 'next_server', 'server_hostname', 'boot_file_name', 'user_context'],
+  options: ['name', 'code', 'data', 'csv_format', 'always_send', 'never_send'],
+}
+const kindOf = (spec) => (spec.includes('/rrsets/') ? 'rrsets' : spec.includes('/dns/zones/') ? 'zones' : Object.keys(FIELDS).find((k) => spec.includes(`/${k}/`)))
+
+export function desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, call, emit, hasPermission }) {
   const kea = (family) => (family === 'v4' ? 'kea4' : 'kea6')
   const n = (family) => (family === 'v4' ? '4' : '6')
 
@@ -44,7 +55,9 @@ export function desiredHandlers(state, { Problem, invalid, notFound, findZone, a
     if (plan.state === 'failed') throw new Problem(422, 'engine_validation_failed', plan.error || 'the engine rejected the change')
     if (flag(query, body, 'dry_run')) return { changed: true, etag: String(etag ?? '') || null, plan }
     const confirm = flag(query, body, 'confirm')
-    if (plan.requires_confirmation && !confirm) {
+    // As POST /plans/{id}/apply: a token always confirms, a session when the plan says so.
+    const token = /^Bearer /i.test(req?.headers?.authorization || '')
+    if ((token || plan.requires_confirmation) && !confirm) {
       const err = new Problem(428, 'confirmation_required', 'this plan needs confirm=true')
       err.extra = { plan }
       throw err
@@ -157,7 +170,22 @@ export function desiredHandlers(state, { Problem, invalid, notFound, findZone, a
     return current
   }
 
-  return {
+  // PUT and DELETE disclose the current object too: they also need its read permission.
+  const guarded = (spec, fn) => (args) => {
+    const read = spec.includes(' /dns/') ? 'read:dns' : 'read:dhcp'
+    if (!hasPermission(args.user, read)) throw new Problem(403, 'forbidden', `requires ${read}`)
+    if (spec.startsWith('PUT ')) {
+      const allowed = [...FIELDS[kindOf(spec)], 'confirm']
+      const unknown = Object.keys(args.body || {}).filter((k) => !allowed.includes(k)).sort()
+      if (unknown.length) throw invalid(`body.${unknown[0]}`, 'unknown field')
+    }
+    if (spec === 'PUT /dns/zones/{zone}' || spec === 'DELETE /dns/zones/{zone}') {
+      if (args.params.zone.includes('/') && !/^\d+[/-]\d+\./.test(args.params.zone)) throw invalid('zone', 'not a zone name')
+    }
+    return fn(args)
+  }
+
+  const handlers = {
     'GET /dns/zones/{zone}/rrsets/{owner}/{type}': ({ params, query, res }) => {
       const { found, etag } = rrsetOf(params, query)
       return read(res, found, etag, `${params.owner} ${params.type}`)
@@ -211,4 +239,5 @@ export function desiredHandlers(state, { Problem, invalid, notFound, findZone, a
       return keaChange(args, { current: optionOf(family, space, code), desired: null, many: true, spec: 'POST /dhcp/{family}/options/plan', target: `option-data/${space}/${code}` })
     },
   }
+  return Object.fromEntries(Object.entries(handlers).map(([spec, fn]) => [spec, spec.startsWith('GET ') ? fn : guarded(spec, fn)]))
 }

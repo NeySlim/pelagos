@@ -1328,6 +1328,12 @@ class FakeDhcpBackend(DhcpBackend):
         after = None
         if change.op is not ChangeOp.DELETE:
             after = dict(change.after or {})
+            if not after.get("raw") and "family" in after:
+                # A whole domain Subnet (completed by the service): nested pools, options and
+                # reservations need the connector's own conversion, not a top-level key rename.
+                from pelagos.connectors.kea import config as kcfg
+
+                after = kcfg.subnet_to_kea(Subnet.from_dict(after))
             after = after.get("raw") or after
             after = {k: v for k, v in after.items() if k not in ("family", "shared_network", "raw")}
             after = _kea_keys(after)

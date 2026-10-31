@@ -160,10 +160,13 @@ def test_reservation_converges(role_client):
 
 def test_subnet_class_option_converge(role_client):
     op = role_client("dhcp-operator")
-    # The fake engine cannot apply a whole subnet object: the daemon tier converges one for real.
     r = op.put(f"{D}/subnets/1?dry_run=1", json={"valid_lifetime": 1800})
     assert r.status_code == 200 and r.get_json()["changed"] is True, r.get_json()
     assert [c["op"] for c in r.get_json()["plan"]["changes"]] == ["replace"]
+    assert op.put(f"{D}/subnets/1", json={"valid_lifetime": 1800}).get_json()["changed"] is True
+    subnet = op.get(f"{D}/subnets/1").get_json()
+    assert subnet["valid_lifetime"] == 1800 and len(subnet["reservations"]) == 2 and subnet["pools"]
+    assert op.put(f"{D}/subnets/1", json={"valid_lifetime": 1800}).get_json()["changed"] is False
     same = {"subnet": "192.0.2.0/24", "user_context": {"pelagos": {"notes": "main LAN"}}}
     assert op.put(f"{D}/subnets/1", json=same).get_json()["changed"] is False
     r = op.put(f"{D}/subnets/9?dry_run=1", json={"subnet": "198.51.100.0/24"})
@@ -210,3 +213,68 @@ def test_swagger_keeps_reads_next_to_desired_verbs(admin_client):
     assert set(paths["/dns/zones/{zone}"]) >= {"get", "put", "delete"}
     assert set(paths["/dhcp/{family}/subnets/{subnet_id}"]) >= {"get", "put", "delete"}
     assert set(paths["/dns/zones/{zone}/rrsets/{owner}/{rtype}"]) >= {"get", "put", "delete"}
+
+
+@pytest.mark.parametrize(
+    "sub",
+    [
+        "records",
+        "records/plan",
+        "rrsets",
+        "rrsets/www",
+        "dnssec",
+        "dnssec/plan",
+        "secondaries/plan",
+        "reload",
+    ],
+)
+def test_zone_verbs_never_take_a_sub_route(role_client, fake_dns_zones, sub):
+    """`/dns/zones/<path:zone>` matches `.../records` too: such a path is never a zone name."""
+    admin = role_client("admin")
+    before = fake_dns_zones()
+    put = admin.put(f"{V1}/dns/zones/example.lan/{sub}", json={"kind": "primary"})
+    assert put.status_code in (400, 405), put.get_json()
+    delete = admin.delete(f"{V1}/dns/zones/example.lan/{sub}?confirm=1")
+    assert delete.status_code in (400, 405), delete.get_json()
+    assert fake_dns_zones() == before
+
+
+@pytest.fixture
+def fake_dns_zones(fake_registry):
+    return lambda: sorted(z.name for z in fake_registry.dns.list_zones())
+
+
+def test_classless_zone_names_keep_their_slash(role_client, fake_registry):
+    from pelagos.domain import Zone, ZoneKind
+
+    name = "0/25.2.0.192.in-addr.arpa."
+    fake_registry.dns.add_zone(Zone(name=name, kind=ZoneKind.PRIMARY, notes="x"), [])
+    r = role_client("admin").put(f"{V1}/dns/zones/0%2F25.2.0.192.in-addr.arpa", json={"notes": "x"})
+    assert r.status_code == 200 and r.get_json()["changed"] is False, r.get_json()
+
+
+def test_write_without_read_sees_nothing(app, services, node_ctx, monkeypatch):
+    """A token holding only the write permission learns nothing of the current object."""
+    monkeypatch.setattr(services.tokens, "_verify_fresh", lambda *a: "test")
+    dora = next(u for u in node_ctx.cluster().users if u.username == "dora")
+    token = services.tokens.create(dora.id, {"name": "w", "permissions": ["write:dns.records"]}, None, None)
+    headers = {"Authorization": f"Bearer {token['token']}"}
+    client = app.test_client()
+    for method, url in (
+        ("PUT", RR + "/www/A?dry_run=1"),
+        ("PUT", RR + "/www/A"),
+        ("DELETE", RR + "/www/A?dry_run=1"),
+    ):
+        r = client.open(url, method=method, json={"records": ["192.0.2.10"]}, headers=headers)
+        assert r.status_code == 403, (method, url, r.get_json())
+        assert "plan" not in r.get_json() and "ETag" not in r.headers
+
+
+def test_rrset_and_reservation_bodies_are_checked(role_client):
+    dora = role_client("dns-operator")
+    r = dora.put(RR + "/www/A", json={"records": ["192.0.2.10"], "rdata": ["x"]})
+    assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "body.rdata"
+    op = role_client("dhcp-operator")
+    for key in ("hw-address=zz:zz", "hw-address='text'", "duid=nothex"):
+        r = op.put(f"{D}/reservations/{key}", json={"subnet_id": 1})
+        assert r.status_code == 400, (key, r.get_json())

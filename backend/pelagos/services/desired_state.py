@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +23,11 @@ from pelagos.services.plan_targets import check_dhcp_target, check_record_owner,
 # Fields a body never sets: the path names the object, the engine computes the rest.
 _ZONE_FIXED = frozenset({"name", "view", "role", "source", "config_path", "extra"})
 _RESERVATION_FIXED = frozenset({"id_type", "identifier", "raw"})
+_RRSET_KEYS = frozenset({"ttl", "records", "ptr", "view", "confirm"})
+# Octets separated by ":", "-" or spaces, or plain hex (optionally 0x): what Kea reads for these types.
+_HEX_ID = re.compile(r"^(?:0x)?(?:[0-9a-f]{1,2}(?:[:\- ][0-9a-f]{1,2})+|[0-9a-f]{2,})$", re.IGNORECASE)
+# RFC 2317 classless delegations ("0/25.2.0.192.in-addr.arpa") are the only zone names with "/".
+_CLASSLESS = re.compile(r"^\d+[/-]\d+\.")
 _WHOLE_OBJECT: dict[str, type] = {"class": ClientClass, "options": OptionData}
 
 
@@ -80,6 +86,13 @@ def _invalid(field: str, detail: str, message: str) -> ValidationError:
     return ValidationError(detail, [field_error(field, message)])
 
 
+def check_zone_path(name: str) -> None:
+    """`/dns/zones/<path:zone>` also matches the sub-routes (`.../records`, `.../dnssec`): a "/" in a
+    zone name other than the RFC 2317 form is a path to another endpoint, never a zone."""
+    if "/" in name and not _CLASSLESS.match(name.strip()):
+        raise _invalid("zone", f"{name!r} is not a zone name", "not a zone name")
+
+
 def _absolute(owner: str, zone: str) -> str:
     owner = owner.strip().lower()
     if owner in ("", "@"):
@@ -115,6 +128,7 @@ class DesiredStateService:
 
     def rrset(self, zone: str, owner: str, rtype: str, view: str | None) -> Convergence:
         """The RRset now and the zone's SOA serial as its ETag."""
+        check_zone_path(zone)
         zone = normalize_name(zone)
         rtype = rtype.strip().upper()
         check_record_owner(owner, zone, rtype, "delete", "owner")
@@ -139,6 +153,12 @@ class DesiredStateService:
         check_record_owner(owner, zone, rtype, op, "owner")
         ptr = None
         if body is not None:
+            unknown = sorted(k for k in body if k not in _RRSET_KEYS)
+            if unknown:
+                raise ValidationError(
+                    f"body has fields an RRset does not take: {', '.join(unknown)}",
+                    [field_error(f"body.{k}", "unknown field") for k in unknown],
+                )
             records = body.get("records")
             if not isinstance(records, list) or not records or not all(isinstance(r, str) for r in records):
                 raise ValidationError(
@@ -188,6 +208,7 @@ class DesiredStateService:
         self, name: str, body: dict[str, Any] | None, view: str | None, user: str
     ) -> Convergence:
         """`body` None deletes the zone declaration; otherwise the Zone fields wanted."""
+        check_zone_path(name)
         name = normalize_name(name)
         if body is not None:
             check_fields(body, Zone, _ZONE_FIXED)
@@ -280,6 +301,8 @@ class DesiredStateService:
                 f"reservation key {key!r} is not <id_type>=<identifier>", [field_error("key", "bad format")]
             )
         check_dhcp_target("reservation", self._reservation_target(family, key, subnet_id), family, "key")
+        if id_type in ("hw-address", "duid") and not _HEX_ID.match(identifier.strip()):
+            raise _invalid("key", f"{id_type} {identifier!r} is not hexadecimal octets", "bad identifier")
         return id_type, identifier
 
     @staticmethod

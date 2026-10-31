@@ -3297,7 +3297,10 @@ existing plan endpoint of that object (`POST /dns/zones/{zone}/records/plan`,
 `PlanService.apply`; `DELETE` does the same with a `delete` change. No other write path
 exists: validation, preconditions, impact, confirmation, audit and rollback are those of
 the plan (`POST /plans/{id}/rollback` undoes a desired write). Permissions are those of the
-plan endpoint; `GET` takes `read:dns` or `read:dhcp`.
+plan endpoint plus the read permission of the object (`read:dns` or `read:dhcp`): a `PUT` or
+`DELETE` discloses the current object (`changed`, `etag`, the plan's `before`), so a write-only
+role or token gets `403`. The plan's scope is checked right after it is built, before any
+answer shows it (the order of `POST /plans/{id}/apply`). `GET` takes `read:dns` or `read:dhcp`.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
@@ -3343,7 +3346,21 @@ plan stays in the store until its TTL, like any preview), and `{"changed": true,
   it in `etag` and in the `ETag` header. `If-Match` on `PUT` or `DELETE` names the ETag
   the client read: another value is `412 precondition_failed` (`*` matches any existing
   object). The plan's own preconditions still guard the apply.
-- Audit: the plan's entries, unchanged, with `request.op = "desired"`.
+- Audit: the plan's entries, unchanged, with `request.op = "desired"` on the entries written by
+  the node that serves the call (its summary and its node entry); entries a peer writes while
+  applying its part do not carry it, by design: the peer only sees a plan to apply.
+- `/dns/zones/<path:zone>` also matches the paths of the zone's sub-routes: a zone name holding
+  a `/` other than the RFC 2317 form (`^\d+[/-]\d+\.`) is `400 validation_error`, so
+  `PUT /dns/zones/example.lan/records` never declares a zone. (`POST /dns/zones/plan` itself does
+  not refuse such a name: unchanged here.)
+- `GET /dns/zones/{zone}` and `GET /dhcp/{family}/subnets/{id}` (namespaces DNS and DHCP) carry no
+  `ETag`: read it from a `PUT ...?dry_run=1` answer (or, for Kea, the `hash` of
+  `GET /dhcp/{family}/config`).
+- An RRset body takes `ttl`, `records`, `ptr`, `view`, `confirm` only. `ptr` rides with a change
+  of the RRset: when the RRset already matches, nothing is built, even if its PTR is missing
+  (repair it with `records/plan` and `ptr.sync`, or a host plan).
+- A `hw-address` or `duid` identifier is hexadecimal octets (`:`, `-` or space separated, or
+  plain hex); anything else is `400`. A new one is written as Kea prints it (`aa:bb:..`).
 - The verbs build on the node that answers: Kea objects need Kea on that node (as the
   plan endpoints), RRsets are applied on the zone's primary.
 

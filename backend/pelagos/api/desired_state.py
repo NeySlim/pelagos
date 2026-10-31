@@ -4,6 +4,8 @@ RRset, a zone declaration or a Kea object through the existing plan builders and
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 from flask import g, request
@@ -15,7 +17,15 @@ from pelagos.api.dhcp import FamilyResource, OneSubnet
 from pelagos.api.dns import OneZone
 from pelagos.api.errors import ApiError
 from pelagos.api.plans import _check_scope
-from pelagos.api.security import client_ip, ctx, current_session, require, services, username
+from pelagos.api.security import (
+    check_permission,
+    client_ip,
+    ctx,
+    current_session,
+    require,
+    services,
+    username,
+)
 from pelagos.domain import AuditEntry, Family, PlanState
 from pelagos.services.desired_state import Convergence, DesiredStateService
 
@@ -45,6 +55,23 @@ RRsetDesiredBody = ns.model(
         "confirm": fields.Boolean,
     },
 )
+
+
+def desired_write(write: str, read: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """A desired verb writes and also discloses the current object (changed, ETag, plan before):
+    it needs the read permission of the object as well as the write permission of its plan."""
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            check_permission(write)
+            check_permission(read)
+            return fn(*args, **kwargs)
+
+        wrapper.__pelagos_permission__ = write  # type: ignore[attr-defined]
+        return wrapper
+
+    return decorator
 
 
 def desired() -> DesiredStateService:
@@ -106,6 +133,8 @@ def converge(conv: Convergence, confirm: bool) -> tuple[dict[str, Any], int, dic
     if conv.build is None:
         return {"changed": False, "etag": conv.etag}, 200, headers
     plan = conv.build()
+    # Scope before anything about the plan is shown, as POST /plans/{id}/apply does.
+    _check_scope(plan)
     if _no_change(plan):
         ctx().plan_store.delete(plan.id)
         return {"changed": False, "etag": conv.etag}, 200, headers
@@ -117,7 +146,6 @@ def converge(conv: Convergence, confirm: bool) -> tuple[dict[str, Any], int, dic
     if not confirm and (session.token is not None or plan.requires_confirmation):
         why = "a plan applied with an API token" if session.token is not None else "this plan"
         raise ApiError("confirmation_required", f"{why} needs confirm=true", extra={"plan": plan_dict(plan)})
-    _check_scope(plan)
     g.desired_op = True
     ctx().audit_log.enrich(desired_audit_enricher)
     result = services().plans.apply(plan, session.username, confirm, client_ip())
@@ -149,7 +177,7 @@ class DesiredRRset(Resource):
     def get(self, zone: str, owner: str, rtype: str):
         return _read(desired().rrset(zone, owner, rtype, arg("view")), f"{owner} {rtype} in {zone}")
 
-    @require("write:dns.records")
+    @desired_write("write:dns.records", "read:dns")
     @ns.expect(RRsetDesiredBody)
     @ns.doc(params={**DRY_RUN, "If-Match": {"in": "header", "description": "ETag of the GET"}})
     @ns.response(200, "Converged (changed false: already so)", DesiredAnswer)
@@ -163,7 +191,7 @@ class DesiredRRset(Resource):
         conv = desired().converge_rrset(zone, owner, rtype, body, view, username())
         return converge(conv, _confirm(body))
 
-    @require("write:dns.records")
+    @desired_write("write:dns.records", "read:dns")
     @ns.doc(params={**DRY_RUN, **VIEW, **CONFIRM})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, zone: str, owner: str, rtype: str):
@@ -177,7 +205,7 @@ class DesiredRRset(Resource):
 class DesiredZone(OneZone):
     """GET is the zone detail of the DNS namespace; PUT and DELETE converge the declaration."""
 
-    @require("write:dns.zones")
+    @desired_write("write:dns.zones", "read:dns")
     @ns.expect(m.Zone)
     @ns.doc(params={**DRY_RUN, **VIEW})
     @ns.response(200, "Converged; ETag: hash of the declaration", DesiredAnswer)
@@ -190,7 +218,7 @@ class DesiredZone(OneZone):
         conv = desired().converge_zone(zone, _strip(body, "view", "confirm"), view, username())
         return converge(conv, _confirm(body))
 
-    @require("write:dns.zones")
+    @desired_write("write:dns.zones", "read:dns")
     @ns.doc(params={**DRY_RUN, **VIEW, **CONFIRM})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, zone: str):
@@ -216,7 +244,7 @@ class DesiredReservation(FamilyResource):
         conv = desired().reservation(_family(family), key, int_arg("subnet_id"), arg("node_id"))
         return _read(conv, f"reservation {key}")
 
-    @require("write:dhcp.reservations")
+    @desired_write("write:dhcp.reservations", "read:dhcp")
     @ns.expect(m.Reservation)
     @ns.doc(params=DRY_RUN)
     @ns.response(200, "Converged", DesiredAnswer)
@@ -228,7 +256,7 @@ class DesiredReservation(FamilyResource):
         conv = desired().converge_reservation(_family(family), key, _strip(body, "confirm"), None, username())
         return converge(conv, _confirm(body))
 
-    @require("write:dhcp.reservations")
+    @desired_write("write:dhcp.reservations", "read:dhcp")
     @ns.doc(params={**DRY_RUN, **CONFIRM, "subnet_id": "subnet id (absent: a global reservation)"})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, family: str, key: str):
@@ -241,7 +269,7 @@ class DesiredReservation(FamilyResource):
 class DesiredSubnet(OneSubnet):
     """GET is the subnet read of the DHCP namespace; PUT and DELETE converge the subnet."""
 
-    @require("write:dhcp.subnets")
+    @desired_write("write:dhcp.subnets", "read:dhcp")
     @ns.expect(m.Subnet)
     @ns.doc(params=DRY_RUN)
     @ns.response(200, "Converged; ETag: the Kea configuration hash", DesiredAnswer)
@@ -253,7 +281,7 @@ class DesiredSubnet(OneSubnet):
         conv = desired().converge_subnet(_family(family), subnet_id, _strip(body, "confirm"), username())
         return converge(conv, _confirm(body))
 
-    @require("write:dhcp.subnets")
+    @desired_write("write:dhcp.subnets", "read:dhcp")
     @ns.doc(params={**DRY_RUN, **CONFIRM})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, family: str, subnet_id: int):
@@ -270,7 +298,7 @@ class DesiredClientClass(FamilyResource):
     def get(self, family: str, name: str):
         return _read(desired().client_class(_family(family), name, arg("node_id")), f"client class {name}")
 
-    @require("write:dhcp.classes")
+    @desired_write("write:dhcp.classes", "read:dhcp")
     @ns.expect(m.ClientClass)
     @ns.doc(params=DRY_RUN)
     @ns.response(200, "Converged", DesiredAnswer)
@@ -282,7 +310,7 @@ class DesiredClientClass(FamilyResource):
         conv = desired().converge_client_class(_family(family), name, _strip(body, "confirm"), username())
         return converge(conv, _confirm(body))
 
-    @require("write:dhcp.classes")
+    @desired_write("write:dhcp.classes", "read:dhcp")
     @ns.doc(params={**DRY_RUN, **CONFIRM})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, family: str, name: str):
@@ -300,7 +328,7 @@ class DesiredOption(FamilyResource):
         conv = desired().option(_family(family), space, code, arg("node_id"))
         return _read(conv, f"option {space}/{code}")
 
-    @require("write:dhcp.options")
+    @desired_write("write:dhcp.options", "read:dhcp")
     @ns.expect(m.OptionData)
     @ns.doc(params=DRY_RUN)
     @ns.response(200, "Converged", DesiredAnswer)
@@ -312,7 +340,7 @@ class DesiredOption(FamilyResource):
         conv = desired().converge_option(_family(family), space, code, _strip(body, "confirm"), username())
         return converge(conv, _confirm(body))
 
-    @require("write:dhcp.options")
+    @desired_write("write:dhcp.options", "read:dhcp")
     @ns.doc(params={**DRY_RUN, **CONFIRM})
     @ns.response(200, "Removed (changed false: it was absent)", DesiredAnswer)
     def delete(self, family: str, space: str, code: str):

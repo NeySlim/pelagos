@@ -239,6 +239,12 @@ curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -
   `If-Match`; if the object changed meanwhile, the answer is `412` and nothing is
   written.
 - `DELETE` of an object that does not exist answers `{"changed": false}`.
+- These calls need the read permission of the object as well as the write permission of
+  its plan.
+- The zone and subnet reads (`GET /dns/zones/{zone}`, `GET /dhcp/{family}/subnets/{id}`)
+  carry no `ETag`: take it from a `?dry_run=1` answer.
+- `ptr` on an RRset applies only when the RRset changes: a missing PTR of an RRset already
+  as asked is not repaired by this call.
 
 ## Endpoints
 

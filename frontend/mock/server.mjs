@@ -2822,7 +2822,7 @@ function buildHandlers(state, emit) {
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
     ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),
     // F0-DESIRED
-    ...desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, emit, call: (spec, args) => handlers[spec](args) }),
+    ...desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, emit, hasPermission, call: (spec, args) => handlers[spec](args) }),
   }
   return handlers
 }

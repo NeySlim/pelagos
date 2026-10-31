@@ -57,6 +57,8 @@ describe('desired state verbs', () => {
     expect((await call('PUT', url, { records: ['192.0.2.78'] }, { 'if-match': read.etag })).data.changed).toBe(true)
     expect((await call('DELETE', url)).data.changed).toBe(true)
     expect((await call('DELETE', url)).data.changed).toBe(false)
+    expect((await call('PUT', url, { records: ['192.0.2.1'], rdata: [] })).status).toBe(400)
+    expect((await call('PUT', '/dhcp/v4/options/dhcp4/6', { data: '192.0.2.1', 'csv-format': true })).status).toBe(400)
   })
 
   it('converges a reservation and asks confirmation where the plan does', async () => {

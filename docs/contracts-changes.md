@@ -22,7 +22,8 @@ Section 17 gains "Desired state verbs": `GET|PUT|DELETE /dns/zones/{zone}/rrsets
 `PlanService.apply`: no new write path, confirmation rule of `/plans/{id}/apply`. Additive; the
 existing `GET /dns/zones/{zone}` and `GET /dhcp/{family}/subnets/{id}` are unchanged. Plan audit
 entries written by these verbs carry `request.op = "desired"`. Frontend: `endpoints.js`, `api.js`
-(`api.desired`), mock `desired.mjs`. Reacts: E2-ANSIBLE, E3-TERRAFORM (clients of these verbs).
+(`api.desired`), mock `desired.mjs`. Reacts: E2-ANSIBLE, E3-TERRAFORM (clients of these verbs). A PUT or DELETE needs the object's read
+permission as well as the plan's write permission; a zone name with `/` other than RFC 2317 is `400`.
 
 ## 2026-10-31, F0-HOSTS: host join cache and GET /search
 New `GET /search?q=&limit=` (section 17, Search; `api/search.py`, `services/search_service.py`):

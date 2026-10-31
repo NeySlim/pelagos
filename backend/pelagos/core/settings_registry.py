@@ -191,6 +191,8 @@ REGISTRY: tuple[Setting, ...] = (
     S("collector.consistency_seconds", "integer", 900, 60, 7 * DAY, "seconds"),
     S("collector.live_seconds", "integer", 5, 1, 300, "seconds"),
     S("collector.lease_watch_max_leases", "integer", 50000, 0, 10_000_000, "leases"),
+    # F0-HOSTS: web process cache of the hosts join (section 15, Host join cache)
+    S("collector.hosts_cache_max_age_seconds", "integer", 60, 0, 3600, "seconds"),
     # Retention
     S("retention.pool_raw_days", "integer", 7, 1, 3650, "days"),
     S("retention.pool_hourly_days", "integer", 365, 1, 3650, "days"),

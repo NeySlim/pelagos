@@ -709,6 +709,14 @@
       "unit": "leases"
     },
     {
+      "key": "collector.hosts_cache_max_age_seconds",
+      "type": "integer",
+      "default": 60,
+      "min": 0,
+      "max": 3600,
+      "unit": "seconds"
+    },
+    {
       "key": "retention.pool_raw_days",
       "type": "integer",
       "default": 7,

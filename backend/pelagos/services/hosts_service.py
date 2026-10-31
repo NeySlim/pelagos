@@ -1,18 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 """Hosts service: the join of lease, reservation and A/AAAA/PTR by MAC, then IP, then name.
 
-Nothing is persisted: every call re-reads leases and reservations from Kea and
-records from BIND, and attaches the open inconsistency alerts about the host.
+Nothing is persisted: leases, reservations and zone records come through the
+HostCache (section 15, Host join cache), which reads them again when they change
+or age out; the open inconsistency alerts are attached on every call.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Hashable, Iterable, Mapping
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Any
 
 from pelagos.connectors.kea.configfile import FileDiverged
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     Alert,
@@ -45,6 +49,7 @@ from pelagos.services.errors import (
     ValidationError,
     field_error,
 )
+from pelagos.services.host_cache import HostCache
 from pelagos.services.plan_service import PlanService
 
 MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
@@ -112,6 +117,29 @@ def _join(dhcp_rows: Iterable[Lease | Reservation], records: Iterable[list[RRset
     return join
 
 
+@dataclass
+class _Read:
+    leases: list[Lease] = dc_field(default_factory=list)
+    reservations: list[Reservation] = dc_field(default_factory=list)
+    reservation_families: list[str] = dc_field(default_factory=list)
+    records: dict[str, list[RRset]] = dc_field(default_factory=dict)
+    zones: list[dict[str, Any]] = dc_field(default_factory=list)
+    errors: dict[str, str] = dc_field(default_factory=dict)
+
+
+@dataclass
+class HostsSnapshot:
+    """The hosts join and its sources, shared read-only between requests: never mutate."""
+
+    hosts: list[Host]
+    leases: list[Lease]
+    reservations: list[Reservation]
+    reservation_families: list[str]  # "v4" or "v6", one per reservation
+    records: dict[str, list[RRset]]
+    zones: list[dict[str, Any]]
+    errors: dict[str, str]
+
+
 def _sorted_hosts(join: _Join) -> list[Host]:
     return sorted(join.hosts.values(), key=lambda h: (_ip_sort(h.ips[0]) if h.ips else (9, 0), h.key))
 
@@ -125,6 +153,7 @@ class HostsService:
         dhcp6: DhcpService | None,
         alerts: AlertsService | None = None,
         plans: PlanService | None = None,
+        cache: HostCache | None = None,
     ) -> None:
         self.ctx = ctx
         self.dns = dns
@@ -132,6 +161,59 @@ class HostsService:
         self.dhcp6 = dhcp6
         self.alerts = alerts
         self.plans = plans
+        self.cache = cache or HostCache(self._max_age)
+
+    def _max_age(self) -> float:
+        return float(reg.get(self.ctx.settings(), "collector.hosts_cache_max_age_seconds"))
+
+    # Cached reads -------------------------------------------------------
+
+    def _dhcp_node(self, dhcp: DhcpService) -> str:
+        return self.ctx.node.id if dhcp.local is not None else "peer"
+
+    def _leases(self, dhcp: DhcpService) -> tuple[list[Lease], bool]:
+        """(leases, partial) of one engine; the lease events and the age refresh it."""
+
+        def load() -> tuple[list[Lease], bool]:
+            rows, _node, partial = dhcp.all_leases()
+            return rows, partial
+
+        return self.cache.get(f"leases:{self._dhcp_node(dhcp)}:{dhcp.engine.value}", None, load)
+
+    def _reservations(self, dhcp: DhcpService) -> list[Reservation]:
+        """Every reservation of one engine, read again when the local Kea's config hash moves."""
+        fresh: Hashable | None = None
+        if dhcp.local is not None:
+            try:
+                fresh = dhcp.local.config_hash()
+            except Exception:  # an unanswered hash leaves the age and the events to decide
+                fresh = None
+        key = f"reservations:{self._dhcp_node(dhcp)}:{dhcp.engine.value}"
+        return self.cache.get(key, fresh, lambda: dhcp.reservations(None, None))
+
+    def _records(
+        self,
+        name: str,
+        view: str | None,
+        serials: Mapping[str, Any] | None,
+        node_id: str | None = None,
+        ask_view: bool = True,
+    ) -> list[RRset]:
+        """A zone's records, read again (AXFR) only when a node's serial moved or the entry aged out.
+        `view` keys the entry; without `ask_view` the read names no view (it reaches that one)."""
+        assert self.dns is not None
+        node = node_id or (self.ctx.node.id if self.dns.local is not None else "peer")
+        # The serial of the node read when it is this one; through a peer, every node's.
+        own = (serials or {}).get(node)
+        fresh: Hashable | None = (
+            own if own is not None else (tuple(sorted(serials.items())) if serials else None)
+        )
+        key = f"zone:{view or DEFAULT_VIEW}/{normalize_name(name)}:{node}"
+        dns = self.dns
+        asked = view if ask_view else None
+        if node_id is None:
+            return self.cache.get(key, fresh, lambda: dns.records(name, asked)[0])
+        return self.cache.get(key, fresh, lambda: dns.records(name, asked, node_id=node_id)[0])
 
     # Join ---------------------------------------------------------------
 
@@ -161,31 +243,9 @@ class HostsService:
         """`collect_judged` plus the records read, by zone name. `zones`: the read node's zone list
         when the caller has it; `remote`: zones read from other nodes, by zone then node, with
         the views to read there."""
-        dhcp_rows: list[Lease | Reservation] = []
-        errors: dict[str, str] = {}
-        for dhcp in self._dhcp_services():
-            try:
-                leases, _node, partial = dhcp.all_leases()
-                if partial:
-                    errors[f"{dhcp.engine.value}.leases"] = (
-                        f"partial: only the first {len(leases)} leases read"
-                    )
-            except ServiceError as exc:
-                errors[f"{dhcp.engine.value}.leases"] = exc.detail
-                leases = []
-            dhcp_rows += leases
-            try:
-                dhcp_rows += dhcp.reservations(None, None)
-            except ServiceError as exc:
-                errors[f"{dhcp.engine.value}.reservations"] = exc.detail
-        records: dict[str, list[RRset]] = {}
-        if self.dns is not None:
-            try:
-                records = self._zone_records(errors, zones, remote or {})
-            except ServiceError as exc:
-                errors["dns"] = exc.detail
-            except ConnectorError as exc:
-                errors["dns"] = str(exc)
+        read = self._read(zones, remote)
+        records, errors = read.records, read.errors
+        dhcp_rows: list[Lease | Reservation] = [*read.leases, *read.reservations]
         join = _join(dhcp_rows, records.values())
         if self.alerts is not None:
             for alert in self.alerts.open_inconsistencies():
@@ -198,6 +258,62 @@ class HostsService:
             subset = _sorted_hosts(_join(dhcp_rows, (r for z, r in records.items() if z in names)))
         return _sorted_hosts(join), subset, records, errors
 
+    def _read(
+        self,
+        zones: list[dict[str, Any]] | None = None,
+        remote: Mapping[str, Mapping[str, list[str]]] | None = None,
+    ) -> _Read:
+        """Leases, reservations and records through the cache, with the per-source errors."""
+        out = _Read()
+        for dhcp in self._dhcp_services():
+            try:
+                leases, partial = self._leases(dhcp)
+                if partial:
+                    out.errors[f"{dhcp.engine.value}.leases"] = (
+                        f"partial: only the first {len(leases)} leases read"
+                    )
+            except ServiceError as exc:
+                out.errors[f"{dhcp.engine.value}.leases"] = exc.detail
+                leases = []
+            out.leases += leases
+            try:
+                rows = self._reservations(dhcp)
+                out.reservations += rows
+                out.reservation_families += [dhcp.family.value] * len(rows)
+            except ServiceError as exc:
+                out.errors[f"{dhcp.engine.value}.reservations"] = exc.detail
+        if self.dns is not None:
+            try:
+                if zones is None:
+                    zones = self.dns.zones()
+                out.zones = zones
+                out.records = self._zone_records(out.errors, zones, remote or {})
+            except ServiceError as exc:
+                out.errors["dns"] = exc.detail
+            except ConnectorError as exc:
+                out.errors["dns"] = str(exc)
+        return out
+
+    def snapshot(self) -> HostsSnapshot:
+        """The joined hosts and their sources as of the last read, rebuilt when a source is read again
+        or invalidated (search reads this, not the engines)."""
+
+        def load() -> HostsSnapshot:
+            read = self._read()
+            join = _join([*read.leases, *read.reservations], read.records.values())
+            return HostsSnapshot(
+                hosts=_sorted_hosts(join),
+                leases=read.leases,
+                reservations=read.reservations,
+                reservation_families=read.reservation_families,
+                records=read.records,
+                zones=read.zones,
+                errors=read.errors,
+            )
+
+        held = self.cache.peek("join:snapshot")
+        return held if held is not None else self.cache.get("join:snapshot", None, load)
+
     def _zone_records(
         self,
         errors: dict[str, str],
@@ -209,16 +325,17 @@ class HostsService:
         read (a refused AXFR, no node answering) is named in `errors["dns.zones"]`."""
         assert self.dns is not None
         zones = [
-            z["zone"]
+            z
             for z in (self.dns.zones() if listed is None else listed)
             if z["zone"]["kind"] in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
             and not bulk_zone(z["zone"])
         ]
         out: dict[str, list[RRset]] = {}
         unread: list[str] = []
-        for zone in zones:
+        for item in zones:
+            zone = item["zone"]
             try:
-                rrsets, _node = self.dns.records(zone["name"], zone.get("view"))
+                rrsets = self._records(zone["name"], zone.get("view"), item.get("serials"))
             except NotFound:
                 continue  # removed since the zone list was read
             except ServiceError as exc:
@@ -232,7 +349,7 @@ class HostsService:
             failed: list[str] = []
             for node_id, views in sorted(holders.items()):
                 try:
-                    read = [self.dns.records(name, view, node_id=node_id)[0] for view in views]
+                    read = [self._records(name, view, None, node_id) for view in views]
                 except (ServiceError, ConnectorError) as exc:
                     failed.append(f"{node_id}: {getattr(exc, 'detail', None) or exc}")
                     continue
@@ -338,13 +455,14 @@ class HostsService:
         from pelagos.collector.events import send_signal
         from pelagos.services import consistency
 
-        leases, reservations = [], []
+        leases: list[Lease] = []
+        reservations: list[Reservation] = []
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
             try:
-                rows, _node, partial = dhcp.all_leases()
+                rows, partial = self._leases(dhcp)
                 leases += rows
-                reservations += dhcp.reservations(None, None)
+                reservations += self._reservations(dhcp)
                 if partial:
                     # Missing leases would read as DHCID/PTR records without a lease.
                     errors[dhcp.engine.value] = f"partial: only the first {len(rows)} leases read"
@@ -392,12 +510,24 @@ class HostsService:
         """Records of the primary and secondary zones; an unread zone is named in `errors["dns.zones"]`."""
         assert self.dns is not None
         unread: list[str] = []
-        for item in self.dns.zones():
+        items = self.dns.zones()
+        views: dict[str, list[str]] = {}
+        serials: dict[tuple[str, str], Any] = {}
+        for item in items:
+            view = item["zone"].get("view") or DEFAULT_VIEW
+            views.setdefault(item["zone"]["name"], []).append(view)
+            serials[(item["zone"]["name"], view)] = item.get("serials")
+        for item in items:
             zone = item["zone"]
             if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value) or bulk_zone(zone):
                 continue
+            # A read without a view reaches _default, else the first view holding the zone (pick_zone).
+            seen = views[zone["name"]]
+            effective = DEFAULT_VIEW if DEFAULT_VIEW in seen else seen[0]
             try:
-                rrsets, _node = self.dns.records(zone["name"])
+                rrsets = self._records(
+                    zone["name"], effective, serials[(zone["name"], effective)], ask_view=False
+                )
             except NotFound:
                 continue  # removed since the zone list was read
             except ServiceError as exc:

@@ -403,7 +403,8 @@
         "peer_poll_seconds": "Interrogation des pairs",
         "consistency_seconds": "Passe de cohérence",
         "live_seconds": "Passe rapide : battements HA et suivi des baux",
-        "lease_watch_max_leases": "Suivi des baux : plus grande table parcourue"
+        "lease_watch_max_leases": "Suivi des baux : plus grande table parcourue",
+        "hosts_cache_max_age_seconds": "Vue des hôtes : âge maximal d'une lecture en cache"
       },
       "retention": {
         "pool_raw_days": "Séries brutes des pools",
@@ -549,7 +550,8 @@
         "api_token_critical_days": "L'alerte devient critique ce délai avant."
       },
       "collector": {
-        "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi)."
+        "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi).",
+        "hosts_cache_max_age_seconds": "Les baux, réservations et enregistrements lus pour la vue des hôtes et la recherche sont relus après cet âge, ou plus tôt s'ils changent (0 : chaque requête relit)."
       },
       "dns": {
         "view_keys": "Une vue autre que _default est atteinte avec sa propre clé TSIG : la clé de mise à jour, et une clé de transfert si elle diffère.",

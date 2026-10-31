@@ -403,7 +403,8 @@
         "peer_poll_seconds": "Peer poll",
         "consistency_seconds": "Consistency pass",
         "live_seconds": "Live pass: HA heartbeats and lease watch",
-        "lease_watch_max_leases": "Lease watch: largest lease table walked"
+        "lease_watch_max_leases": "Lease watch: largest lease table walked",
+        "hosts_cache_max_age_seconds": "Hosts view: largest age of a cached read"
       },
       "retention": {
         "pool_raw_days": "Raw pool series",
@@ -549,7 +550,8 @@
         "api_token_critical_days": "The alert turns critical this long before."
       },
       "collector": {
-        "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off)."
+        "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off).",
+        "hosts_cache_max_age_seconds": "Leases, reservations and zone records read for the hosts view and search are read again after this age, or sooner when they change (0: every request reads again)."
       },
       "dns": {
         "view_keys": "A view other than _default is reached with its own TSIG key: the update key, and a transfer key when it differs.",

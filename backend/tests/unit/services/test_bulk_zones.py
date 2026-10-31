@@ -61,10 +61,12 @@ def test_global_views_skip_policy_and_catalog_zones(services) -> None:
     _hosts, errors = svc.hosts.list()
     assert "dns.zones" not in errors
     _clean(read)
+    svc.hosts.cache.invalidate()  # each view reads again, not from the hosts join cache
     svc.hosts.consistency_pass()
     _clean(read)
     svc.ptr.orphans()
     _clean(read)
+    svc.hosts.cache.invalidate()
     svc.ipv6.hosts_list(None, None)
     _clean(read)
 

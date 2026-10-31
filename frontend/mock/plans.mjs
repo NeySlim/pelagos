@@ -80,6 +80,9 @@ export function createPlan(state, user, spec) {
     expires_at: iso(created + ttl),
     error: refused ? refused.text : failed ? 'Validation failed' : null,
     error_message: refused ? refused.message : null,
+    interrupted: false,
+    finished_at: null,
+    rollback_until: null,
   }
   state.plans.set(plan.id, { plan, apply: spec.apply, rollback: spec.rollback, job: spec.job, creator: user.username, onStart: spec.onStart, onStep: spec.onStep, onStepDone: spec.onStepDone, onFail: spec.onFail })
   state.emit?.('plans', 'validated', planPhase(state, plan, plan.state))
@@ -102,6 +105,28 @@ export function planStep(state, plan, nodeId, verb, ok = null, message = null) {
   const data = { plan_id: plan.id, scope: plan.scope, node_id: nodeId, origin_node_id: state.selfId, verb, state: ok === null ? 'running' : ok ? 'done' : 'failed' }
   if (ok !== null) Object.assign(data, { ok, outcome_unknown: false, message, duration_ms: state.applyNodeMs || 0 })
   return data
+}
+
+// A swept plan answers 410 like the backend's tombstones; an unknown id 404.
+export function gonePlan(state, id) {
+  if (state.planTombstones?.has(id)) return { status: 410, code: 'plan_expired', detail: `plan ${id} expired` }
+  return { status: 404, code: 'not_found', detail: `plan ${id} not found` }
+}
+
+// Section 6, rollback window: job scopes (no rollback backend) never get a rollback_until.
+const NO_ROLLBACK_SCOPES = new Set(['install', 'import', 'security', 'kea.migration'])
+
+function windowMs(state) {
+  return (state.settings.plans?.rollback_window_seconds || 86400) * 1000
+}
+
+// An apply or rollback ended: the plan is kept (and listed) for the window from now.
+export function finishPlan(state, plan) {
+  const now = Date.now()
+  plan.finished_at = iso(now)
+  plan.expires_at = iso(now + windowMs(state))
+  const rollable = plan.state === 'applied' || (plan.state === 'failed' && plan.interrupted)
+  plan.rollback_until = rollable && !NO_ROLLBACK_SCOPES.has(plan.scope) ? plan.expires_at : null
 }
 
 export function isExpired(plan) {
@@ -215,7 +240,7 @@ function movedPrecondition(state, plan) {
 // Returns { status, body } for POST /plans/{id}/apply.
 export function applyPlan(state, user, id, confirm, emit) {
   const held = state.plans.get(id)
-  if (!held) return { status: 404, code: 'not_found', detail: `plan ${id} not found` }
+  if (!held) return gonePlan(state, id)
   const { plan } = held
   const denied = scopeDenied(user, plan)
   if (denied) return denied
@@ -247,14 +272,14 @@ export function applyPlan(state, user, id, confirm, emit) {
     plan.error = err.message
     const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'error', message: err.message })
     emit('plans', 'step', planStep(state, plan, first, 'apply', false, err.message))
-    const result = { plan_id: plan.id, state: 'failed', results: nodeResults(state, plan, false, err.message, [entry.id]), finished_at: iso(Date.now()) }
+    finishPlan(state, plan)
+    const result = { plan_id: plan.id, state: 'failed', results: nodeResults(state, plan, false, err.message, [entry.id]), finished_at: plan.finished_at, rollback_until: null }
     emit('plans', 'failed', result)
     return { status: 200, body: result }
   }
   bumpConfigHashes(state, plan)
   plan.state = 'applied'
-  // Rollback stays allowed for the plan TTL after apply.
-  plan.expires_at = iso(Date.now() + (state.settings.plans?.ttl_seconds || 600) * 1000)
+  finishPlan(state, plan)
   // The node entry of section 6: its request names the entry kind and the verb.
   const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, request: { entry: 'node', verb: 'apply' } })
   emit('audit', 'entry', entry)
@@ -263,20 +288,23 @@ export function applyPlan(state, user, id, confirm, emit) {
     emit('plans', 'step', planStep(state, plan, node, 'apply'))
     emit('plans', 'step', planStep(state, plan, node, 'apply', true, message))
   }
-  const result = { plan_id: plan.id, state: 'applied', results: nodeResults(state, plan, true, message, [entry.id]), finished_at: iso(Date.now()) }
+  const result = { plan_id: plan.id, state: 'applied', results: nodeResults(state, plan, true, message, [entry.id]), finished_at: plan.finished_at, rollback_until: plan.rollback_until }
   emit('plans', 'applied', result)
   return { status: 200, body: result }
 }
 
 export function rollbackPlan(state, user, id, emit) {
   const held = state.plans.get(id)
-  if (!held) return { status: 404, code: 'not_found', detail: `plan ${id} not found` }
+  if (!held) return gonePlan(state, id)
   const { plan } = held
   const denied = scopeDenied(user, plan)
   if (denied) return denied
-  if (plan.state !== 'applied') return { status: 409, code: 'plan_state', detail: `plan is ${plan.state}` }
   if (isExpired(plan)) return { status: 410, code: 'plan_expired', detail: 'plan expired' }
-  if (!held.rollback) return { status: 501, code: 'not_supported', detail: 'this plan cannot be rolled back' }
+  if (plan.state !== 'applied') return { status: 409, code: 'plan_state', detail: `plan is ${plan.state}` }
+  if (plan.rollback_until && Date.parse(plan.rollback_until) < Date.now()) return { status: 410, code: 'plan_expired', detail: `plan could be rolled back until ${plan.rollback_until}` }
+  if ((!plan.rollback_until && plan.finished_at) || !held.rollback) return { status: 409, code: 'plan_state', detail: 'this plan does not roll back' }
+  // Test hook: the state moved since the apply (a connector's check_rollback refuses, section 6).
+  if (held.rollbackRefusal) return { status: 409, code: 'precondition_failed', detail: held.rollbackRefusal }
   emit('plans', 'rolling_back', planPhase(state, plan, 'rolling_back'))
   const order = [...plan.target_node_ids].reverse()
   for (const node of order.slice(0, -1)) {
@@ -288,6 +316,7 @@ export function rollbackPlan(state, user, id, emit) {
   held.rollback()
   bumpConfigHashes(state, plan)
   plan.state = 'rolled_back'
+  finishPlan(state, plan)
   const entry = auditEntry(state, user, { action: `${plan.scope}.rollback`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'rolled_back', request: { entry: 'node', verb: 'rollback' } })
   emit('audit', 'entry', entry)
   emit('plans', 'step', planStep(state, plan, last, 'rollback', true, 'rolled back'))
@@ -295,7 +324,8 @@ export function rollbackPlan(state, user, id, emit) {
     plan_id: plan.id,
     state: 'rolled_back',
     results: plan.target_node_ids.map((node_id) => ({ node_id, ok: true, message: 'rolled back', rolled_back: true, audit_ids: [entry.id] })),
-    finished_at: iso(Date.now()),
+    finished_at: plan.finished_at,
+    rollback_until: null,
   }
   emit('plans', 'rolled_back', result)
   return { status: 200, body: result }
@@ -322,6 +352,7 @@ function startJob(state, user, held, emit) {
       job.progress = 100
       job.finished_at = iso(Date.now())
       held.plan.state = 'applied'
+      finishPlan(state, held.plan)
       held.apply?.()
       const entry = auditEntry(state, user, { action: `${held.plan.scope}.apply`, target: held.plan.scope, plan_id: held.plan.id, diff: held.plan.diff })
       emit('audit', 'entry', entry)
@@ -337,6 +368,7 @@ function startJob(state, user, held, emit) {
       Object.assign(job, { state: 'failed', error: `${step.name} failed`, finished_at: iso(Date.now()) })
       held.plan.state = 'failed'
       held.plan.error = job.error
+      finishPlan(state, held.plan)
       held.onFail?.(index)
       emit('jobs', 'failed', job)
       return
@@ -349,4 +381,49 @@ function startJob(state, user, held, emit) {
   }
   tick()
   return job
+}
+
+const SUMMARY_FIELDS = [
+  'id', 'scope', 'engine', 'node_id', 'summary', 'summary_message', 'created_by', 'created_at', 'state',
+  'expires_at', 'finished_at', 'rollback_until', 'interrupted', 'error', 'error_message',
+  'target_node_ids', 'requires_confirmation',
+]
+const PLAN_STATES = new Set(['draft', 'validated', 'applying', 'applied', 'failed', 'rolled_back', 'expired'])
+
+// Drops plans past expires_at, each published once as plans/expired (section 18).
+export function sweepPlans(state, emit) {
+  for (const [id, held] of state.plans) {
+    if (!isExpired(held.plan) || held.plan.state === 'applying') continue
+    state.plans.delete(id)
+    ;(state.planTombstones ||= new Set()).add(id)
+    const { plan } = held
+    const shown = plan.state === 'validated' || plan.state === 'draft' ? 'expired' : plan.state
+    emit?.('plans', 'expired', { plan_id: plan.id, scope: plan.scope, state: shown, finished_at: plan.finished_at ?? null, expired_at: plan.expires_at })
+  }
+}
+
+// GET /plans (F0-PLANS): this node's plans, read:audit sees all, others their own.
+export function plansHandlers(state, { Problem, invalid, hasPermission, emit }) {
+  return {
+    'GET /plans': ({ query, user }) => {
+      sweepPlans(state, emit)
+      const states = query.get('state') ? query.get('state').split(',').map((s) => s.trim()).filter(Boolean) : null
+      if (states && states.some((s) => !PLAN_STATES.has(s))) throw invalid('state', 'unknown state')
+      const scope = query.get('scope')
+      if (scope && !Object.keys(SCOPE_PERMISSIONS).concat(['restore', 'admin']).some((s) => s.startsWith(scope))) throw invalid('scope', 'unknown scope')
+      let who = query.get('user')
+      if (!hasPermission(user, 'read:audit')) {
+        if (who && who !== user.username) throw new Problem(403, 'forbidden', "requires read:audit to list another user's plans")
+        who = user.username
+      }
+      const rows = [...state.plans.values()]
+        .map((h) => h.plan)
+        .filter((p) => (!states || states.includes(p.state)) && (!who || p.created_by === who) && (!scope || p.scope.startsWith(scope)))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      const page = Math.max(1, parseInt(query.get('page') || '1', 10) || 1)
+      const perPage = Math.min(500, Math.max(1, parseInt(query.get('per_page') || '50', 10) || 50))
+      const items = rows.slice((page - 1) * perPage, page * perPage).map((p) => Object.fromEntries(SUMMARY_FIELDS.map((k) => [k, p[k] ?? null])))
+      return { items, page, per_page: perPage, total: rows.length, meta: { node_id: state.selfId } }
+    },
+  }
 }

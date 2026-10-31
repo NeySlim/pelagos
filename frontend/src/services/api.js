@@ -181,6 +181,8 @@ export const hosts = {
 }
 
 export const plans = {
+  // F0-PLANS: this node's plans, newest first (state, user, scope, page, per_page)
+  list: (params) => apiClient.get(`/plans${buildQueryString(params)}`),
   get: (id) => apiClient.get(`/plans/${enc(id)}`),
   // extra: {password} for a plan of scope update (section 29)
   apply: (id, confirm = false, extra = {}) => apiClient.post(`/plans/${enc(id)}/apply`, { confirm, ...extra }),

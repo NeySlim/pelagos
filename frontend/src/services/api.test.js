@@ -127,6 +127,8 @@ const invocations = [
   () => api.desired.putSubnet('v4', 1, { valid_lifetime: 900 }), () => api.desired.deleteSubnet('v4', 1),
   () => api.desired.clientClass('v4', 'voip'), () => api.desired.putClientClass('v4', 'voip', {}), () => api.desired.deleteClientClass('v4', 'voip'),
   () => api.desired.option('v4', 'dhcp4', '6'), () => api.desired.putOption('v4', 'dhcp4', '6', { data: '192.0.2.53' }), () => api.desired.deleteOption('v4', 'dhcp4', '6'),
+  // F0-PLANS
+  () => api.plans.list({ state: 'applied', page: 1 }),
 ]
 
 describe('api.js', () => {

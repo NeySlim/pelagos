@@ -12,7 +12,7 @@ import { ENDPOINTS } from '../src/services/endpoints.js'
 import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from '../src/pages/alerts/kinds.js'
 import { passwordProblem } from '../src/lib/password.js'
 import { createState, iso, ulid, ALL_PERMISSIONS, SCENARIOS } from './data.mjs'
-import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
+import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin, plansHandlers, gonePlan } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
@@ -1320,11 +1320,14 @@ function buildHandlers(state, emit) {
   const kea = (family) => (family === 'v4' ? 'kea4' : 'kea6')
   const keaTool = (family) => `kea-dhcp${family === 'v4' ? '4' : '6'} -t`
   const nodeOr = (q) => q.get('node_id') || state.selfId
-  // GET and DELETE /plans/{id}: creator or admin.
-  const ownPlan = (id, user) => {
+  // GET and DELETE /plans/{id}: creator or admin; read:audit also reads (F0-PLANS).
+  const ownPlan = (id, user, read = false) => {
     const held = state.plans.get(id)
-    if (!held) throw notFound(`plan ${id}`)
-    if (held.creator !== user.username && !isAdmin(user)) throw new Problem(403, 'forbidden', 'only the creator or an admin can see this plan')
+    if (!held) {
+      const gone = gonePlan(state, id)
+      throw new Problem(gone.status, gone.code, gone.detail)
+    }
+    if (held.creator !== user.username && !isAdmin(user) && !(read && hasPermission(user, 'read:audit'))) throw new Problem(403, 'forbidden', 'only the creator or an admin can see this plan')
     return held
   }
   // Failed logins per username; 5 within a minute answer 429 until they age out.
@@ -2388,7 +2391,7 @@ function buildHandlers(state, emit) {
 
     // Plans and jobs
     'GET /plans/{id}': ({ params, user }) => {
-      const held = ownPlan(params.id, user)
+      const held = ownPlan(params.id, user, true)
       if (held.plan.state === 'validated' && isExpired(held.plan)) held.plan.state = 'expired'
       return held.plan
     },
@@ -2542,7 +2545,7 @@ function buildHandlers(state, emit) {
       const target = query.get('target')
       const items = state.audit.filter(
         (e) =>
-          f('user', e.user) && f('node_id', e.node_id) && f('engine', e.engine) && f('result', e.result) &&
+          f('user', e.user) && f('node_id', e.node_id) && f('engine', e.engine) && f('result', e.result) && f('plan_id', e.plan_id) &&
           (!action || e.action.startsWith(action)) && (!target || e.target.includes(target)) &&
           (!from || Date.parse(e.ts) >= from) && (!to || Date.parse(e.ts) <= to),
       )
@@ -2823,6 +2826,8 @@ function buildHandlers(state, emit) {
     ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),
     // F0-DESIRED
     ...desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, emit, hasPermission, call: (spec, args) => handlers[spec](args) }),
+    // F0-PLANS
+    ...plansHandlers(state, { Problem, invalid, hasPermission, emit }),
   }
   return handlers
 }

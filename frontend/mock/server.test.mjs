@@ -717,7 +717,8 @@ describe('mock server', () => {
     const alice = client(await login('alice', 'alice'))
     const plan = (await alice('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./own/A', after: { ttl: 60, rdata: ['192.0.2.62'] } }] })).data
     const viewer = client(await login('viewer', 'viewer'))
-    expect((await viewer('GET', `/plans/${plan.id}`)).status).toBe(403)
+    // read:audit reads any plan, read only (section 17).
+    expect((await viewer('GET', `/plans/${plan.id}`)).status).toBe(200)
     expect((await viewer('DELETE', `/plans/${plan.id}`)).status).toBe(403)
     const denied = await viewer('POST', `/plans/${plan.id}/apply`, {})
     expect(denied.status).toBe(403)
@@ -725,6 +726,24 @@ describe('mock server', () => {
     const admin = client(await login('admin', 'admin'))
     expect((await admin('GET', `/plans/${plan.id}`)).status).toBe(200)
     expect((await alice('DELETE', `/plans/${plan.id}`)).status).toBe(204)
+  })
+
+  it('lists plans and keeps applied ones for the rollback window', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const plan = (await admin('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./f0list/A', after: { ttl: 60, rdata: ['192.0.2.63'] } }] })).data
+    const applied = (await admin('POST', `/plans/${plan.id}/apply`, { confirm: true })).data
+    expect(applied.rollback_until).toBeTruthy()
+    const list = (await admin('GET', '/plans?state=applied&scope=dns.')).data
+    const row = list.items.find((p) => p.id === plan.id)
+    expect(row.rollback_until).toBe(applied.rollback_until)
+    expect(row.diff).toBeUndefined()
+    expect(list.meta.node_id).toBeTruthy()
+    expect((await admin('GET', '/plans?state=bogus')).status).toBe(400)
+    expect((await admin('GET', `/audit?plan_id=${plan.id}`)).data.items.every((e) => e.plan_id === plan.id)).toBe(true)
+    const done = (await admin('POST', `/plans/${plan.id}/rollback`)).data
+    expect(done.state).toBe('rolled_back')
+    expect(done.rollback_until).toBeNull()
+    expect((await admin('POST', `/plans/${plan.id}/rollback`)).status).toBe(409)
   })
 
   it('rate limits failed logins per username', async () => {

@@ -352,7 +352,7 @@ class EnrollmentService:
             raise EnrollError("validation_error", f"invalid CSR: {exc}", 400) from exc
         if not new_id_:
             raise EnrollError("validation_error", "CSR lacks the urn:pelagos:node SAN", 400)
-        if req.web_url is not None and clean_web_url(req.web_url) is None:
+        if req.web_url and clean_web_url(req.web_url) is None:
             raise EnrollError(
                 "validation_error",
                 "web_url must be an http(s) URL with a host (at most 2048 characters)",

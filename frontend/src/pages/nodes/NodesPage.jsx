@@ -275,14 +275,16 @@ export default function NodesPage() {
       key: 'url',
       label: t('fields.url'),
       className: 'font-mono text-2xs break-all',
-      render: (n) =>
-        safeWebUrl(n.peer.web_url) && !n.is_self ? (
-          <a href={safeWebUrl(n.peer.web_url)} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
-            {n.peer.web_url}
+      render: (n) => {
+        const webUrl = safeWebUrl(n.peer.web_url)
+        return webUrl && !n.is_self ? (
+          <a href={webUrl} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
+            {webUrl}
           </a>
         ) : (
           n.peer.url
-        ),
+        )
+      },
     },
     ...(isAdmin
       ? [{

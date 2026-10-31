@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import glob
+import logging
 import os
 import re
 import tempfile
@@ -22,6 +23,8 @@ from pelagos.core import settings_registry
 from pelagos.core.locks import FileLock
 from pelagos.domain.cluster import ApiToken, NodeModules, Peer, Role, User, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
+
+log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 # All interfaces by default: the node serves the admin network, and TLS is mandatory.
@@ -142,6 +145,8 @@ class NodeConfig:
     paths: dict[str, str] = field(default_factory=dict)
     tls: dict[str, str] = field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
+    # An unusable web_url read from node.toml: kept on disk until the operator sets a valid one.
+    web_url_raw: str = field(default="", repr=False, compare=False)
 
     @property
     def modules(self) -> NodeModules:
@@ -157,17 +162,25 @@ class NodeConfig:
         node = data.get("node") or {}
         if "id" not in node or "name" not in node:
             raise ConfigError("node.toml needs [node] id and name")
+        raw_web_url = str(node.get("web_url") or "")
+        web_url = clean_web_url(raw_web_url) or ""
+        if raw_web_url and not web_url:
+            log.warning(
+                "node.toml web_url %r is not an http(s) URL and is ignored; set one such as https://host:8443",
+                raw_web_url,
+            )
         return cls(
             id=node["id"],
             name=node["name"],
             web_listen=node.get("web_listen", "0.0.0.0:8443"),
             replication_listen=node.get("replication_listen", "0.0.0.0:8444"),
             replication_url=node.get("replication_url", ""),
-            web_url=clean_web_url(node.get("web_url")) or "",
+            web_url=web_url,
             engines=dict(data.get("engines") or {}),
             paths=dict(data.get("paths") or {}),
             tls=dict(data.get("tls") or {}),
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
+            web_url_raw=raw_web_url if not web_url else "",
         )
 
     def to_toml(self) -> dict[str, Any]:
@@ -179,7 +192,7 @@ class NodeConfig:
                 "web_listen": self.web_listen,
                 "replication_listen": self.replication_listen,
                 "replication_url": self.replication_url,
-                "web_url": self.web_url,
+                "web_url": self.web_url or self.web_url_raw,
             },
         }
         if self.paths:

@@ -18,7 +18,7 @@ def clean_web_url(value: Any) -> str | None:
     """The value when it is an http(s) URL with a host and a bounded length, else None."""
     if not isinstance(value, str) or not value or len(value) > WEB_URL_MAX:
         return None
-    if any(c.isspace() or ord(c) < 32 for c in value):
+    if any(c.isspace() or ord(c) < 32 or c in "\x7f\\" for c in value):
         return None
     try:
         parts = urlsplit(value)

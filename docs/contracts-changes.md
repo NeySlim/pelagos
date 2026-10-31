@@ -17,7 +17,9 @@ What changed (file, symbol). Why. Which packages must react, and how.
 `POST /repl/v1/enroll` answers `400 validation_error` (with `errors: [{field: "web_url", ...}]`) when
 `web_url` is present but is not an http(s) URL with a host of at most 2048 characters. `Peer.web_url`
 and `node.toml` `web_url` read such a value (stored, replicated or received from a peer) as absent
-(`domain.cluster.clean_web_url`). The UI links a node's web_url only for http(s).
+(`domain.cluster.clean_web_url`; an empty value means absent, backslash, DEL and whitespace are refused). A legacy
+scheme-less `node.toml` value such as `ns1.example.lan:8443` is ignored with a warning at load and kept
+unchanged on disk until the operator sets an http(s) URL. The UI links a node's web_url only for http(s).
 
 ## 2026-10-30, WP-INSTALLER, WP-API: Kea migration state moves to root's directory
 Global review of the Kea migration. Root's state of a migration (`manifest.json`, `private/`,

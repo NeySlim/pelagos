@@ -12,6 +12,7 @@ from pelagos.core.config_store import NodeConfig
 from pelagos.core.enrollment import (
     MAX_TOKEN_TTL_SECONDS,
     EnrollError,
+    EnrollmentService,
     EnrollRequest,
     EnrollResponse,
     TokenStore,
@@ -125,6 +126,8 @@ def test_enroll_command_runs_as_root_with_the_peer_urls(url, web_url, web, repl)
         "//ns2/x",
         "https://ns2:99999",
         "https://ns2/ x",
+        "https://a\\@evil.example",
+        "https://ns2/\x7f",
         "https://ns2/" + "a" * 2100,
         "",
         5,
@@ -150,19 +153,39 @@ def test_node_toml_with_a_bad_web_url_loads_as_empty():
     assert node.web_url == ""
 
 
-def test_enroll_refuses_a_bad_web_url_before_burning_the_token(tmp_root):
-    from pelagos.core.enrollment import EnrollmentService
-
+def test_enroll_refuses_a_bad_web_url_before_burning_the_token(tmp_root, monkeypatch):
     svc = EnrollmentService.__new__(EnrollmentService)
     svc._ca = lambda: object()
-    req = EnrollRequest("t", "ns2", "-", {}, "https://ns2:8444", "javascript:alert(1)", "")
-    import pelagos.core.enrollment as mod
-
-    orig = mod.ca_mod.csr_node_id
-    mod.ca_mod.csr_node_id = lambda _csr: "N2"
-    try:
-        with pytest.raises(EnrollError) as err:
-            svc.enroll(req)
-    finally:
-        mod.ca_mod.csr_node_id = orig
+    svc.tokens = TokenStore()
+    token, _ = svc.tokens.issue("user:admin", ttl_seconds=60)
+    monkeypatch.setattr("pelagos.core.enrollment.ca_mod.csr_node_id", lambda _csr: "N2")
+    req = EnrollRequest(token, "ns2", "-", {}, "https://ns2:8444", "javascript:alert(1)", "")
+    with pytest.raises(EnrollError) as err:
+        svc.enroll(req)
     assert err.value.status == 400 and err.value.code == "validation_error" and err.value.field == "web_url"
+    assert svc.tokens.pending() == 1  # the token is still usable
+
+
+def test_enroll_accepts_an_empty_web_url_as_absent(tmp_root, monkeypatch):
+    svc = EnrollmentService.__new__(EnrollmentService)
+    svc._ca = lambda: object()
+    monkeypatch.setattr("pelagos.core.enrollment.ca_mod.csr_node_id", lambda _csr: "N2")
+
+    class Reached(Exception):
+        pass
+
+    def load_cluster():
+        raise Reached
+
+    svc.config_store = type("S", (), {"load_cluster": staticmethod(load_cluster)})()
+    req = EnrollRequest("t", "ns2", "-", {}, "https://ns2:8444", "", "")
+    with pytest.raises(Reached):  # past the web_url check
+        svc.enroll(req)
+
+
+def test_node_toml_keeps_a_legacy_web_url_on_disk_and_warns(caplog):
+    node = NodeConfig.from_toml({"node": {"id": "N1", "name": "ns1", "web_url": "ns1.example.lan:8443"}})
+    assert node.web_url == "" and "ns1.example.lan:8443" in caplog.text
+    assert node.to_toml()["node"]["web_url"] == "ns1.example.lan:8443"
+    node.web_url = "https://ns1.example.lan:8443"
+    assert node.to_toml()["node"]["web_url"] == "https://ns1.example.lan:8443"

@@ -286,7 +286,8 @@ first, see [AppArmor](docs/user/troubleshooting.md#apparmor)), and `lab`
 tier on Python 3.12 and 3.13, the frontend checks, the daemon tier against
 BIND 9.20 and Kea 3.2, and the end-to-end suite. A version tag runs the
 `release` workflow: full suite, packages and images built and tested for
-amd64 and arm64, then a draft GitHub release and the images on ghcr.io
+amd64 and arm64, then a draft GitHub release; the images on ghcr.io get
+their version tag and `latest` when the release is published
 ([docs/dev/release.md](docs/dev/release.md)).
 
 The frontend can run alone against a mock API: `cd frontend && npm run mock`

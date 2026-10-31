@@ -27,9 +27,11 @@ troubleshooting). The compose files are complete and live under
 | `ghcr.io/neyslim/pelagos-allinone` | Debian 13 with `bind9` from Debian, Kea 3.2 from the ISC repository (hooks included), the node, and `supervisord` running them all | `linux/amd64`, `linux/arm64` |
 
 Tags: `<version>` (`0.3.2`) and `latest` (the newest release that is not a
-pre-release). They are published by the `images` workflow
-for each release from `v0.3.2` on; earlier versions are
-built from a checkout (`make docker`, `make docker-allinone`).
+pre-release), set when the GitHub release is published, for each release
+from `v0.3.2` on (`0.3.3` excepted); earlier versions are built from a
+checkout (`make docker`, `make docker-allinone`). The `<version>-amd64` and
+`<version>-arm64` tags are the tested candidates of a release, pushed while
+it is still a draft: do not use them before the release is published.
 
 The examples pull `latest`. In production, pin a release in `.env` so that
 a `docker compose pull` never upgrades a node behind your back, and change

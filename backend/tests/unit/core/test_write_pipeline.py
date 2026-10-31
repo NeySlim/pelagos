@@ -257,3 +257,25 @@ def test_a_restored_file_of_another_owner_stays_writable_by_its_group(tmp_root, 
     monkeypatch.setattr(wp.os, "chown", chown)
     assert pipe.restore(result.backup_dir).ok
     assert zone.read_text() == "stale\n" and oct(zone.stat().st_mode & 0o777) == "0o664"
+
+
+def test_backups_in_the_same_clock_tick_get_distinct_ordered_directories(tmp_root, monkeypatch):
+    from datetime import UTC, datetime
+
+    from pelagos.core import write_pipeline as wp
+    from pelagos.core.retention import backup_time
+
+    monkeypatch.setattr(wp, "utcnow", lambda: datetime(2026, 1, 2, 3, 4, 5, 6, tzinfo=UTC))
+    target = tmp_root / "a.conf"
+    target.write_text("old\n")
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="t"),
+        reload=lambda: "ok",
+        verify=lambda: True,
+        label="x",
+    )
+    dirs = [pipe.backup([target]) for _ in range(3)]
+    assert len({d.name for d in dirs}) == 3
+    assert sorted(dirs) == dirs
+    assert all(backup_time(d) == datetime(2026, 1, 2, 3, 4, 5, 6, tzinfo=UTC) for d in dirs)

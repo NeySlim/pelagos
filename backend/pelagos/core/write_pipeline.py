@@ -6,6 +6,7 @@ from __future__ import annotations
 import fcntl
 import grp
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -271,9 +272,16 @@ class WritePipeline:
 
     def backup(self, paths: list[Path]) -> Path:
         stamp = utcnow().strftime("%Y%m%dT%H%M%S%fZ")
-        bdir = self.backup_root / f"{stamp}-{self.label or 'write'}"
+        name = f"{stamp}-{self.label or 'write'}"
         self.backup_root.mkdir(parents=True, exist_ok=True, mode=0o750)
-        bdir.mkdir(exist_ok=False, mode=0o750)
+        # Same-tick runs (coarse clock) get a numeric suffix; mkdir is the atomic claim.
+        for n in itertools.count(1):
+            bdir = self.backup_root / (name if n == 1 else f"{name}-{n}")
+            try:
+                bdir.mkdir(mode=0o750)
+                break
+            except FileExistsError:
+                continue
         manifest: list[dict[str, Any]] = []
         for i, path in enumerate(paths):
             entry: dict[str, Any] = {"path": str(path), "index": i}

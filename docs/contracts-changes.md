@@ -13,6 +13,19 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-31, F0-REPL (WP-CORE, WP-COLLECTOR): generic replicated collections and merge conflicts
+Additive. Section 10 "Generic collections": `core/collections.py` (`COLLECTIONS`, `Collection(key,
+secret_fields)`, empty in 0.4.0), `ClusterConfig.collections`, `collection()`, `record()`,
+`ConfigStore.update_collection`, `cluster_merge.records()`; a cluster without collection records
+keeps the same `cluster.toml` bytes and digest; a node that does not know a collection drops it on
+read and never tombstones it (guarantee, tested). Section 13 "Merge conflicts": write bases in
+`cluster.bases.json` (outside `cluster.toml`), `bases` in `GET`/`PUT /repl/v1/config`, `collections`
+in `/repl/v1/status`, `cluster_merge.merge_report` and `Discarded`, `ConfigStore.on_conflict`, audit
+action `replication.conflict` (section 11 verb `conflict`) and alert `replication_conflict` (info,
+section 15). Older nodes ignore the new members. Epics adding a collection (E2-IPAM-1, E2-SSO-OIDC,
+E2-TEMPLATES, E3-DELEG, E3-APPROVAL) add one line to `COLLECTIONS` and use `cfg.collection()`.
+WP-COLLECTOR raises the alert from the audit entries.
+
 ## 2026-10-31, F0-DESIRED: desired state verbs
 Section 17 gains "Desired state verbs": `GET|PUT|DELETE /dns/zones/{zone}/rrsets/{owner}/{type}`,
 `PUT|DELETE /dns/zones/{zone}`, `GET|PUT|DELETE /dhcp/{family}/reservations/{id_type}={identifier}`,
@@ -2332,7 +2345,6 @@ and the mock server (`mock/updates.mjs`: signed, unsigned, unknown-key and alter
 with the extra confirmation and the password, a rollout that advances with `updateStepMs`, a
 failing node rolled back, resume, cancel, rollback, history, engine packages) for U6. WP-PACKAGING
 (U1): `make release` writes `release.json` and signs only when `PELAGOS_RELEASE_KEY` names a key.
-
 
 ## 2026-10-30, 0.3.0 (item 81, lot F6): hosts, PTR and alerts
 Sections 15 and 17. `ptr_mismatch` is grouped by cause: subjects `ptr:missing` (warning) and

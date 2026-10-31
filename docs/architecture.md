@@ -1750,6 +1750,91 @@ at the root, and `collector.lease_watch_max`. Migration:
 - `PUT /admin/settings` accepts former names too and stores them under the
   current ones (the current name wins when a body carries both).
 
+### Generic collections
+
+A replicated collection is a list of records in `cluster.toml` that an epic
+adds without touching the merge (`[[networks]]`, `[[auth_providers]]`,
+`[[templates]]`, `[[role_scopes]]`, `[[approvals]]`). The only list is
+`core/collections.py`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class Collection:
+    key: str = "id"                         # identity field: one record per value, a string
+    secret_fields: tuple[str, ...] = ()     # top-level fields masked in conflict audit entries
+
+COLLECTIONS: dict[str, Collection] = {}     # name -> definition; empty until an epic adds a line
+# e.g. "networks": Collection(),  "auth_providers": Collection(secret_fields=("client_secret",))
+```
+
+Adding a collection is one line there plus its tests; nothing else in
+`core/` changes. Rules:
+
+- Names are snake_case plurals, never a core section (`nodes`, `users`,
+  `roles`, `exceptions`, `api_tokens`, `revoked`, `modules`, `settings`,
+  `secrets`, `replication`) nor a header key. `test_collections.py` checks
+  every entry against these rules.
+- Records are flat TOML tables whose values are strings, numbers, booleans,
+  lists or nested tables. The identity value is a string (an id from
+  `domain.common.new_id()` unless the epic names another natural key); a
+  record without it is dropped at load, like a damaged `[[exceptions]]` item.
+  Identity is immutable: renaming a key is a delete plus a create.
+- Clear secrets never go in a record: a record names a `[secrets]` entry
+  (`secrets/<collection>/<id>/<field>`, sealed as in section 12). The
+  `secret_fields` list is for fields that hold a hash or a sealed value.
+- Uniqueness of any field other than the identity (a prefix, a name) is the
+  service's check before the write. The merge never deduplicates
+  collections: two nodes creating the same prefix concurrently end with two
+  records, and the epic's consistency check reports it.
+
+Merge (section 13): each collection is a record list exactly like `users`
+or `api_tokens`. `cluster_merge.records()` returns the core record lists
+plus every `COLLECTIONS` entry (`cluster_merge.RECORDS` keeps the core ones
+only); `flatten`, `unflatten` and the pruning of fields under a deleted or
+older incarnation use it. Entries are `<name>/<id>` (the record exists) and
+`<name>/<id>/<field>/...`, with per-entry stamps and tombstones in
+`[replication]`. A deleted record keeps its tombstone for the life of the
+cluster.
+
+`ClusterConfig`:
+
+```python
+collections: dict[str, list[dict[str, Any]]]   # one list per COLLECTIONS name, [] when absent
+def collection(self, name: str) -> list[dict[str, Any]]        # the live list (mutate it in update_cluster); KeyError when not registered
+def record(self, name: str, rid: str) -> dict[str, Any] | None
+```
+
+`from_toml` loads every registered name (records ordered as in the file,
+which `unflatten` orders by creation stamp); `to_toml` writes each non-empty
+collection after `api_tokens`, in `COLLECTIONS` order, with `None` values
+dropped, and writes nothing for an empty one: a cluster that never used a
+collection keeps a `cluster.toml` byte for byte identical to the one the
+previous release wrote, and the same digest (`test_config_store_golden`).
+`ConfigStore.update_cluster(mutate, updated_by)` is unchanged: `mutate`
+edits `cfg.collection(name)` like any other field, and the write stamps
+changed entries and tombstones removed ones. A shortcut for services:
+
+```python
+def update_collection(self, name: str, mutate: Callable[[list[dict[str, Any]]], None],
+                      updated_by: str) -> ClusterConfig
+```
+
+Mixed versions (guarantee, enforced by `test_cluster_merge_collections.py`,
+the "older node" tests): a node that does not know a collection (an older
+release, or a node whose `COLLECTIONS` lacks the name) drops the section
+when it reads the file, never writes it back and never tombstones its
+entries: its own writes stamp only what it knows, so `record_write` cannot
+see a removal. It keeps and relays the collection's tombstones (`state_of`
+keeps every tombstone without a live value). The records come back on the
+next merge with any node that knows the collection, with their original
+stamps. While a collection holds records, the digests of nodes that know it
+and of nodes that do not differ, and each peer poll merges both ways (as for
+`[[api_tokens]]` with 0.2.x nodes, section 16). A section unknown to every
+release (written by a newer one) follows the same rule on this release.
+`/repl/v1/status` gains `collections` (the names this node knows, sorted) so
+callers can tell a peer that cannot hold a collection from a peer that
+diverges; a peer without the member knows none.
+
 ## 11. Audit log (JSONL)
 
 One JSON object per line, UTF-8, `\n` terminated, never rewritten. File
@@ -1764,7 +1849,7 @@ One JSON object per line, UTF-8, `\n` terminated, never rewritten. File
 one of `auth`, `admin.user`, `admin.role`, `admin.settings`, `admin.node`, `admin.cert`,
 `admin.notify`, `admin.archive`, `admin.ipv6`, `kea.migration`, `notify`, `archive`, `alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
 `apply`, `rollback`, `login`, `logout`, `login_failed`, `enroll`, `revoke`,
-`ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `op` (direct
+`ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `conflict` (section 13, merge conflicts), `op` (direct
 operations like retransfer, with the operation name in `request.op`).
 API tokens (section 16): `auth.token` (target `token:<name>`, `request.op` `create`, `revoke`
 or `use` for a refused call of a known token, `request.id` the token id, never the secret)
@@ -1824,9 +1909,9 @@ application/json`. All endpoints under `/repl/v1`.
 
 | Method, path | Request | Response | Notes |
 | --- | --- | --- | --- |
-| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","ntp","modules"}` | liveness and heads; `config_digest` from `ConfigStore.digest()`; `time` (read last) gives the caller the peer's clock offset, the midpoint of the exchange, within half its round trip (`core.clock.peer_offset`, `PeerStatus.clock_offset`, `clock_uncertainty`); `ntp` is the node's NTP state (`core.clock.read_ntp_state`: `source` chrony or timedatectl, `synchronized`, `ntp_enabled`, `offset`, `stratum`, `reference`, cached 60 s) |
-| `GET /repl/v1/config` | | `{"version","updated_at","updated_by","toml"}` | full `cluster.toml` text |
-| `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml"}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
+| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","ntp","modules","collections"}` | liveness and heads; `config_digest` from `ConfigStore.digest()`; `collections` (0.4.0) the generic collections this node knows (section 10), absent from an older node; `time` (read last) gives the caller the peer's clock offset, the midpoint of the exchange, within half its round trip (`core.clock.peer_offset`, `PeerStatus.clock_offset`, `clock_uncertainty`); `ntp` is the node's NTP state (`core.clock.read_ntp_state`: `source` chrony or timedatectl, `synchronized`, `ntp_enabled`, `offset`, `stratum`, `reference`, cached 60 s) |
+| `GET /repl/v1/config` | | `{"version","updated_at","updated_by","toml","bases"}` | full `cluster.toml` text; `bases` (0.4.0) the write bases of its entries (merge conflicts, below), absent from an older node |
+| `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml","bases"?}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
 | `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
 | `POST /repl/v1/audit` | `{"entries":[...]}` | `{"added": n}` | merge by id |
 | `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ |
@@ -1969,7 +2054,8 @@ node that built it.
 Merge of `cluster.toml` (`core.cluster_merge`, `config_store.merge_configs`):
 the file is a map of entries, one per leaf: `settings/<key>/...`,
 `modules/<key>`, `secrets/<name>`, `revoked/<fingerprint>`, and for the record
-lists `nodes/<id>`, `users/<id>`, `roles/<name>`, `exceptions/<id>`, `api_tokens/<id>` (the record exists) plus
+lists `nodes/<id>`, `users/<id>`, `roles/<name>`, `exceptions/<id>`, `api_tokens/<id>` and `<collection>/<id>` of
+each generic collection, section 10 (the record exists), plus
 `<section>/<record>/<field>/...` (path parts percent-encoded). Every entry
 carries a stamp `<counter>@<node id>` in `[replication] stamps`: a Lamport
 counter shared with `version` (a write uses max(version, every stamp) + 1 and
@@ -2048,6 +2134,113 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
   Nodes screen say `isolated`. It goes back to `ready` by itself when a peer
   accepts it again (enrolled anew).
 - No election, no quorum. A single node is always writable.
+
+### Merge conflicts
+
+The merge keeps the write with the greatest stamp; the other write of the
+same entry is discarded. A discarded write that its winner never saw (a
+concurrent write) is a conflict, recorded in the audit log and raised as an
+`info` alert. A write the winner replaced knowingly (an ordinary edit of
+another node's value) is not.
+
+Bases. Every write records, per changed entry, the stamp of the value it
+replaced (its base, `0@` for a new entry) and the writer (`updated_by`).
+Bases live in `cluster.bases.json` next to `cluster.toml` (written under the
+same lock, after it, atomically), never in `cluster.toml`, so the file bytes
+and the digest do not change:
+
+```json
+{"users/01JB.../roles": ["41@01JB...B", "38@01JB...A", "user:bob@node:01JB...B"]}
+```
+
+`path -> [stamp, base, by]`, kept only while `stamp` is the entry's current
+stamp (live value or tombstone), at most 10 000 items (newest stamps kept).
+A missing or damaged file reads as empty: conflicts are then not detected,
+nothing else changes. `GET /repl/v1/config` answers `bases` (the whole map)
+beside `toml`, `PUT /repl/v1/config` takes it as an optional member; a merge
+keeps, for each merged entry, the base of whichever side held the winning
+stamp. An older node neither sends nor keeps bases.
+
+Detection (`cluster_merge.merge_report(local, remote, bases) -> MergeReport`,
+`merge_states` is `merge_report(...).state`):
+
+```python
+@dataclass(frozen=True, slots=True)
+class Discarded:
+    path: str                     # entry path, percent-encoded parts
+    local: Any                    # discarded value, None when it was a tombstone
+    local_stamp: Stamp
+    local_deleted: bool
+    remote: Any                   # winning value, None when it is a tombstone
+    remote_stamp: Stamp
+    remote_deleted: bool
+    reason: str                   # "stamp" | "record_deleted" | "username"
+
+@dataclass(slots=True)
+class MergeReport:
+    state: State
+    discarded: list[Discarded]    # local writes the merge dropped and their winners never saw
+```
+
+A local entry is reported only when this node wrote it (its stamp's node is
+this node), so one conflict gives one report in the whole cluster, on the
+node whose write lost. Reasons:
+
+- `stamp`: the remote side holds a greater stamp for the same path with a
+  different value (or a tombstone against a value), and the winner's base is
+  known and sorts below the local stamp: the winning writer had not seen the
+  local write. Equal base: an ordinary edit, not reported. Unknown base (an
+  older node wrote it, bases lost): not reported.
+- `record_deleted`: a local field write is dropped because its record was
+  deleted by a tombstone with a smaller stamp than the field (the deleting
+  writer cannot have seen it). A field older than the tombstone is not
+  reported.
+- `username`: a local user record lost to a concurrent user of the same
+  username (section 13 rule above).
+
+Field entries dropped as an earlier incarnation of a record are stale data,
+never reported. A losing write that another write of the same node
+superseded before the exchange (two writes of one entry within one push) is
+reported against the last one only.
+
+Audit. `ConfigStore.on_conflict(callback)` receives the `Discarded` list of
+each `merge_remote` that changed the file; the replication service
+(`core.replication`) turns each item into one entry, through the existing
+`AuditLog.append`:
+
+```json
+{"id":"01JC...","ts":"2026-11-02T10:00:03.120Z","node_id":"01JB...A","user":"system",
+ "action":"replication.conflict","target":"config:users/01JB.../roles","engine":null,"plan_id":null,
+ "request":{"path":"users/01JB.../roles","section":"users","record":"01JB...","reason":"stamp",
+  "local":{"stamp":"40@01JB...A","by":"user:alice@node:01JB...A","value":["admin","dns"],"deleted":false},
+  "remote":{"stamp":"41@01JB...B","by":"user:bob@node:01JB...B","value":["viewer"],"deleted":false,
+            "base":"38@01JB...A"},
+  "suppressed":0},
+ "response":{},"diff":null,"result":"ok",
+ "message":"Concurrent write of users/01JB.../roles: bob on ns2 replaced alice on ns1","client_ip":null}
+```
+
+- `target` is `config:<path>`; `section` and `record` are present for a
+  record list, `record` absent otherwise.
+- `by` comes from the bases (`null` when unknown); the message names the
+  users (the `user:` part, else `system`) and the node names from
+  `[[nodes]]` (the id when unknown).
+- Masking: `value` is `"***"` (and `deleted` kept) for any path under
+  `secrets/`, for a last part `password_hash`, `totp_secret`, `secret_hash`
+  or `public_key` under `users/` or `api_tokens/`, and for the
+  `secret_fields` of a collection. A masked value never reaches the log,
+  the alert or the server log.
+- At most one entry per path and per minute on a node: further conflicts of
+  the same path in that minute are counted and the next entry carries the
+  count in `suppressed` (in memory; a restart starts a new minute).
+- `user` is `system`; `client_ip` null. The entry replicates like any other.
+
+Alert `replication_conflict` (section 15): severity `info`, raised by the
+collector of the node that wrote the entry (its own `node_id`) when it reads
+a `replication.conflict` entry (`audit` datagram), subject the entry's path,
+details the request of the last entry; one open alert per path, auto-resolved
+24 hours after its last entry. Nothing blocks: the merged value stands, the
+operator re-applies the lost value if it was the right one.
 
 ## 14. Enrollment and internal CA
 
@@ -2320,6 +2513,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
+| `replication_conflict` | info | a write of this node to `cluster.toml` lost to a concurrent write of another node (`replication.conflict` audit entry, section 13); subject the entry path; details the masked request of the last entry; auto-resolved 24 h after the last entry of that path |
 | `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes` |
 | `root_hints_stale` | warning, info | this node's hints file predates the last root server renumbering (related version before 2023112700: warning) or is more than 5 years old (info); subject `zone:<zone>[@<view>]:hints`; details `reason` (`renumbered` or `old`), `file`, `related_version`, `last_update` |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |

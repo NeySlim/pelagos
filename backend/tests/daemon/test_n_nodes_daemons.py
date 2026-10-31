@@ -571,3 +571,10 @@ def test_primary_with_two_secondaries(dns_cluster):
     with pytest.raises(ValidationError) as err:
         dns.plan_secondaries("multi.lan", None, [n2.id], "alice", primaries, notify[:1])
     assert err.value.errors == [{"field": "node_ids", "message": n3.id}]
+
+
+@pytest.mark.skip(reason="F0-REPL: contract, implemented next")
+def test_generic_collection_and_conflict_across_three_nodes():
+    """A fake collection written on ns1 and ns2 converges on three nodes (equal digests); the same field
+    written on two nodes between exchanges gives exactly one replication.conflict entry, on the losing
+    node, replicated to all three, and one replication_conflict alert there."""

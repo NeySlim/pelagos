@@ -108,7 +108,9 @@ def test_two_verifications_are_serialised(node_ctx):
 
     threads = [
         threading.Thread(
-            target=seg.verify_segment, args=(node_ctx.audit_log, segment), kwargs={"pause": pause}
+            target=seg.verify_segment,
+            args=(node_ctx.audit_log, segment, node_ctx.node.id),
+            kwargs={"pause": pause},
         )
         for _ in range(2)
     ]
@@ -127,7 +129,7 @@ def test_large_segment_is_hashed_by_blocks_with_a_pause(node_ctx, tmp_path):
     name = seg.rotate(log_, node_ctx.node.id, datetime(2026, 7, 1, tzinfo=UTC), on_demand=True)["segment"]
     segment = next(s for s in log_.segments() if s.name == name)
     pauses: list[int] = []
-    verdict = seg.verify_segment(log_, segment, pause=lambda: pauses.append(1))
+    verdict = seg.verify_segment(log_, segment, node_ctx.node.id, pause=lambda: pauses.append(1))
     assert verdict.ok and len(pauses) >= segment.bytes // seg.BLOCK
 
 

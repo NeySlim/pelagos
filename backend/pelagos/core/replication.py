@@ -792,8 +792,7 @@ class ReplicationApp:
             limit = max(1, min(int(params.get("limit") or AUDIT_PAGE), 5000))
         except ValueError:
             raise _Refused(400, "validation_error", "limit must be an integer") from None
-        entries = self.audit_log.read(after_id=after, limit=limit)
-        nxt = entries[-1].id if len(entries) == limit else None
+        entries, nxt = self.audit_log.page_after(after, limit)
         return 200, {"entries": [e.to_dict() for e in entries], "next": nxt}
 
     def _post_audit(self, body: dict[str, Any]) -> tuple[int, Any]:
@@ -1410,6 +1409,8 @@ class Replicator:
         self.self_id = self_id
         self.timeout = timeout
         self.statuses: dict[str, PeerStatus] = {}
+        # B1-AUDIT: undecodable entries received from peers, skipped.
+        self.audit_skipped = 0
         # B1-AUDIT: per peer, (its count, its head, our count) after an exchange that changed nothing.
         self._audit_idle: dict[str, tuple[int | None, str | None, int]] = {}
         self.failures: dict[str, int] = {}
@@ -1564,32 +1565,48 @@ class Replicator:
         added = 0
         for i in range(0, len(missing_here), AUDIT_PAGE):
             raw = client.fetch_audit_ids(missing_here[i : i + AUDIT_PAGE])
-            added += self.audit_log.merge([AuditEntry.from_dict(e) for e in raw])
+            added += self.audit_log.merge(self._decoded(raw, client))
         for i in range(0, len(missing_there), AUDIT_PAGE):
             page = self.audit_log.get_many(missing_there[i : i + AUDIT_PAGE])
             client.push_audit([e.to_dict() for e in page])
         return added
+
+    def _decoded(self, raw: list[Any], client: ReplicationClient) -> list[AuditEntry]:
+        """B1-AUDIT: a peer's entries that decode; one of an unexpected shape is skipped with a
+        warning and counted (`audit_skipped`), never fatal to the pass."""
+        out: list[AuditEntry] = []
+        for item in raw:
+            try:
+                out.append(AuditEntry.from_dict(item))
+            except Exception as exc:
+                self.audit_skipped += 1
+                log.warning(
+                    "audit entry from %s skipped (%s: %s)",
+                    client.peer.name or client.peer.id,
+                    type(exc).__name__,
+                    exc,
+                )
+        return out
 
     def _pull_audit_from(self, client: ReplicationClient, after: str | None) -> int:
         added = 0
         while True:
             raw, nxt = client.fetch_audit(after, AUDIT_PAGE)
             if raw:
-                added += self.audit_log.merge([AuditEntry.from_dict(e) for e in raw])
-            if not nxt or not raw:
+                added += self.audit_log.merge(self._decoded(raw, client))
+            if not nxt or nxt == after:
                 return added
             after = nxt
 
     def _push_audit_to(self, client: ReplicationClient, after: str | None) -> int:
         sent = 0
         while True:
-            page = self.audit_log.read(after_id=after, limit=AUDIT_PAGE)
-            if not page:
+            page, nxt = self.audit_log.page_after(after, AUDIT_PAGE)
+            if page:
+                sent += client.push_audit([e.to_dict() for e in page])
+            if nxt is None:
                 return sent
-            sent += client.push_audit([e.to_dict() for e in page])
-            if len(page) < AUDIT_PAGE:
-                return sent
-            after = page[-1].id
+            after = nxt
 
     # All peers ----------------------------------------------------------------
 

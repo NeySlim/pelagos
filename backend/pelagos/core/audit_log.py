@@ -410,11 +410,18 @@ class AuditLog:
 
     def read(self, after_id: str | None = None, limit: int = 1000) -> list[AuditEntry]:
         """Entries with id greater than after_id, ascending by id (ULIDs sort by time)."""
+        return self.page_after(after_id, limit)[0]
+
+    def page_after(self, after_id: str | None, limit: int) -> tuple[list[AuditEntry], str | None]:
+        """`read` plus the id to continue after: the last indexed id of a full slice, so an entry
+        that does not decode never ends the paging early; None at the end."""
         self._refresh()
         with self._index_lock:
             start = 0 if after_id is None else bisect.bisect_right(self._index, after_id, key=lambda t: t[0])
-            locs = [(ino, off) for _, ino, off in self._index[start : start + max(0, limit)]]
-        return self._load_at(locs)
+            chunk = self._index[start : start + max(0, limit)]
+            locs = [(ino, off) for _, ino, off in chunk]
+            nxt = chunk[-1][0] if limit > 0 and len(chunk) == limit else None
+        return self._load_at(locs), nxt
 
     def get_many(self, entry_ids: list[str]) -> list[AuditEntry]:
         """The known entries among `entry_ids`, ascending by id; unknown ids are skipped."""
@@ -533,7 +540,7 @@ class AuditLog:
             return [], offset, inode
         out: list[AuditEntry] = []
         if st.st_ino == inode and st.st_size >= offset:
-            pos = self._read_lines(self.path, offset, needle, out)
+            pos = self._read_lines(self.path, offset, needle, out, st.st_ino)
             return out, pos, st.st_ino
         if inode is not None and st.st_ino != inode:
             segs = [s for s in list_segments(self.dir) if s.inode != st.st_ino]
@@ -542,7 +549,7 @@ class AuditLog:
                 self._read_lines(segs[at].path, offset, needle, out, segs[at].inode)
                 for seg in segs[at + 1 :]:
                     self._read_lines(seg.path, 0, needle, out, seg.inode)
-        pos = self._read_lines(self.path, 0, needle, out)
+        pos = self._read_lines(self.path, 0, needle, out, st.st_ino)
         return out, pos, st.st_ino
 
     def tail(self, since: datetime, needle: bytes | None = None) -> tuple[list[AuditEntry], int, int | None]:
@@ -553,13 +560,49 @@ class AuditLog:
             lo = bisect.bisect_left(self._by_ts, since.timestamp(), key=lambda t: t[0])
             rank = {ino: i for i, ino in enumerate(self._order)}
             locs = sorted((t[2:] for t in self._by_ts[lo:]), key=lambda loc: (rank.get(loc[0], -1), loc[1]))
+            last = self._order[-1] if self._order else None
+            cursor = (self._parts[last].offset, last) if last is not None else (0, None)
+        return self._load_at(locs, needle), cursor[0], cursor[1]
+
+    def matching(self, needle: bytes, pause: Callable[[], None] | None = None) -> list[AuditEntry]:
+        """Every entry whose line holds `needle`, over every file in order (each id once); only those
+        lines are decoded. `pause` runs every few thousand lines (the gevent hub's turn)."""
+        self._refresh()
+        with self._index_lock:
+            files = [(ino, self._parts[ino].offset) for ino in self._order]
+            dupes = set(self._dupes)
+        out: list[AuditEntry] = []
+        seen = 0
+        for ino, limit in files:
+            fh = self._open(ino)
+            if fh is None:
+                continue
+            with fh:
+                pos = 0
+                for line in fh:
+                    if pos >= limit or not line.endswith(b"\n"):
+                        break
+                    here, pos = pos, pos + len(line)
+                    seen += 1
+                    if pause is not None and seen % 5000 == 0:
+                        pause()
+                    if needle not in line or (ino, here) in dupes:
+                        continue
+                    entry = _decode(line.strip())
+                    if entry is not None:
+                        out.append(entry)
+        return out
+
+    def live_state(self) -> tuple[int | None, int]:
+        """(inode of the live file, entries indexed in it): the cheap recheck of a rotation."""
+        self._refresh()
+        with self._index_lock:
             try:
                 live = self.path.stat().st_ino
             except FileNotFoundError:
-                live = None
-            part = self._parts.get(live) if live is not None else None
-            cursor = (part.offset, live) if part is not None else (0, None)
-        return self._load_at(locs, needle), cursor[0], cursor[1]
+                return None, 0
+            part = self._parts.get(live)
+            return live, (part.offset if part is not None else 0)
 
     # Export -----------------------------------------------------------------------------------
 

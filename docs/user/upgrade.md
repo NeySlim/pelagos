@@ -53,6 +53,13 @@ untouched, and that no error is logged by the collector after a rollback.
    replication state) to compare afterwards. Counting the lines of
    `audit.jsonl` does not work across a yearly rotation (0.4.0 and later
    move the past year to `audit-<year>.jsonl`).
+
+   Upgrading to 0.4.0: the first rotation, on the first collector pass of
+   the next UTC year, turns the whole audit log the node had into one
+   segment named after the year it closes (`audit-2026.jsonl` in January
+   2027), even when it holds entries of earlier years. The seal records the
+   real range (`first_ts`, `last_ts`); `retention.audit_sealed_years` purges a
+   segment only once its newest entry is past the horizon.
 6. If you changed thresholds or other settings, print them under their old
    names now: `sudo pelagos settings --legacy`. You need them only for a
    rollback.

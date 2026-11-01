@@ -13,10 +13,12 @@ from pathlib import Path
 
 import pytest
 
+from pelagos.collector.main import META_ACK_INODE, META_ACK_OFFSET
 from pelagos.core import audit_segments as seg
 from pelagos.core.audit_log import AuditLog, list_segments
 from pelagos.domain import AuditEntry, AuditResult
 from pelagos.domain.common import new_id
+from tests.unit.collector.test_collector import rig  # noqa: F401  (fixture)
 
 pytestmark = pytest.mark.unit
 
@@ -225,7 +227,7 @@ def test_rotation_by_root_keeps_owner_and_mode(alog, monkeypatch):
     monkeypatch.setattr(os, "chown", lambda path, uid, gid: chowned.append(Path(path).name))
     seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
     assert any(n.startswith(".audit.jsonl.") for n in chowned)  # the new live file
-    assert "audit-2026.seal.tmp" in chowned
+    assert any(n.startswith(".audit-2026.seal.") for n in chowned)
     assert alog.path.stat().st_mode & 0o777 == 0o640
     assert (alog.dir / "audit-2026.seal").stat().st_mode & 0o777 == 0o640
 
@@ -735,3 +737,126 @@ def test_an_undecodable_line_in_a_sealed_segment_is_skipped(alog):
     fresh = AuditLog(alog.path, alog.dir.parent / "audit.lock")
     _check_reads(fresh, first + last)
     assert seg.due(fresh, NODE, ts(2027, 6, 1)) is False
+
+
+# Merge review fixes ---------------------------------------------------------------------------
+
+
+def test_mid_year_upgrade_then_purge_keeps_entries_above_the_horizon(alog):
+    """The first scheduled rotation after an upgrade names the segment after the closed year but
+    holds everything up to then: purge decides by the seal's newest entry, not by the name."""
+    alog.append(entry(ts(2026, 3, 1)))
+    alog.append(entry(ts(2026, 10, 1)))
+    data = seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    assert data["segment"] == "audit-2026.jsonl"
+    seg.rotate(alog, NODE, ts(2027, 1, 1, 0) + timedelta(hours=1), on_demand=True)  # audit-2027
+    assert seg.purge(alog, NODE, 1, ts(2027, 1, 15)) == []  # horizon 2026-01-01: 2026 entries stay
+    assert "audit-2026.jsonl" in names(alog)
+    gone = seg.purge(alog, NODE, 1, ts(2028, 2, 1))  # horizon 2027-01-01
+    assert gone == ["audit-2026.jsonl"]
+
+
+def test_unsealed_segment_is_never_purged(alog):
+    alog.append(entry(ts(2020, 3, 1)))
+    os.link(alog.path, alog.dir / "audit-2020.jsonl")
+    seg._replace_live(alog, alog.path.stat())
+    assert seg.purge(alog, NODE, 1, ts(2030, 1, 1)) == []
+    assert names(alog) == ["audit-2020.jsonl"]
+
+
+def test_seal_naming_another_node_is_damaged(alog):
+    """Edit a line, recompute the chain, claim another node: never ok (B2)."""
+    fill(alog, 2026)
+    seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    path = alog.dir / "audit-2026.jsonl"
+    raw = path.read_bytes()
+    i = raw.index(b"alice")
+    path.write_bytes(raw[:i] + b"A" + raw[i + 1 :])
+    segment = next(s for s in alog.segments() if s.name == "audit-2026.jsonl")
+    seg.seal(alog, segment, OTHER)
+    (v,) = seg.verify(alog, NODE, "audit-2026.jsonl")
+    assert not v.ok and v.reason == "seal_damaged"
+
+
+def test_missing_anchor_past_the_grace_fails(alog, monkeypatch):
+    fill(alog, 2026)
+    monkeypatch.setattr(alog, "append", lambda e: None)
+    seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    monkeypatch.undo()
+    segment = alog.segments()[0]
+    assert seg.verify_segment(alog, segment, NODE, now=ts(2027, 1, 1, 6)).ok
+    late = seg.verify_segment(alog, segment, NODE, now=ts(2027, 1, 3))
+    assert not late.ok and late.reason == "anchor"
+
+
+def test_anchor_lookup_decodes_only_the_matching_lines(alog, monkeypatch):
+    from pelagos.core import audit_log as audit_mod
+
+    fill(alog, 2026, 25)
+    seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    fill(alog, 2027, 25)
+    decoded: list[bytes] = []
+    real = audit_mod._decode
+    monkeypatch.setattr(audit_mod, "_decode", lambda line: (decoded.append(line), real(line))[1])
+    anchors = seg._anchors(alog, NODE)
+    assert list(anchors) == ["audit-2026.jsonl"] and len(decoded) == 1
+
+
+def test_rotation_rechecks_cheaply_under_the_lock(alog, monkeypatch):
+    """The due check runs outside the lock; a write in between makes it decide again."""
+    fill(alog, 2026)
+    calls = []
+    real = seg.due
+
+    def racing(audit_log, node_id, now):
+        calls.append(1)
+        if len(calls) == 1:
+            audit_log.append(entry(ts(2026, 12, 31)))  # a writer between decision and lock
+        return real(audit_log, node_id, now)
+
+    monkeypatch.setattr(seg, "due", racing)
+    assert seg.rotate(alog, NODE, ts(2027, 1, 1, 0))["entries"] == 4
+    assert len(calls) == 2
+
+
+def test_paging_continues_past_an_undecodable_entry(alog):
+    first = fill(alog, 2026, 2)
+    with alog.path.open("ab") as fh:
+        fh.write(_odd_line(ts(2026, 4, 1)))
+    last = fill(alog, 2026, 2)
+    got: list[str] = []
+    after = None
+    while True:
+        page, after = alog.page_after(after, 1)
+        got.extend(e.id for e in page)
+        if after is None:
+            break
+    assert got == sorted(e.id for e in first + last)
+
+
+def test_tail_cursor_is_the_indexed_live_file(alog):
+    fill(alog, 2026, 2)
+    _, off, ino = alog.tail(ts(2000, 1, 1))
+    assert (off, ino) == (alog.path.stat().st_size, alog.path.stat().st_ino)
+    with alog.path.open("ab") as fh:  # half a line from a writer: not in the cursor
+        fh.write(b'{"id":"partial')
+    _, off2, _ = alog.tail(ts(2000, 1, 1))
+    assert off2 == off
+
+
+def test_apply_acks_after_rebuild_finds_an_ack_in_a_segment(rig):  # noqa: F811
+    """--rebuild (no stored cursor): an ack of a still-open alert, in a sealed segment, applies."""
+    from pelagos.collector.alerts import ack_entry
+    from pelagos.domain import AlertState
+
+    collector, backends, _ = rig
+    backends.kea4.down = True
+    (alert,) = collector.cycle().opened
+    log_ = collector.ctx.audit_log
+    ack = ack_entry(OTHER, alert, "bob")
+    log_.merge([ack])
+    seg.rotate(log_, collector.node_id, datetime.now(UTC), on_demand=True)
+    collector.store.set_meta(META_ACK_OFFSET, "0")  # what --rebuild leaves: no cursor
+    collector.store.set_meta(META_ACK_INODE, "0")
+    assert [a.id for a in collector.apply_acks()] == [alert.id]
+    assert collector.alerts.get(alert.id).state is AlertState.ACKED

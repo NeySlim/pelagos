@@ -791,9 +791,11 @@ def test_malformed_peer_answers_never_escape_the_replicator(pair, monkeypatch):
     )
     peer_b = a.ctx.cluster().peer(b.id)
     replicator = a.service.replicator
+    # An audit entry of an unexpected shape is skipped and counted, the peer stays online (B1-AUDIT).
     for call in (lambda: replicator.sync_peer(peer_b), lambda: replicator.push_all()[0]):
         status = call()
-        assert status.reachable is False and status.error
+        assert status.reachable is True and not status.error
+    assert replicator.audit_skipped >= 2
     monkeypatch.setattr(b.service.app, "config_payload", lambda: {"version": 99})
     monkeypatch.setattr(
         b.service.app, "status_payload", lambda: {"node_id": b.id, "config_version": 99, "audit_count": 0}

@@ -2372,15 +2372,19 @@ a segment is never written after its rotation and step 2 needs no lock.
 
 Rotation (`core.audit_segments.rotate`, collector task and `pelagos audit-log rotate`):
 
-1. Under the audit lock: the due check is made again (two processes may
-   race, the collector and the CLI), the free segment name is chosen,
+1. The due check reads the log outside the lock (anchors through a needle
+   reader, below). Under the audit lock only a cheap recheck runs: the live
+   file's inode and indexed length are those the decision saw, else it
+   decides again (two processes may race, the collector and the CLI); then
+   the free segment name is chosen,
    `link(audit.jsonl, <segment>)` gives the live file a second name (same
    inode), then an empty `audit.jsonl.tmp` with the owner, group and mode of
    the live file is created, fsynced and renamed over `audit.jsonl`. The live
    path exists at every instant; the segment keeps the bytes, line order and
    inode of the file it was.
 2. Outside the lock: the seal is computed by streaming the segment, written
-   to `<stem>.seal.tmp` (owner, group and mode of the live file), fsynced and
+   to a unique `.<stem>.seal.*.tmp` (`mkstemp`; owner, group and mode of the
+   live file), fsynced and
    renamed.
 3. An entry `audit.rotate` is appended to the live file (below).
 
@@ -2422,13 +2426,19 @@ skipped by a time range.
 
 Verification (`core.audit_segments.verify`) recomputes the chain over the
 first `bytes` bytes and fails with a reason: `missing_seal`, `seal_damaged`
-(not JSON, or another `segment`), `length` (the file is shorter or longer
-than `bytes`), `chain` (a byte changed), `anchor` (the `chain` of the
-`audit.rotate` entry for that segment written by the seal's `node_id`
-differs), `missing_segment` (an `audit.rotate` entry of this node names a
-segment absent from disk and no `audit.purge` entry names it; reported by
-`verify` without argument and by the task). No anchor entry yet (a crash
-before step 3, until the task writes it) is a note, not a failure. The CLI
+(not JSON, another `segment`, or a `node_id` other than this node's: seals
+are never restored from archives, so a node only ever holds its own),
+`length` (the file is shorter or longer than `bytes`), `chain` (a byte
+changed), `anchor` (the `chain` of this node's `audit.rotate` entry for that
+segment differs, looked up with the local node id, never the seal's; or no
+such entry more than one day after `sealed_at`), `missing_segment` (an
+`audit.rotate` entry of this node names a segment absent from disk and no
+`audit.purge` entry names it; reported by `verify` without argument and by
+the task). No anchor entry yet within that day (a crash before step 3,
+until the task writes it) is a note, not a failure. Anchors and purge
+entries are read by `AuditLog.matching(needle)`: only the lines holding
+`"action":"audit.rotate"` (or `audit.purge`) are decoded, with the gevent
+hub's turn every few thousand lines in the web process. The CLI
 compares the local copy of the anchor (`anchor: local`); `POST
 /audit/segments/{name}/verify` also fetches the copy of each reachable peer
 by `POST /repl/v1/audit/fetch` with the anchor's id (existing protocol) and
@@ -2503,8 +2513,9 @@ follower sees them too, rotated year or not.
 
 `tail(since, needle)`: the entries with `ts >= since` across every file
 (sealed segments skipped by their seal range), in file order, deduplicated,
-and the `(offset, inode)` of the live file as the index read it to serve
-that call (after its refresh): handed to `scan`, nothing is lost and
+and the `(offset, inode)` of the last indexed file (the live file) as the
+index read it to serve that call (after its refresh, never a new `stat`):
+handed to `scan`, nothing is lost and
 nothing is returned twice. Every follower that rebuilds state at start uses
 `tail` then `scan`; a follower that starts with `scan(0, None)` sees only the
 live file. Followers in 0.4.0:
@@ -2529,14 +2540,18 @@ class Segment:
 ```
 
 Retention. `retention.audit_sealed_years` (integer, default 0 = keep every
-segment). When N > 0, the task step (e) purges each segment and its seal
-whose year is lower than `<UTC year of now> - N`, one `audit.purge` entry
-before each, then writes the horizon (1 January of `<UTC year of now> - N`)
-to `purged-before`; N = 0 removes `purged-before`. Rules:
+segment). When N > 0, the task step (e) purges each sealed segment whose
+seal `last_ts` (its newest entry) is before the horizon, 1 January of
+`<UTC year of now> - N`, one `audit.purge` entry before each, then writes
+the horizon to `purged-before`; N = 0 removes `purged-before`. The name is
+never trusted for this: the first scheduled rotation after an upgrade
+names the segment after the closed year but holds everything the node had
+until then. An unsealed segment is never purged. Rules:
 
-- The purge waits until every peer of `cluster.toml` announced 0.4.0 or
-  later at its last successful status (`PeerStatus.version`; a peer never
-  seen since the upgrade blocks it), and logs once why it waits.
+- The purge waits until every peer of `cluster.toml` announces 0.4.0 or
+  later in its current status (`PeerStatus.version`, cleared while the peer
+  is unreachable: an unreachable peer, or one never seen since the
+  upgrade, blocks it), and logs once why it waits.
 - `merge` drops entries whose `ts` is before the horizon, so replication or
   an archive restore cannot bring them back (a restore's "entries added"
   leaves them out).
@@ -2546,8 +2561,8 @@ to `purged-before`; N = 0 removes `purged-before`. Rules:
   audit_head)` and does not exchange again until they change. Without this,
   differing counts would move the full id list and the purged entries at
   every pass.
-- The purge removes what the segments named under the horizon hold: an old
-  entry merged late lives in a newer segment until that one is purged. The
+- The purge removes the segments entirely under the horizon: an old entry
+  merged late lives in a newer segment until that one is purged. The
   live file is never purged.
 
 Disk alert. `checks.audit_max_mb` (`audit_growth`) watches the live file
@@ -2621,9 +2636,9 @@ application/json`. All endpoints under `/repl/v1`.
 | `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","ntp","modules","collections"}` | liveness and heads; `config_digest` from `ConfigStore.digest()`; `collections` (0.4.0) the generic collections this node knows (section 10), absent from an older node; `time` (read last) gives the caller the peer's clock offset, the midpoint of the exchange, within half its round trip (`core.clock.peer_offset`, `PeerStatus.clock_offset`, `clock_uncertainty`); `ntp` is the node's NTP state (`core.clock.read_ntp_state`: `source` chrony or timedatectl, `synchronized`, `ntp_enabled`, `offset`, `stratum`, `reference`, cached 60 s) |
 | `GET /repl/v1/config` | | `{"version","updated_at","updated_by","toml","bases"}` | full `cluster.toml` text; `bases` (0.4.0) the write bases of its entries (merge conflicts, below), absent from an older node |
 | `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml","bases"?}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
-| `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
+| `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id; `next` is the last id of the slice of the index (0.4.0), so a line that does not decode leaves the page short without ending the paging; the caller skips a received entry that is not an `AuditEntry` with a warning (`Replicator.audit_skipped`), the pass goes on and the peer stays online |
 | `POST /repl/v1/audit` | `{"entries":[...]}` | `{"added": n}` | merge by id |
-| `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ; the caller drops the ids under its purge horizon before fetching or pushing, and skips the exchange while the peer's `(audit_count, audit_head)` is the one of the last exchange that left nothing to move (0.4.0, section 11 Retention) |
+| `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ; the caller drops the ids under its purge horizon before fetching or pushing, and skips the exchange while both counts and the peer's head are those after the last exchange that changed neither side (0.4.0, section 11 Retention) |
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |

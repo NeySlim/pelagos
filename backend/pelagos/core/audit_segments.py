@@ -12,7 +12,7 @@ import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ ACTION_ROTATE = "audit.rotate"
 ACTION_PURGE = "audit.purge"
 ALGORITHM = "sha256-chain"
 BLOCK = 1 << 20
+ANCHOR_GRACE = timedelta(days=1)
 REASONS = ("missing_seal", "seal_damaged", "length", "chain", "anchor", "missing_segment")
 # One verification at a time per process: hashing a large segment is the costly part.
 _verify_lock = threading.Lock()
@@ -160,14 +161,20 @@ def seal(audit_log: AuditLog, segment: Segment, node_id: str, now: datetime | No
         "chain": state.digest.hex(),
     }
     target = seal_path(segment.path)
-    tmp = target.with_name(target.name + ".tmp")
-    with tmp.open("w") as fh:
-        json.dump(data, fh, separators=(",", ":"))
-        fh.write("\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    _like(tmp, _owner_of(audit_log.path))
-    os.replace(tmp, target)
+    # A unique temp file: the task's recover and a CLI rotate may seal at the same time.
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=audit_log.dir)
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, separators=(",", ":"))
+            fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        _like(tmp, _owner_of(audit_log.path))
+        os.replace(tmp, target)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
     _fsync_dir(audit_log.dir)
     return data
 
@@ -198,19 +205,31 @@ def _anchor_entry(
     )
 
 
-def _anchors(audit_log: AuditLog, node_id: str | None = None) -> dict[str, AuditEntry]:
-    """The latest audit.rotate entry per segment name, of one node (or all)."""
-    rows, _ = audit_log.query(action=ACTION_ROTATE, node_id=node_id, per_page=1_000_000)
+NEEDLE_ROTATE = b'"action":"audit.rotate"'
+NEEDLE_PURGE = b'"action":"audit.purge"'
+
+
+def _anchors(
+    audit_log: AuditLog, node_id: str, pause: Callable[[], None] | None = None
+) -> dict[str, AuditEntry]:
+    """The latest audit.rotate entry of this node per segment name; only those lines are decoded."""
+    rows = [
+        e
+        for e in audit_log.matching(NEEDLE_ROTATE, pause)
+        if e.action == ACTION_ROTATE and e.node_id == node_id
+    ]
     out: dict[str, AuditEntry] = {}
     for e in sorted(rows, key=lambda e: (e.ts, e.id)):
-        if e.action == ACTION_ROTATE:
-            out[str(e.request.get("segment"))] = e
+        out[str(e.request.get("segment"))] = e
     return out
 
 
 def _purged(audit_log: AuditLog, node_id: str) -> set[str]:
-    rows, _ = audit_log.query(action=ACTION_PURGE, node_id=node_id, per_page=1_000_000)
-    return {str(e.request.get("segment")) for e in rows if e.action == ACTION_PURGE}
+    return {
+        str(e.request.get("segment"))
+        for e in audit_log.matching(NEEDLE_PURGE)
+        if e.action == ACTION_PURGE and e.node_id == node_id
+    }
 
 
 # Rotation -------------------------------------------------------------------------------------
@@ -239,20 +258,30 @@ def rotate(
     on_demand: bool = False,
     user: str = "system",
 ) -> dict[str, Any] | None:
-    """Rotate the live file (steps 1 to 3); the seal's content, or None when not due."""
+    """Rotate the live file (steps 1 to 3); the seal's content, or None when not due.
+
+    The decision reads the log outside the audit lock; under it only the live file's inode and
+    indexed length are checked again (another writer moved them: decide again)."""
     now = now or utcnow()
     year = now.astimezone(UTC).year if on_demand else now.astimezone(UTC).year - 1
-    with audit_log.lock:
+    for _attempt in range(5):
+        state = audit_log.live_state()
         if on_demand:
             if audit_log.opening()[1] == 0:
                 raise NothingToRotate("nothing to rotate: the live audit file holds no entry")
         elif not due(audit_log, node_id, now):
             return None
-        name = _free_name(audit_log.dir, year)
-        target = audit_log.dir / name
-        ref = _owner_of(audit_log.path)
-        os.link(audit_log.path, target)
-        _replace_live(audit_log, ref)
+        with audit_log.lock:
+            if audit_log.live_state() != state:
+                continue
+            name = _free_name(audit_log.dir, year)
+            target = audit_log.dir / name
+            ref = _owner_of(audit_log.path)
+            os.link(audit_log.path, target)
+            _replace_live(audit_log, ref)
+        break
+    else:
+        return None
     segment = next(s for s in list_segments(audit_log.dir) if s.name == name)
     data = seal(audit_log, segment, node_id, now)
     audit_log.append(_anchor_entry(data, node_id, user, on_demand, now))
@@ -348,19 +377,28 @@ def peer_fetch(gateway: Any, timeout: float = 10.0) -> PeerFetch:
 def verify_segment(
     audit_log: AuditLog,
     segment: Segment,
+    node_id: str,
     *,
     peers: PeerFetch | None = None,
     pause: Callable[[], None] | None = None,
+    now: datetime | None = None,
 ) -> Verdict:
-    """Check one segment against its seal and anchor; `peers(entry_id)` gives each reachable peer's
-    copy of the anchor entry (None when it has none)."""
+    """Check one segment against its seal and this node's anchor; `peers(entry_id)` gives each
+    reachable peer's copy of the anchor entry (None when it has none). Seals are only ever this
+    node's own (never restored from an archive): another node_id in a seal is damage."""
     with _verify_lock:
         verdict = Verdict(segment.name, False)
         if not seal_path(segment.path).exists():
             verdict.reason = "missing_seal"
             return verdict
         data = read_seal(segment.path)
-        if data is None or data.get("segment") != segment.name or "chain" not in data or "bytes" not in data:
+        if (
+            data is None
+            or data.get("segment") != segment.name
+            or "chain" not in data
+            or "bytes" not in data
+            or data.get("node_id") != node_id
+        ):
             verdict.reason = "seal_damaged"
             return verdict
         size = segment.path.stat().st_size
@@ -372,8 +410,16 @@ def verify_segment(
         if state.digest.hex() != data["chain"]:
             verdict.reason = "chain"
             return verdict
-        anchor = _anchors(audit_log, str(data.get("node_id") or "")).get(segment.name)
+        anchor = _anchors(audit_log, node_id, pause).get(segment.name)
         if anchor is None:
+            # The task writes a missing anchor within the hour; past the grace it is a failure.
+            try:
+                sealed_at = from_rfc3339(str(data.get("sealed_at")))
+            except ValueError:
+                sealed_at = None
+            if sealed_at is None or (now or utcnow()) - sealed_at > ANCHOR_GRACE:
+                verdict.reason = "anchor"
+                return verdict
             verdict.ok, verdict.note = True, "no audit.rotate entry yet"
             return verdict
         if anchor.request.get("chain") != data["chain"]:
@@ -418,8 +464,8 @@ def verify(
             if gone:
                 return gone
             raise KeyError(name)
-        return [verify_segment(audit_log, found[0], peers=peers, pause=pause)]
-    return [verify_segment(audit_log, s, peers=peers, pause=pause) for s in segs] + missing(
+        return [verify_segment(audit_log, found[0], node_id, peers=peers, pause=pause)]
+    return [verify_segment(audit_log, s, node_id, peers=peers, pause=pause) for s in segs] + missing(
         audit_log, node_id
     )
 
@@ -445,8 +491,12 @@ def purge(audit_log: AuditLog, node_id: str, years: int, now: datetime | None = 
         live_ino = audit_log.path.stat().st_ino
     except FileNotFoundError:
         live_ino = None
+    horizon = horizon_for(now, years)
     for seg in list_segments(audit_log.dir):
-        if seg.year >= limit or seg.inode == live_ino:
+        # The name does not bound the content (the first segment after an upgrade holds everything
+        # up to then): only a sealed segment whose newest entry is under the horizon goes.
+        last = _seal_time(seg.seal, "last_ts")
+        if seg.year >= limit or seg.inode == live_ino or last is None or last >= horizon:
             continue
         data = seg.seal or {}
         audit_log.append(
@@ -471,7 +521,6 @@ def purge(audit_log: AuditLog, node_id: str, years: int, now: datetime | None = 
         seg.path.unlink(missing_ok=True)
         seal_path(seg.path).unlink(missing_ok=True)
         gone.append(seg.name)
-    horizon = horizon_for(now, years)
     current = audit_log.horizon()
     if current is None or horizon > current:
         tmp = marker.with_name(marker.name + ".tmp")
@@ -479,6 +528,13 @@ def purge(audit_log: AuditLog, node_id: str, years: int, now: datetime | None = 
         _like(tmp, _owner_of(audit_log.path))
         os.replace(tmp, marker)
     return gone
+
+
+def _seal_time(data: dict[str, Any] | None, key: str) -> datetime | None:
+    try:
+        return from_rfc3339(str((data or {})[key]))
+    except (KeyError, ValueError):
+        return None
 
 
 def _at_least_0_4(version: str | None) -> bool:

@@ -373,7 +373,7 @@ export default function NodesPage() {
           </span>
         ),
         status: (n) => <StatusBadge status={n.status} />,
-        fields: siteNames.length ? ['version', 'site'] : ['version'],
+        fields: siteNames.length ? ['version', 'site', 'clock'] : ['version', 'clock'],
       }}
       emptyTitle={t('list.empty')}
       emptyIcon={HardDrives}

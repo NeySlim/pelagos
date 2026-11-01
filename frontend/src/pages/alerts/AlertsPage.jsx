@@ -415,14 +415,14 @@ export default function AlertsPage() {
       key: 'title',
       label: t('columns.title'),
       render: (a) => (
-        <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[24rem]" title={msg(a.title_message, a.title)}>
+        <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[18rem]" title={msg(a.title_message, a.title)}>
           <span className="line-clamp-2 text-text-primary">{msg(a.title_message, a.title)}</span>
           {INCONSISTENCY_KINDS.has(a.kind) && <Badge variant="purple" size="sm" className="shrink-0">{t('inconsistency')}</Badge>}
         </span>
       ),
     },
     { key: 'kind', label: t('columns.kind'), render: (a) => <span className="text-xs text-text-secondary">{t(`dashboard:kinds.${a.kind}`, { defaultValue: a.kind })}</span> },
-    { key: 'subject', label: t('columns.subject'), render: (a) => <span className="block min-w-[14rem] break-all font-mono text-xs" title={a.subject}>{a.subject}</span> },
+    { key: 'subject', label: t('columns.subject'), render: (a) => <span className="block min-w-[8rem] max-w-[10rem] break-all font-mono text-xs" title={a.subject}>{a.subject}</span> },
     { key: 'node_id', label: t('columns.node'), render: (a) => <AlertOrigin alert={a} nodeName={nodeName} /> },
     { key: 'last_seen', label: t('columns.lastSeen'), render: (a) => <span className="whitespace-nowrap text-xs">{formatDate(a.last_seen)}</span> },
     { key: 'state', label: t('columns.state'), render: (a) => <StatusBadge status={a.state} dot={false} /> },

@@ -396,7 +396,12 @@ def test_a_whole_configuration_replace_carries_the_comments_in_one_config_set(ke
     assert backend.rollback(plan).ok
     body = backend.config_get()
     assert body["valid-lifetime"] == 3600
-    assert body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office LAN"}}
+    # The fixture's own metadata comes back with the old subnet, next to the kept copy.
+    assert body["subnet4"][0]["user-context"]["pelagos"] == {
+        "notes": "fixture subnet",
+        "tags": ["lab"],
+        "comment": "office LAN",
+    }
     assert body["user-context"]["pelagos"]["comment"] == "Lab DHCPv4 server, written by hand"
     assert '"comment": "office LAN"' in kea_dhcp4.config_path.read_text()
     assert reads_as_running(backend) == []

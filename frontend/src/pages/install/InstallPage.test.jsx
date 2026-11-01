@@ -101,7 +101,7 @@ describe('InstallPage', () => {
     await waitFor(() => expect(box.querySelector('input')).toBeChecked())
     expect(box).toHaveTextContent('Comments stay next to the settings they describe')
     fireEvent.click(screen.getByTestId('wizard-build'))
-    await waitFor(() => expect(api.install.importPlan).toHaveBeenCalledWith(['bind', 'kea4'], { kea_include_tree: true }))
+    await waitFor(() => expect(api.install.importPlan).toHaveBeenCalledWith(['bind', 'kea4']))
   })
 
   it('leaves the include tree unchecked without comments, and lets the user check it', async () => {

@@ -160,7 +160,8 @@ function Wizard({ detect, onDone }) {
   const request = () => {
     const { kind, body } = buildRequest(state)
     if (kind !== 'import') return api.install.plan(body)
-    return keaEngines.length ? api.install.importPlan(body.engines, { kea_include_tree: includeTree }) : api.install.importPlan(body.engines)
+    // Untouched box: the server decides from the files it reads itself.
+    return keaEngines.length && treeChoice !== null ? api.install.importPlan(body.engines, { kea_include_tree: treeChoice }) : api.install.importPlan(body.engines)
   }
   // Same wizard answers, planned again: the server forgot the old plan (expired or restarted).
   const recompute = async () => {

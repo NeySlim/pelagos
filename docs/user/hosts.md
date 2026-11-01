@@ -16,8 +16,11 @@ manufacturer. It is a cluster module, off by default in 0.4.0: switch
 
 Each node reads its own IPv4 neighbor table (`ip -4 neigh`, the ARP table)
 every `discovery.poll_seconds` (300 s). Nothing is sent on the network:
-a device is seen once it talked to the node (DHCP, DNS, any traffic that
-needs the node's MAC address). Entries that failed to resolve, multicast,
+a device is seen only when it exchanges IP traffic with the node itself
+(DNS queries, pings, connections), which creates a neighbor entry. A DHCP
+exchange alone does not: Kea answers over raw sockets and leaves no ARP
+entry, and a device in another VLAN, behind a router, is never seen (only
+its router is). Entries that failed to resolve, multicast,
 broadcast, loopback and link-local (`169.254.0.0/16`) addresses are left
 out. A `stale` entry keeps the device in the table but does not count as a
 new sighting: Linux keeps it long after the device left.
@@ -48,7 +51,9 @@ searches the MAC, the addresses and the manufacturer.
 
 ### Unknown device alert
 
-`unknown_device` (info) is raised for a MAC seen for at least
+`unknown_device` (info) is raised only for addresses inside the DHCPv4
+subnets the cluster serves, never for a locally administered MAC (container
+bridges, virtual machines, random client MACs), for a MAC seen for at least
 `discovery.unknown_after_minutes` (60) and still seen in the last three
 passes, when no lease or reservation names that MAC or holds one of its
 addresses, and no A record or PTR exists for one of its addresses. It is
@@ -58,8 +63,8 @@ stay as they were. It resolves when a lease, a reservation or a record
 appears, when the device is gone, or when the module is switched off.
 
 A router, a printer with a fixed address or a lab device you do not want
-to declare: add an exception on its MAC from the alert (`mac:<mac>`, lower
-case).
+to declare: add an exception on its MAC from the alert (`mac:<mac>`, in any
+common form: case and separators do not matter).
 
 | Setting | Default | Effect |
 | --- | --- | --- |

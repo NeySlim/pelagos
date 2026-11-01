@@ -28,6 +28,12 @@ This product bundles the following fonts (frontend/public/fonts):
   - IBM Plex Sans and IBM Plex Mono, Copyright 2017 IBM Corp., SIL Open Font
     License 1.1 (Reserved Font Name "Plex")
 
+This product bundles data derived from the IEEE Registration Authority public
+listings of MAC address block assignments (MA-L, MA-M, MA-S and IAB,
+https://standards-oui.ieee.org/), reduced to prefix and organization name in
+backend/pelagos/data/oui.tsv by scripts/gen-oui.py. The listings are published
+by the IEEE; Pelagos is not affiliated with or endorsed by the IEEE.
+
 Runtime dependencies are declared in backend/pyproject.toml and
 frontend/package.json and keep their own licenses (MIT, BSD, Apache-2.0,
 PSF, MPL-2.0). BIND 9 and Kea are products of Internet Systems Consortium,

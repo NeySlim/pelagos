@@ -62,8 +62,8 @@ messages as before. The dispatcher derives `plan.applied|rolled_back|failed|expi
 and `zone.transfer_failed` from the cluster alert view, `lease.new|release` from the lease history,
 and sends them in their own batches: webhook payload `pelagos.notification.v1` with `"type": "event"`
 (alert payloads unchanged), `notify.sent` request with `type` and `changes`. New settings
-`notifications.login_failed_threshold`, `notifications.login_failed_window_seconds`,
-`notifications.allow_local_targets` (false): HTTP transports refuse loopback, link-local and other
+`notifications.login_failures`, `notifications.login_failures_window_seconds`,
+`notifications.local_targets_enabled` (false): HTTP transports refuse loopback, link-local and other
 non-routable targets and the cluster's own node addresses unless it is on (behaviour change for a
 channel aimed at such an address). E3-APPROVAL adds its `plan.*` kinds to `EVENT_KINDS`.
 

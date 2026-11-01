@@ -464,6 +464,44 @@ see [RPZ block lists](rpz.md). The settings API refuses them.
 The certificate sources (`cluster`, `nodes`) are set in
 [Administration, Certificates](certificates.md); the settings API refuses them.
 
+### Notifications (`[settings.notifications]`)
+
+Channels, the sender order and the mute are edited in Administration,
+Notifications; the settings API refuses them.
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `dispatch_enabled` | `true` | | off: nothing is sent |
+| `group_seconds` | `60` | 0 to 3600 s | events due within this window leave in one message |
+| `confirm_seconds` | `60` | 0 to 3600 s | an alert must stay open this long before it is sent (critical: at once) |
+| `messages_max_per_hour` | `30` | 1 to 3600 | per channel, alert and change messages together; beyond it events wait |
+| `retry_max_hours` | `24` | 1 to 168 h | a send failing on a network error or 5xx is retried this long |
+| `send_timeout_seconds` | `15` | 1 to 120 s | one send, connection and answer |
+| `login_failures` | `5` | 2 to 1000 | failed sign-ins within the window that make one `auth.login_failed` event |
+| `login_failures_window_seconds` | `600` | 60 to 86400 s | window of `login_failures` |
+| `local_targets_enabled` | `false` | | on: HTTP channels may target loopback, link-local and the cluster's own nodes |
+
+**Change events.** Besides alerts, a channel can subscribe to changes:
+`plan.applied`, `plan.rolled_back`, `plan.failed`, `plan.expired` (the
+rollback window closed), `node.offline`, `node.online`,
+`zone.transfer_failed` (a secondary no longer refreshes a zone),
+`auth.login_failed` (past `login_failures`), `audit.conflict` (a replication
+conflict), `lease.new` and `lease.release`. Plan events can be narrowed to
+plan scopes and authors, and "Send alerts" off makes a change-only channel.
+A subscription starts when it is saved: nothing older is sent. Each event
+is sent once by the sending node, also after a restart, in its own message;
+a webhook receives the usual signed `pelagos.notification.v1` document with
+`"type": "event"` and one item per event (`event`, `id`, `ts`, `node_name`,
+`title`, `url`, `data`). Lease events can be many: a message lists 20 at
+most and counts the rest of a burst in `held_back`.
+
+**Outgoing targets.** Webhook, Home Assistant, ntfy, Gotify and Matrix
+channels refuse a server that is, or resolves to, a loopback, link-local,
+unspecified, multicast or reserved address, or an address of a node of the
+cluster, unless `local_targets_enabled` is on. Private LAN addresses stay
+allowed. The connection goes to the address that was checked. E-mail is not
+concerned (an SMTP relay on loopback is common).
+
 ### Archive destinations (`archives.destinations`)
 
 Every archive stays in `/var/lib/pelagos/archives/local/` and is copied to each enabled

@@ -4839,7 +4839,7 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
 
 - **Channel members** (all optional; a channel without them behaves exactly as before):
   `alerts` (bool, default true: false makes a change-only channel), `events` (list of kinds,
-  default `[]`), `event_filters` `{"plan_scopes": [PlanScope], "users": [username]}` (`[]` = all;
+  default `[]`; a channel with `alerts` false needs at least one), `event_filters` `{"plan_scopes": [PlanScope], "users": [username]}` (`[]` = all;
   they narrow the `plan.*` kinds only) and `events_since` `{kind: RFC 3339}`, kept by the server
   (a kind added to `events` gets "now", a kind removed loses its entry; read only in the API,
   ignored on writes). An event older than its kind's `events_since` is never sent, so a new
@@ -4853,8 +4853,8 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
   - `plan.expired`: the rollback window of an applied plan closed with no later summary entry for
     that plan; id = `<summary entry id>.expired`, time = its `rollback_until`.
   - `auth.login_failed`: `auth.login_failed` entries of the cluster, oldest first; when
-    `notifications.login_failed_threshold` (5) of them fall within
-    `notifications.login_failed_window_seconds` (600), one event (id = the entry that reached the
+    `notifications.login_failures` (5) of them fall within
+    `notifications.login_failures_window_seconds` (600), one event (id = the entry that reached the
     threshold) and the count starts again; a channel gets at most one per window.
   - `audit.conflict`: each `replication.conflict` entry; id = its entry id. Values never leave:
     the event names the path, the reason and both authors.
@@ -4896,15 +4896,15 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
   the hourly cap). History rows (`GET /admin/notifications/history`) add `type` and `changes`.
 - **Outgoing target guard** (all HTTP transports: webhook, Home Assistant, ntfy, Gotify, Matrix;
   not email, whose `none` security stays loopback only): unless
-  `notifications.allow_local_targets` (false) is on, a send is refused when the target host is, or
+  `notifications.local_targets_enabled` (false) is on, a send is refused when the target host is, or
   resolves to, a loopback, link-local, unspecified, multicast or reserved address (IPv4-mapped
   forms included) or an address of a node of the cluster (hosts of `api_url` and `web_url`); the
   connection goes to the address that was checked, so a DNS answer cannot change between check
   and connect. Private LAN ranges stay allowed (Home Assistant or Gotify at home). Refusal:
   `SendResult` error `target address refused: <reason>`, no retry; channel validation answers it
   as an error for a literal address or `localhost` and leaves names to the send.
-- **Settings** (`[settings.notifications]`): `login_failed_threshold` (5, 2 to 1000),
-  `login_failed_window_seconds` (600, 60 to 86400), `allow_local_targets` (false).
+- **Settings** (`[settings.notifications]`): `login_failures` (5, 2 to 1000),
+  `login_failures_window_seconds` (600, 60 to 86400), `local_targets_enabled` (false).
 - **Screen**: the channel dialog gains "Send alerts" and an "Events" group of check boxes, with the
   plan scope and user filters; the history shows change messages with their kinds.
 

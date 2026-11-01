@@ -112,7 +112,7 @@ def _same_rdata(rtype: str, current: list[str], desired: list[str], zone: str) -
     try:
         return normalize_rdata(rtype, current, zone) == normalize_rdata(rtype, desired, zone)
     except RRsetError:
-        return False  # the plan builder reports the bad rdata (422)
+        return False  # records/plan refuses the bad rdata (400 validation_error)
 
 
 class DesiredStateService:

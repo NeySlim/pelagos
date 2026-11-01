@@ -138,7 +138,8 @@ def converge(conv: Convergence, confirm: bool) -> tuple[dict[str, Any], int, dic
     if _no_change(plan):
         ctx().plan_store.delete(plan.id)
         return {"changed": False, "etag": conv.etag}, 200, headers
-    plan_answer(plan)  # 422 engine_validation_failed when the engine refuses the change
+    # 422 engine_validation_failed when the engine refuses the change; a malformed value was a 400 already.
+    plan_answer(plan)
     if bool_arg("dry_run"):
         return {"changed": True, "etag": conv.etag, "plan": plan_dict(plan)}, 200, headers
     session = current_session()

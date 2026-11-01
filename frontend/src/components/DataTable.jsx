@@ -4,7 +4,7 @@
 // error states, selectable rows and a right-side toolbar. Cells render as text.
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CaretUp, CaretDown, CaretUpDown, ArrowsClockwise, Table as TableIcon } from '@phosphor-icons/react'
+import { CaretUp, CaretDown, CaretUpDown, Table as TableIcon } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
 import { titleCaseClass } from '../lib/displayCase'
 import { Pagination } from './Pagination'
@@ -20,8 +20,7 @@ import { useMobile } from '../contexts/MobileContext'
 import { MobileCard } from './ui/MobileCard'
 import { useColumnBand } from '../hooks/useColumnBand'
 import { useSharedName } from '../hooks/useSharedName'
-import { Button } from './Button'
-import { errorMessage } from '../services/apiClient'
+import { ErrorNotice } from './ErrorNotice'
 
 function getValue(row, key) {
   if (!key) return undefined
@@ -365,14 +364,8 @@ export function DataTable({
 
         {loading && <SkeletonTable columns={columns.length} testId="data-table-loading" />}
         {!loading && error && (
-          <div className="flex flex-col items-center justify-center gap-3 py-10 px-4 text-center" data-testid="data-table-error">
-            <p className="text-sm status-danger-text">{errorMessage(error)}</p>
-            {onRetry && (
-              <Button variant="secondary" size="sm" onClick={onRetry}>
-                <ArrowsClockwise size={14} />
-                {t('actions.retry')}
-              </Button>
-            )}
+          <div className="py-10 px-4 flex justify-center" data-testid="data-table-error">
+            <ErrorNotice error={error} onRetry={onRetry} className="max-w-xl" />
           </div>
         )}
         {!loading && !error && renderItems.length === 0 && (

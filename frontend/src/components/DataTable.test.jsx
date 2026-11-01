@@ -72,7 +72,11 @@ describe('DataTable', () => {
     expect(screen.getByTestId('data-table-loading')).toBeInTheDocument()
     const onRetry = vi.fn()
     rerender(<DataTable columns={columns} rows={rows} error={new Error('boom')} onRetry={onRetry} />)
-    expect(screen.getByTestId('data-table-error')).toHaveTextContent('boom')
+    // Translated title; the raw message stays folded under Details; no empty state beside it.
+    expect(screen.getByTestId('error-notice-title')).not.toHaveTextContent('boom')
+    expect(screen.getByTestId('error-notice-details')).toHaveTextContent('boom')
+    rerender(<DataTable columns={columns} rows={[]} error={new Error('boom')} onRetry={onRetry} emptyTitle="No hosts" />)
+    expect(screen.queryByText('No hosts')).toBeNull()
     fireEvent.click(screen.getByText('Retry'))
     expect(onRetry).toHaveBeenCalled()
   })

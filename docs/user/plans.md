@@ -89,21 +89,24 @@ guards checked against the state now, on every node that applied it.
   transfer the restored records. A record changed since (another plan, a
   hand edit, DDNS) refuses it.
 - A BIND configuration rollback restores the backup only when no file the
-  plan wrote changed since, and only while the backup is kept
-  (`retention.backups_days`).
+  plan wrote changed since, and only while the backup is kept: the backup
+  purge keeps it at least the rollback window, longer when
+  `retention.backups_days` says so.
 - A Kea rollback is refused when the configuration changed since the apply,
   by any plan or by hand (configuration hash guard): roll back the newest
-  plan first, or build a new plan.
-- A D2 configuration rollback works for `plans.ttl_seconds` after the apply
-  and not after a restart, whatever the window says.
+  plan first, or build a new plan. The guard survives a restart.
+- A D2 configuration rollback works for the whole window, but its guard is
+  held in memory only: after a restart of the web process (or, for a peer,
+  of its collector) the rollback is refused.
 - An update plan rolls back only while no node has started the rollout;
   afterwards use the Updates screen (cancel, roll back).
 - Installer, import, security and Kea migration plans do not roll back as
   a whole: each of their steps restores its own files when it fails.
 - DNSSEC key rollovers and DS state changes cannot be rolled back.
 
-A refused rollback answers `409 precondition_failed` and the plan stays
-applied, or ends `failed`. A rollback that fails is final: build a new plan.
+A rollback refused on the node you are connected to answers
+`409 precondition_failed`: nothing is written and the plan stays applied.
+A refusal on a peer during the rollback ends the plan `failed`. A rollback that fails is final: build a new plan.
 After the window, restore by hand: the backups under
 `/var/lib/pelagos/backups/<engine>/` (also listed in **Advanced, History**,
 with the diff since the previous backup) and the `before` state in the

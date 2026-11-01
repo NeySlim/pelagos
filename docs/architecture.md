@@ -1164,28 +1164,36 @@ two possible refusals when the state moved since the apply:
   `rollback_until` unchanged, no audit entry (nothing happened, like `preflight_failed`).
   It runs under `PlanService`'s lock, which every apply and rollback of the process takes: a
   guard reads a hash or a few files and returns, it never waits on an engine operation.
-  `RolloutWriter` (scope `update`) and the test fakes implement it; the BIND, Kea and D2
-  connectors gain it in W1-ROLLBACK-GUARDS.
-- Inside the connector's `rollback` (a connector without the hook): the current behaviour,
-  `200 ApplyResult` with state `failed`, the plan `FAILED` and terminal.
+  `RolloutWriter` (scope `update`), `BindBackend`, `KeaBackend`, `D2Backend` and the test fakes
+  implement it; each connector's `rollback` calls its own `check_rollback` first, under the
+  engine lock, so a peer (which stores nothing and is not asked before) refuses the same way.
+- Inside the connector's `rollback` (a peer's part, or a connector without the hook): `200
+  ApplyResult` with state `failed`, the plan `FAILED` and terminal.
 
 Guards per scope today:
 
 - `dns.rrset`: the inverse UPDATE carries prerequisites on the RRsets the plan wrote; a record
   changed since (another plan, a hand edit, DDNS) fails them.
-- `dns.config`, `dns.key`, `dns.acl` and file-backed `dns.zone` changes: the backup is restored
-  only when every file the plan wrote still has the digest recorded at apply (`written.json`).
-  The backup must still exist: the window is cut short by the backup purge
-  (`settings.retention.backups_days`; the rollback answers "no backup found for this plan").
-- `dhcp.*` (except `dhcp.lease` and `dhcp.ha`): the connector compares Kea's `config-hash-get`
-  with the hash recorded right after the apply (`<backups>/applied/<plan id>.json`, the newest
-  256 plans per node) and refuses on any difference, so any later change of the Kea
-  configuration, by a plan or by hand, refuses the rollback of every earlier `dhcp.*` plan.
-  Roll back the newest plan first, or build a new plan.
-- `d2.config`: the plan's private state (its `before` and the hash that guards it) lives in the
-  web process's memory for `settings.plans.ttl_seconds` after the apply; past that, or after a
-  restart, the rollback answers "the before state of this plan is no longer held", whatever
-  `rollback_until` says. W1-ROLLBACK-GUARDS keeps it for the window.
+- `dns.config`, `dns.key`, `dns.acl` and file-backed `dns.zone` changes: `check_rollback`
+  requires the plan's backup set (`<backups>/bind/<stamp>-<plan id>`) and that every file the
+  plan wrote still has the digest recorded at apply (`pelagos-written.json`). The backup purge
+  keeps every set at least `ceil(rollback_window_seconds / 86400)` days, whatever
+  `settings.retention.backups_days` says; a set removed anyway (by hand, or a longer window
+  set after the apply) refuses with "no backup found for plan <id>".
+- `dhcp.*` (except `dhcp.lease` and `dhcp.ha`): `check_rollback` compares Kea's
+  `config-hash-get` with the hash recorded right after the apply (`<backups>/<engine>/applied/
+  <plan id>.json`, kept 7 days, the longest window the setting allows; the newest 256 also in
+  memory) and refuses on any difference, so any later change of the Kea configuration, by a
+  plan or by hand, refuses the rollback of every earlier `dhcp.*` plan. Roll back the newest
+  plan first, or build a new plan. No record (lost, or the hash could not be read right after
+  the apply) refuses too ("rollback guard lost"), never a blind inverse; an `adopt/running`
+  plan also needs its backup set.
+- `d2.config`: the plan's private state (its `before` when it holds clear secrets, its backup
+  set and the hash that guards it) lives in the memory of the process that applied it (the web
+  process, or the collector for a peer's part) for `settings.plans.rollback_window_seconds`
+  after the apply (`plans.ttl_seconds` before it). `check_rollback` refuses when it is gone (a
+  restart drops it: "the rollback state of plan <id> is no longer held") or when D2's
+  `config-hash-get` moved since the apply.
 - `update`: the rollback removes a rollout no node has started; once started, finished or
   replaced, `check_rollback` refuses it (the Updates screen's actions take over).
   `RolloutWriter.rollback` refuses the same cases with the same message (`ok` false), never a

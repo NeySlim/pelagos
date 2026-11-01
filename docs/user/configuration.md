@@ -232,7 +232,7 @@ section 10, "Settings naming".
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `ttl_seconds` | `600` | 60 to 86400 s | lifetime of a plan before apply |
-| `rollback_window_seconds` | `86400` | 600 to 604800 s | how long a finished plan is listed, and an applied plan can be rolled back; a configuration rollback also needs its backup, kept at most `retention.backups_days` |
+| `rollback_window_seconds` | `86400` | 600 to 604800 s | how long a finished plan is listed, and an applied plan can be rolled back; a configuration rollback also needs its backup, kept at least this long |
 
 ### Peers (`[settings.peers]`)
 
@@ -385,7 +385,7 @@ ISC security advisories:
 | `serial_days` | `90` | 1 to 3650 days | SOA serial history (the latest point per zone is always kept) |
 | `ha_transition_days` | `365` | 1 to 3650 days | HA state transitions |
 | `alerts_resolved_days` | `90` | 1 to 3650 days | resolved alerts |
-| `backups_days` | `90` | 1 to 3650 days | write pipeline backups under `/var/lib/pelagos/backups` |
+| `backups_days` | `90` | 1 to 3650 days | write pipeline backups under `/var/lib/pelagos/backups`, never fewer days than `plans.rollback_window_seconds` |
 | `resolver_raw_days` | `7` | 1 to 3650 days | resolver measures per collector pass, then averaged per hour |
 | `resolver_hourly_days` | `90` | 1 to 3650 days | hourly resolver measures |
 

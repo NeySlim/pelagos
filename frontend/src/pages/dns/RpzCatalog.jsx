@@ -109,7 +109,7 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
   const { catalog, categories, subscriptions, nodes, settings } = overview
 
   // A change saves the selection, then shows the plan that brings the nodes to it.
-  const submit = async (call) => {
+  const submit = async (call, skipInfo) => {
     setBusy(true)
     try {
       const result = await flow.run(async () => {
@@ -117,7 +117,7 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
         return r.plan
       })
       refetch()
-      if (!result) showInfo(t('rpzsub.nothingToApply'))
+      if (!result && !skipInfo?.()) showInfo(t('rpzsub.nothingToApply'))
       return Boolean(result)
     } finally {
       setBusy(false)
@@ -125,10 +125,12 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
   }
   // Every changed card is saved; the last plan carries the whole selection. After a failure the
   // saved categories stay saved: say which, and show the plan that covers them.
-  const saveCategories = () =>
-    submit(async () => {
+  const saveCategories = () => {
+    let failed = false
+    return submit(async () => {
       const { plan, saved, failure } = await saveCategoryDrafts(drafts, api)
       if (failure) {
+        failed = true
         const name = (id) => t(`rpzsub.categories.${id}.name`)
         showError(
           t('rpzsub.partialSave', {
@@ -139,7 +141,8 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
         )
       }
       return { plan }
-    })
+    }, () => failed)
+  }
   const changed = Object.keys(drafts).length
   const blocked = Object.values(drafts).some((d) => d.blocked)
   const applyNow = () => submit(() => api.dns.rpzPlan())

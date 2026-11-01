@@ -287,7 +287,10 @@
     "recordsExternalUnknown": "Lecture seule : ce nœud détient une copie d'une zone dont la primaire est hors du cluster. Modifiez les enregistrements sur ce serveur.",
     "recordsUnreachable": "Lecture seule pour l'instant : aucun nœud joignable ne détient cette zone en primaire, et ces nœuds sont injoignables : {{nodes}}. Si la primaire est l'un d'eux, modifiez les enregistrements à son retour.",
     "primaryLabel": "Primaire :",
-    "notifyOnPrimary": "Notifier (sur {{node}}, primaire)"
+    "notifyOnPrimary": "Notifier (sur {{node}}, primaire)",
+    "notifyNote": "La notification est envoyée par <node/>, primaire de la zone.",
+    "editCopy": "Modifier la copie locale",
+    "editCopyHelp": "Ne change que la déclaration de zone sur ce nœud. Modifiez les enregistrements et la zone elle-même sur {{node}}, le primaire."
   },
   "resolver": {
     "recursion": "Récursion",

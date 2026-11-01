@@ -86,8 +86,8 @@ function InstanceCard({ item, nameOf }) {
             <CounterList title={t('instances.qtypes')} items={topCounters(s?.qtypes)} language={lang} testId="dns-instance-qtypes" />
           </div>
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <KeyValue label={t('instances.memoryInUse')} mono>{s?.memory?.InUse !== undefined ? formatSize(s.memory.InUse) : null}</KeyValue>
-            <KeyValue label={t('instances.memoryTotal')} mono>{s?.memory?.TotalUse !== undefined ? formatSize(s.memory.TotalUse) : null}</KeyValue>
+            <KeyValue label={t('instances.memoryInUse')} mono>{s?.memory?.InUse != null ? formatSize(s.memory.InUse) : null}</KeyValue>
+            <KeyValue label={t('instances.memoryTotal')} mono>{s?.memory?.TotalUse != null ? formatSize(s.memory.TotalUse) : null}</KeyValue>
             <KeyValue label={t('instances.bootTime')}>{s?.boot_time ? formatDate(s.boot_time) : null}</KeyValue>
             <KeyValue label={t('instances.uptime')}>{uptime === null ? null : t('instances.uptimeValue', { days: Math.floor(uptime / 86400), hours: Math.floor((uptime % 86400) / 3600) })}</KeyValue>
             <KeyValue label={t('instances.configTime')}>{s?.config_time ? formatDate(s.config_time) : null}</KeyValue>

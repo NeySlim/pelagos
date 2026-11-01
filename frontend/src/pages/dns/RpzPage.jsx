@@ -156,7 +156,7 @@ export default function RpzPage() {
         ) : null
       }
     >
-      {!canWrite && ['catalog', 'exceptions'].includes(tab) && <ReadOnlyNote permission="write:dns.config" className="mb-3" testId="rpz-read-only-note" />}
+      {!canWrite && ['catalog', 'exceptions', 'activity'].includes(tab) && <ReadOnlyNote permission="write:dns.config" className="mb-3" testId="rpz-read-only-note" />}
       {content}
       {flow.modal}
     </PageLayout>

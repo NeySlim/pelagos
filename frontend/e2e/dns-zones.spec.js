@@ -251,6 +251,7 @@ test('a copy of a cluster primary is edited here and applied on the primary', as
   await page.getByTestId('zone-more').click()
   await expect(page.getByTestId('zone-notify')).toHaveAttribute('aria-disabled', 'true')
   await expect(page.getByTestId('zone-notify')).toContainText('on ns2, primary')
+  await expect(page.getByTestId('zone-note-notify')).toContainText('Notify is sent by ns2')
   await page.keyboard.press('Escape')
   await page.getByTestId('record-add').click()
   await expect(page.getByTestId('record-applied-on')).toContainText('Applied on ns2')

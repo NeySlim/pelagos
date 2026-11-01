@@ -56,7 +56,10 @@ function Estimate({ estimate, acknowledged, onAcknowledge }) {
 
 export function RpzCategoryCard({ id, category, catalog, selection, nodes, settings, canWrite, onDraft }) {
   const { t } = useTranslation(['dns', 'common'])
-  const initial = useMemo(() => formFromSelection(category, selection), [category, selection])
+  // Keyed on content: a refetch that returns the same selection must not wipe a draft.
+  const serverKey = JSON.stringify([category, selection])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initial = useMemo(() => formFromSelection(category, selection), [serverKey])
   const [form, setForm] = useState(initial)
   const [estimate, setEstimate] = useState(null)
   const [acknowledged, setAcknowledged] = useState(false)

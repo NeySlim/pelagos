@@ -237,15 +237,23 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
 
 // One line for every action of the zone page the roles lack: edit and delete, rndc operations,
 // the hand-over of a zone in the user's own files and the conversion of a static zone.
-function ZoneReadOnlyNotes({ zone, mode, hasPermission, hasHandover }) {
+function ZoneReadOnlyNotes({ zone, mode, hasPermission, hasHandover, home, nameOf }) {
+  const { t } = useTranslation('dns')
   const missing = []
+  // The disabled Notify entry is skipped by the keyboard: its reason is also written here.
+  const notifyElsewhere = hasPermission('ops:dns') && zone.kind === 'secondary' && home?.where === 'primary'
   if (!hasPermission('write:dns.zones')) missing.push('write:dns.zones')
   if (zone.kind !== 'forward' && !hasPermission('ops:dns')) missing.push('ops:dns')
   if (zone.source === 'user_conf' && !hasHandover && !hasPermission('write:dns.config')) missing.push('write:dns.config')
   if (mode === 'static' && !hasPermission('admin:install')) missing.push('admin:install')
-  if (!missing.length) return null
+  if (!missing.length && !notifyElsewhere) return null
   return (
     <div className="mb-3 space-y-1" data-testid="zone-read-only-notes">
+      {notifyElsewhere && (
+        <ReadOnlyNote reason="custom" testId="zone-note-notify">
+          <Trans t={t} i18nKey="detail.notifyNote" components={{ node: <NodeLink nodeId={home.node} name={nameOf(home.node)} /> }} />
+        </ReadOnlyNote>
+      )}
       {missing.map((permission) => (
         <ReadOnlyNote key={permission} permission={permission} testId="zone-note" />
       ))}
@@ -561,6 +569,7 @@ export default function ZoneDetailPage() {
   // A copy whose primary is a reachable cluster node is edited here: the plan applies there.
   const editable = Boolean(zone) && ['here', 'primary'].includes(home?.where) && hasPermission('write:dns.records')
   const viewArg = view ? { view } : {}
+  const isCopy = zone?.kind === 'secondary' && home?.where === 'primary'
 
   const op = async (name, fn) => {
     setBusy(name)
@@ -637,9 +646,9 @@ export default function ZoneDetailPage() {
               <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('common:fieldLabel', { label: t('detail.view') })} ${v}` }))} data-testid="zone-view-select" />
             )}
             {editableZone(zone) && hasPermission('write:dns.zones') && (
-              <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open">
+              <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open" title={isCopy ? t('detail.editCopyHelp', { node: nameOf(home.node) }) : undefined}>
                 <PencilSimple size={14} />
-                {t('detail.edit')}
+                {isCopy ? t('detail.editCopy') : t('detail.edit')}
               </Button>
             )}
             {handoverItem && (
@@ -689,7 +698,7 @@ export default function ZoneDetailPage() {
         <EmptyState icon={Globe} title={zoneError(error).title} description={zoneError(error).detail} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
-          <ZoneReadOnlyNotes zone={zone} mode={mode} hasPermission={hasPermission} hasHandover={Boolean(handoverItem)} />
+          <ZoneReadOnlyNotes zone={zone} mode={mode} hasPermission={hasPermission} hasHandover={Boolean(handoverItem)} home={home} nameOf={nameOf} />
           {activeTab === 'forwarding' && <ForwardingTab forwarding={data.forwarding} nameOf={nameOf} />}
           {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} home={home} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
           {activeTab === 'status' && (

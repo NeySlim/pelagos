@@ -83,7 +83,7 @@ export default function RpzActivity({ canWrite }) {
           <DataTable
             title={t('rpzsub.activity.recent')}
             columns={[
-              { key: 'time', label: t('rpzsub.activity.time'), mono: true, render: (r) => formatDate(parseLogTime(r.time), { second: '2-digit' }) },
+              { key: 'time', label: t('rpzsub.activity.time'), mono: true, render: (r) => { const at = parseLogTime(r.time); return at ? formatDate(at, { second: '2-digit' }) : r.time } },
               { key: 'client', label: t('rpzsub.activity.client'), mono: true },
               { key: 'qname', label: t('rpzsub.activity.name'), mono: true },
               { key: 'qtype', label: t('rpzsub.activity.type') },

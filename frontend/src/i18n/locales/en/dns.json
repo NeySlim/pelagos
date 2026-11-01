@@ -287,7 +287,10 @@
     "recordsExternalUnknown": "Read-only: this node holds a copy of a zone whose primary is outside the cluster. Edit the records on that server.",
     "recordsUnreachable": "Read-only for now: no reachable node holds this zone as primary, and these nodes cannot be reached: {{nodes}}. If the primary is one of them, edit the records once it is back.",
     "primaryLabel": "Primary:",
-    "notifyOnPrimary": "Notify (on {{node}}, primary)"
+    "notifyOnPrimary": "Notify (on {{node}}, primary)",
+    "notifyNote": "Notify is sent by <node/>, the zone's primary.",
+    "editCopy": "Edit the local copy",
+    "editCopyHelp": "Changes only the zone statement on this node. Edit the records and the zone itself on {{node}}, the primary."
   },
   "resolver": {
     "recursion": "Recursion",

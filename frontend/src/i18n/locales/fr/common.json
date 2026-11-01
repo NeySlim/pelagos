@@ -110,6 +110,8 @@
     "label": "Langue"
   },
   "nav": {
+    "collapse": "Replier la barre latérale",
+    "expand": "Déplier la barre latérale",
     "account": "Compte",
     "dashboard": "Tableau de bord",
     "main": "Navigation principale",
@@ -122,6 +124,28 @@
       "hosts": "Hôtes",
       "advanced": "Avancé",
       "admin": "Administration"
+    }
+  },
+  "search": {
+    "title": "Recherche",
+    "open": "Rechercher",
+    "placeholder": "Nom, adresse, MAC, zone, alerte...",
+    "hint": "Saisissez au moins {{count}} caractères.",
+    "searching": "Recherche...",
+    "count": "{{count}} résultats",
+    "count_one": "{{count}} résultat",
+    "none": "Aucun résultat pour « {{q}} ».",
+    "more": "{{count}} de plus",
+    "partial": "Certaines sources n’ont pas pu être lues : les résultats peuvent être incomplets.",
+    "groups": {
+      "hosts": "Hôtes",
+      "zones": "Zones",
+      "records": "Enregistrements",
+      "leases": "Baux",
+      "reservations": "Réservations",
+      "alerts": "Alertes",
+      "nodes": "Nœuds",
+      "networks": "Réseaux"
     }
   },
   "passwordStrength": {

@@ -670,7 +670,9 @@ be deleted: remove it from those users first (the error names them).
 
 ## Languages, themes and animations
 
-- **Languages**: English and French. The UI starts in the language saved in
+- **Languages**: English and French. Each language is a folder of the
+  frontend `locales/`, so the list in the user menu follows the folders;
+  [adding one](../dev/i18n.md) needs no code change. The UI starts in the language saved in
   the browser, else the browser's language, else English; the choice is
   saved to the account (`language`) and to the browser. Backend texts
   (plan summaries, alerts, findings, errors) come with message keys, so
@@ -680,6 +682,15 @@ be deleted: remove it from those users first (the error names them).
   ember and neon), Pelagic (ocean), and the UCM families Gray, Purple Night
   and Orange Sunset. Each has a dark and a light variant; the mode is System (follows
   the operating system), Dark or Light.
+- **Sidebar**: the arrow at the foot of the sidebar folds it to icons (names
+  stay in the tooltips and for screen readers). The choice is kept in the
+  browser. On a phone the menu groups fold, and DHCPv6 entries carry a "v6" badge.
+- **Search**: `Ctrl+K` (`Cmd+K`) or `/` opens the global search, also the
+  magnifier of the sidebar and of the phone header. It finds hosts, zones,
+  records, leases, reservations, alerts and nodes by name, address, MAC or
+  DUID (digits with or without separators); arrows move, Enter opens, Escape
+  closes. It needs `read:hosts`, `read:dns` or `read:dhcp`; each group
+  appears only with its own permission.
 - **Animations**: Full, Reduced (short fades, no looping effects) or Off.
   The operating system's reduced-motion setting always applies on top: it
   lowers Full to Reduced and never raises a level. Nothing animates while the

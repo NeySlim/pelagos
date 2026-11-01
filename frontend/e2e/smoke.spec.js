@@ -107,6 +107,49 @@ test('every page renders its own data from the API, without console errors', asy
   expect(watch.problems).toEqual([])
 })
 
+test('a partial MAC typed in the global search opens the host sheet', async ({ page }) => {
+  await signIn(page)
+  await page.keyboard.press('Control+k')
+  const input = page.getByTestId('global-search-input')
+  await expect(input).toBeFocused()
+  // Hex digits match with or without separators: the tail of 02:00:5e:00:00:01.
+  await input.fill('00:00:01')
+  const host = page.locator('[data-testid="search-result"][data-kind="host"]').first()
+  await expect(host).toContainText('pc1')
+  await expect(input).toHaveAttribute('aria-activedescendant', /.+/)
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowUp')
+  await host.click()
+  await expect(page).toHaveURL(/\/hosts\?q=pc1/)
+  await expect(page.getByTestId('global-search')).toHaveCount(0)
+  await expect(page.getByTestId('detail-window-host')).toContainText('02:00:5e:00:00:01')
+  // "/" opens it again, and Escape closes it.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('/')
+  await expect(page.getByTestId('global-search')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('global-search')).toHaveCount(0)
+})
+
+test('the sidebar folds to icons and the choice survives a reload', async ({ page }) => {
+  await signIn(page)
+  const sidebar = page.getByTestId('sidebar')
+  await expect(sidebar).toHaveAttribute('data-collapsed', 'false')
+  const wide = (await sidebar.boundingBox()).width
+  await page.getByTestId('nav-collapse').click()
+  await expect(sidebar).toHaveAttribute('data-collapsed', 'true')
+  await expect.poll(async () => (await sidebar.boundingBox()).width).toBeLessThan(wide / 2)
+  // Icons only: entries keep an accessible name and still navigate.
+  await expect(page.locator('[data-nav="dns-zones"]')).toHaveAccessibleName('Zones')
+  await page.reload()
+  await expect(sidebar).toHaveAttribute('data-collapsed', 'true')
+  await page.locator('[data-nav="dns-zones"]').click()
+  await expect(page.getByTestId('zones-table')).toBeVisible()
+  await page.getByTestId('nav-collapse').click()
+  await expect(sidebar).toHaveAttribute('data-collapsed', 'false')
+  await expect(page.locator('[data-nav="dns-zones"]')).toHaveText('Zones')
+})
+
 test('a record plan is applied, then rolled back, through the zone screen', async ({ page }) => {
   const watch = watchConsole(page)
   await signIn(page)

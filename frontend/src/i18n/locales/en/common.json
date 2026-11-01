@@ -110,6 +110,8 @@
     "label": "Language"
   },
   "nav": {
+    "collapse": "Collapse the sidebar",
+    "expand": "Expand the sidebar",
     "account": "Account",
     "dashboard": "Dashboard",
     "main": "Main navigation",
@@ -122,6 +124,28 @@
       "hosts": "Hosts",
       "advanced": "Advanced",
       "admin": "Administration"
+    }
+  },
+  "search": {
+    "title": "Search",
+    "open": "Search",
+    "placeholder": "Name, address, MAC, zone, alert...",
+    "hint": "Type at least {{count}} characters.",
+    "searching": "Searching...",
+    "count": "{{count}} results",
+    "count_one": "{{count}} result",
+    "none": "Nothing found for \"{{q}}\".",
+    "more": "{{count}} more",
+    "partial": "Some sources could not be read: results may be incomplete.",
+    "groups": {
+      "hosts": "Hosts",
+      "zones": "Zones",
+      "records": "Records",
+      "leases": "Leases",
+      "reservations": "Reservations",
+      "alerts": "Alerts",
+      "nodes": "Nodes",
+      "networks": "Networks"
     }
   },
   "passwordStrength": {

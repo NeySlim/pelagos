@@ -94,7 +94,7 @@ export default function LeasesPage({ family }) {
         </span>
       ),
     },
-    { key: 'hw_address', label: family === 'v6' ? t('fields.duid') : t('fields.mac'), mono: true, truncate: true, render: (l) => (family === 'v6' ? l.duid : l.hw_address) || '-' },
+    { key: family === 'v6' ? 'duid' : 'hw_address', label: family === 'v6' ? t('fields.duid') : t('fields.mac'), mono: true, truncate: true, render: (l) => (family === 'v6' ? l.duid : l.hw_address) || '-' },
     { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
     {
       key: 'subnet_id',
@@ -186,7 +186,7 @@ export default function LeasesPage({ family }) {
             ),
             subtitle: (l) => l.hostname || undefined,
             status: (l) => <StatusBadge status={l.state} />,
-            fields: ['hw_address', 'expires_at'],
+            fields: [family === 'v6' ? 'duid' : 'hw_address', 'expires_at'],
             primaryAction: (l) => (
               <Button variant="secondary" size="xs" onClick={() => open(l)} data-testid="lease-open">
                 {t('leases.detail')}

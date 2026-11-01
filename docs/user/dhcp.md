@@ -162,7 +162,7 @@ come and go.
 ### Lease database
 
 Lease tracking (the lease pages, the address use of the pools, the
-[history](#statistics)) and the migration to Kea 3 read a `memfile` lease
+[address use history](#statistics)) and the migration to Kea 3 read a `memfile` lease
 database. A server whose `lease-database` is `mysql` or `postgresql` is not
 supported for them: the Statistics screen says so and names the node.
 

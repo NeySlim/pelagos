@@ -339,7 +339,7 @@ describe('HA page actions', () => {
     expect(screen.queryByTestId('ha-maintenance-start')).toBeNull()
     fireEvent.click(cancel)
     fireEvent.click(await screen.findByTestId('confirm-button'))
-    await waitFor(() => expect(maintenancePlan).toHaveBeenCalledWith('v4', 'N2', 'cancel'))
+    await waitFor(() => expect(maintenancePlan).toHaveBeenCalledWith('v4', 'N1', 'cancel'))
   })
 
   it('a typed plan recomputed after expiry asks for its checkbox again', async () => {

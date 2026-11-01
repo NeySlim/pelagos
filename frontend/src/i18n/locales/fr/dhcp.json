@@ -386,6 +386,7 @@
       "nodes": "Vérifier les horloges"
     },
     "maintenanceBlocked": "Le partenaire {{server}} est en maintenance : terminez-la d'abord",
+    "maintenanceUnresolved": "Le serveur {{server}} est en maintenance mais inconnu ici : son nœud est introuvable",
     "moreActions": "Autres actions"
   },
   "ddns": {

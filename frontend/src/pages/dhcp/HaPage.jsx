@@ -248,6 +248,11 @@ export default function HaPage({ family }) {
     const maintainedName = maintained && (maintained.server_name || nameOf(maintained.node_id))
     const cancelHere = inMaintenance || (partnerHeld && !maintained)
     const startBlocked = partnerHeld && Boolean(maintained)
+    // The plan wants the node of the server leaving maintenance, not the active partner's.
+    const heldNode = partnerHeld && !maintained
+      ? items.find((x) => x.server_name === h.partner?.server_name && x.node_id)?.node_id || rel?.servers.find((x) => x.name === h.partner?.server_name)?.node_id
+      : undefined
+    const cancelUnresolved = partnerHeld && !maintained && !heldNode
     const blockedId = `ha-blocked-${cardKey(h)}`
     return (
       <Card key={cardKey(h)} className="p-0 overflow-hidden" hover={false} data-testid="ha-server" data-role={h.role || ''}>
@@ -335,13 +340,13 @@ export default function HaPage({ family }) {
               <Button
                 variant="warning-soft"
                 size="xs"
-                onClick={() => !startBlocked && setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: cancelHere ? 'cancel' : 'start', name: inMaintenance || !cancelHere ? name : h.partner?.server_name || name })}
+                onClick={() => !startBlocked && !cancelUnresolved && setConfirm({ kind: 'maintenance', nodeId: partnerHeld && !maintained ? heldNode : h.node_id, value: cancelHere ? 'cancel' : 'start', name: inMaintenance || !cancelHere ? name : h.partner?.server_name || name })}
                 disabled={flow.building}
                 // aria-disabled keeps the button focusable: its reason is read, not only hovered.
-                aria-disabled={startBlocked || undefined}
+                aria-disabled={startBlocked || cancelUnresolved || undefined}
                 aria-describedby={startBlocked ? blockedId : undefined}
-                className={startBlocked ? 'opacity-50 cursor-not-allowed' : undefined}
-                title={startBlocked ? t('ha.maintenanceBlocked', { server: maintainedName }) : undefined}
+                className={startBlocked || cancelUnresolved ? 'opacity-50 cursor-not-allowed' : undefined}
+                title={startBlocked ? t('ha.maintenanceBlocked', { server: maintainedName }) : cancelUnresolved ? t('ha.maintenanceUnresolved', { server: h.partner?.server_name }) : undefined}
                 data-testid={cancelHere ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
               >
                 <Wrench size={12} />

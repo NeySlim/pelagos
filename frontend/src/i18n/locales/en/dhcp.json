@@ -386,6 +386,7 @@
       "nodes": "Check the clocks"
     },
     "maintenanceBlocked": "The partner {{server}} is in maintenance: end it there first",
+    "maintenanceUnresolved": "The server {{server}} is in maintenance but unknown here: its node cannot be found",
     "moreActions": "More actions"
   },
   "ddns": {

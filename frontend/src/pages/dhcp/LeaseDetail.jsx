@@ -30,8 +30,10 @@ export function LeaseDetail({ family, ip, onDeleted, onClose, compact = false })
   const gone = useRef(false)
   const lastCopy = useRef(false)
   const flow = usePlanFlow({
-    onApplied: () => {
-      if (lastCopy.current) gone.current = true
+    onApplied: (res) => {
+      // Only a plan that ran to the end can have removed the lease.
+      const failed = Boolean(res?.state) && res.state !== 'applied'
+      if (lastCopy.current && !failed) gone.current = true
       else lease.refetch()
       onDeleted?.()
     },
@@ -71,8 +73,10 @@ export function LeaseDetail({ family, ip, onDeleted, onClose, compact = false })
   // Each copy is deleted on the node that holds it, so a lease only a peer has is reachable too;
   // without a node the plan reaches every server holding it (HA partner and backups alike).
   const deleteOn = (nodeId) => {
-    // Deleting on the only node holding it (or on all of them) removes the lease for good.
-    lastCopy.current = nodeId === null || copies.length === 1
+    // The lease is gone for good only when every server answered and the delete reaches all
+    // the copies: a node that cannot be asked may still hold one.
+    const allAnswered = (servers.data?.items || []).every((s) => !s.error)
+    lastCopy.current = allAnswered && (nodeId === null || copies.length === 1)
     return flow.build(() => api.dhcp.leaseDeletePlan(family, ip, nodeId))
   }
 

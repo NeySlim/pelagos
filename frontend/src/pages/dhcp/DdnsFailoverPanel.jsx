@@ -93,7 +93,7 @@ export function DdnsFailoverPanel({ selectedZone, refreshKey = 0 }) {
   return (
     <div className="space-y-4" data-testid="ddns-failover">
       <OutageBanner outage={outage} windowOpen={data?.outage} nameOf={nameOf} canPlan={canPlan} onPromote={(list) => setDialog({ kind: 'failover', zones: list })} />
-      {nodes.length === 2 && (
+      {nodes.filter((n) => n.peer?.modules?.bind).length === 2 && (
         <p className="text-xs text-text-secondary" data-testid="ddns-two-nodes-note">{t('ddnsFailover.twoNodes')}</p>
       )}
       <StaleBanner zones={zones} stale={byZone.stale} nameOf={nameOf} />

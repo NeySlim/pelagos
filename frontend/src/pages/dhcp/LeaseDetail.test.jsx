@@ -105,4 +105,29 @@ describe('LeaseDetail after a delete', () => {
     fireEvent.click(screen.getByTestId('plan-close'))
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  it('does not close when the delete failed', async () => {
+    mocks.api.dhcp.lease.mockResolvedValue({ items: [copy(NS2)] })
+    const onClose = vi.fn()
+    renderDetail({ onClose })
+    fireEvent.click(await screen.findByTestId('lease-delete'))
+    await screen.findByTestId('plan-close')
+    const calls = mocks.api.dhcp.lease.mock.calls.length
+    act(() => applied.fire({ state: 'failed' }))
+    await waitFor(() => expect(mocks.api.dhcp.lease.mock.calls.length).toBeGreaterThan(calls))
+    fireEvent.click(screen.getByTestId('plan-close'))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not close while a node that may hold a copy cannot be asked', async () => {
+    mocks.api.dhcp.servers.mockResolvedValue({ items: [{ node_id: NS1, error: 'unreachable' }, { node_id: NS2 }] })
+    mocks.api.dhcp.lease.mockResolvedValue({ items: [copy(NS2)] })
+    const onClose = vi.fn()
+    renderDetail({ onClose })
+    fireEvent.click(await screen.findByTestId('lease-delete'))
+    await screen.findByTestId('plan-close')
+    act(() => applied.fire({ state: 'applied' }))
+    fireEvent.click(screen.getByTestId('plan-close'))
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

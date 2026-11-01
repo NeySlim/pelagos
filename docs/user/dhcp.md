@@ -409,8 +409,9 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
 1. On the card of the server that goes down, "Start maintenance": type the
    server name to confirm, then review the plan; the typed name is the only
    confirmation, the plan has no second checkbox. The button is off on the
-   partner of a server already in maintenance (the tooltip says so).
-   The plan It sends `ha-maintenance-start` to its partner,
+   partner of a server known to be in maintenance (a note under it says so;
+   the button stays focusable).
+   The plan sends `ha-maintenance-start` to its partner,
    which takes over every client (`partner-in-maintenance`) while the
    server enters `in-maintenance`. The partner is found by its server name,
    from any node of the cluster; backups keep receiving lease updates and
@@ -433,7 +434,8 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
 maintenance you started but did not go through: while the server was not
 shut down, it sends `ha-maintenance-cancel` and both return to their normal
 state. Once the partner is `partner-down`, Pelagos refuses it (`409`). It
-is offered on that card only, not on the partner's.
+is offered on that card; when that server's state is not known, the partner
+that reports `partner-in-maintenance` offers it instead.
 
 "Remove HA" is in the "..." menu of the page header; it asks for the server
 names and, like the start of a maintenance, needs no second confirmation of
@@ -528,8 +530,9 @@ configuration directory.
 
 ### The Failover tab
 
-With two nodes a network cut cannot be told from a failure of the other
-node, so the automatic failover stays disabled; the tab says so.
+With two nodes running BIND, a network cut cannot be told from a failure
+of the other node: the tab recommends keeping `ddns.failover_auto_enabled`
+off (its default) unless the network between them is redundant.
 
 DHCP > DDNS > **Failover** (`/dhcp/v4/ddns?tab=failover`, `read:dhcp` and
 `read:dns`) shows every dynamic zone D2 updates:

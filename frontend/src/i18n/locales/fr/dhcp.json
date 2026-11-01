@@ -568,6 +568,6 @@
       "noTarget": "Aucun nœud en ligne ne porte une copie de chaque zone choisie.",
       "failoverRisk": "Si les nœuds se sont seulement perdus de vue, les deux pourraient devenir primaires : ne promouvez que si l'ancien primaire est vraiment arrêté."
     },
-    "twoNodes": "À deux nœuds, une coupure réseau est indiscernable d'une panne : la bascule automatique reste désactivée."
+    "twoNodes": "Avec deux nœuds BIND, une coupure réseau est indiscernable d'une panne de l'autre nœud : laissez la promotion automatique désactivée (ddns.failover_auto_enabled) sauf si le réseau entre eux est redondant."
   }
 }

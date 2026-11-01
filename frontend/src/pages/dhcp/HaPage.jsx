@@ -64,17 +64,18 @@ export default function HaPage({ family }) {
     transitions.refetch()
   }
   const flow = usePlanFlow({ onApplied: refresh })
-  // A plan whose object the user already named in the dialog needs no second tick.
-  const [typedPlan, setTypedPlan] = useState(false)
+  // The plan built right after the user typed its object's name needs no second tick. A
+  // recomputed plan has another id: it is a new plan and gets its checkbox back.
+  const [typedPlanId, setTypedPlanId] = useState(null)
   const typedBuild = useRef(null)
   const buildTyped = async (fn) => {
     typedBuild.current = fn
-    setTypedPlan(true)
-    if (!(await flow.build(fn))) setTypedPlan(false)
+    const plan = await flow.build(fn)
+    setTypedPlanId(plan?.id ?? null)
   }
   const closePlan = () => {
     flow.close()
-    setTypedPlan(false)
+    setTypedPlanId(null)
   }
   // Each HA status sample newer than the last one seen is a heartbeat on the card's trace.
   const beats = useRef(new Map()) // node id and server name -> { at, n }
@@ -238,13 +239,16 @@ export default function HaPage({ family }) {
     const userEnabled = service.userDisabled === undefined ? undefined : !service.userDisabled
     const name = h.server_name || nameOf(h.node_id)
     const backup = h.role === 'backup'
-    // node_id in a maintenance plan is the server that enters (or leaves) maintenance; the
-    // partner card cancels on that same server.
+    // The end of a maintenance is offered on the server in maintenance. When its state is not
+    // known here, the partner that reports partner-in-maintenance offers it (the backend ends
+    // it through the partner). A partner whose server is known to be held cannot start its own.
     const inMaintenance = h.state === 'in-maintenance'
-    // The partner of a server in maintenance cannot start its own: the reason is its tooltip.
     const partnerHeld = h.state === 'partner-in-maintenance'
     const maintained = partnerHeld ? items.find((x) => x !== h && x.state === 'in-maintenance' && x.server_name === h.partner?.server_name) || items.find((x) => x !== h && x.state === 'in-maintenance') : null
     const maintainedName = maintained && (maintained.server_name || nameOf(maintained.node_id))
+    const cancelHere = inMaintenance || (partnerHeld && !maintained)
+    const startBlocked = partnerHeld && Boolean(maintained)
+    const blockedId = `ha-blocked-${cardKey(h)}`
     return (
       <Card key={cardKey(h)} className="p-0 overflow-hidden" hover={false} data-testid="ha-server" data-role={h.role || ''}>
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
@@ -331,13 +335,17 @@ export default function HaPage({ family }) {
               <Button
                 variant="warning-soft"
                 size="xs"
-                onClick={() => setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: inMaintenance ? 'cancel' : 'start', name })}
-                disabled={flow.building || partnerHeld}
-                title={partnerHeld ? t('ha.maintenanceBlocked', { server: maintainedName || h.partner?.server_name || '-' }) : undefined}
-                data-testid={inMaintenance ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
+                onClick={() => !startBlocked && setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: cancelHere ? 'cancel' : 'start', name: inMaintenance || !cancelHere ? name : h.partner?.server_name || name })}
+                disabled={flow.building}
+                // aria-disabled keeps the button focusable: its reason is read, not only hovered.
+                aria-disabled={startBlocked || undefined}
+                aria-describedby={startBlocked ? blockedId : undefined}
+                className={startBlocked ? 'opacity-50 cursor-not-allowed' : undefined}
+                title={startBlocked ? t('ha.maintenanceBlocked', { server: maintainedName }) : undefined}
+                data-testid={cancelHere ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
               >
                 <Wrench size={12} />
-                {inMaintenance ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
+                {cancelHere ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
               </Button>
               {userEnabled !== undefined && (
                 <Button
@@ -350,6 +358,11 @@ export default function HaPage({ family }) {
                   <Power size={12} />
                   {userEnabled ? t('ha.disableService') : t('ha.enableService')}
                 </Button>
+              )}
+              {startBlocked && (
+                <p id={blockedId} className="w-full text-2xs text-text-tertiary" data-testid="ha-maintenance-blocked">
+                  {t('ha.maintenanceBlocked', { server: maintainedName })}
+                </p>
               )}
             </div>
           )}
@@ -507,7 +520,7 @@ export default function HaPage({ family }) {
         typeToConfirm={(confirm?.kind === 'maintenance' && confirm?.value === 'start') || confirm?.kind === 'remove' ? confirm.name : undefined}
       />
       {setup && <HaSetupModal family={family} initial={setup.draft} title={setup.title} nodes={nodes} flow={flow} onClose={() => setSetup(null)} />}
-      {typedPlan && flow.plan ? (
+      {typedPlanId && flow.plan?.id === typedPlanId ? (
         <PlanPreviewModal open onClose={closePlan} plan={flow.plan} onApplied={refresh} onRolledBack={refresh} onRecompute={() => flow.build(typedBuild.current, { rethrow: true })} preConfirmed />
       ) : (
         flow.modal

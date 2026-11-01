@@ -21,7 +21,7 @@ vi.mock('../../services/api', () => {
       replayPlan: (...a) => { calls.replay(...a); return plan('replay')() },
     },
     alerts: { list: async ({ kind }) => ({ items: db.alerts.filter((a) => a.kind === kind) }) },
-    nodes: { list: async () => ({ items: db.nodes.map((name, i) => ({ peer: { id: `N${i + 1}`, name } })) }) },
+    nodes: { list: async () => ({ items: db.nodes.map((name, i) => ({ peer: { id: `N${i + 1}`, name, modules: { bind: name !== 'ns9' } } })) }) },
   }
   return { api, default: api }
 })
@@ -64,13 +64,22 @@ beforeEach(() => {
 describe('DdnsFailoverPanel', () => {
   it('explains on two nodes why the automatic failover stays off, and not on three', async () => {
     const { unmount } = renderPanel()
-    expect(await screen.findByTestId('ddns-two-nodes-note')).toHaveTextContent('a network cut looks the same as a failure')
+    expect(await screen.findByTestId('ddns-two-nodes-note')).toHaveTextContent('keep the automatic promotion off')
     unmount()
     resetNodeNameCache()
     db.nodes = ['ns1', 'ns2', 'ns3']
-    renderPanel()
+    const { unmount: unmount2 } = renderPanel()
     await screen.findByTestId('ddns-zones')
     expect(screen.queryByTestId('ddns-two-nodes-note')).toBeNull()
+    unmount2()
+  })
+
+  it('counts the nodes that run BIND, not all the nodes', async () => {
+    resetNodeNameCache()
+    db.nodes = ['ns1', 'ns2', 'ns9']
+    renderPanel()
+    await screen.findByTestId('ddns-zones')
+    expect(screen.getByTestId('ddns-two-nodes-note')).toBeInTheDocument()
   })
 
   it('shows each zone state, its blockers and the handover link of an unmanaged zone', async () => {

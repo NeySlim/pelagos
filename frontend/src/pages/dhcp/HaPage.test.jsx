@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 
 const db = vi.hoisted(() => ({ ha: [], relationships: [], nodes: [], alerts: [], servers: [], transitions: [], denied: [] }))
 const maintenancePlan = vi.hoisted(() => vi.fn())
+const servicePlan = vi.hoisted(() => vi.fn())
 const setupPlan = vi.hoisted(() => vi.fn())
 const repairPlan = vi.hoisted(() => vi.fn())
 
@@ -24,6 +25,7 @@ vi.mock('../../services/api', () => {
       haSetupPlan: (...args) => setupPlan(...args),
       haRepairPlan: (...args) => repairPlan(...args),
       haMaintenancePlan: (...args) => maintenancePlan(...args),
+      servicePlan: (...args) => servicePlan(...args),
     },
     alerts: { list: async () => ({ items: db.alerts }) },
     d2: { configFile: async () => ({}) },
@@ -35,7 +37,13 @@ vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermiss
 vi.mock('../../contexts/NotificationContext', () => ({
   useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showToast: vi.fn() }),
 }))
-vi.mock('../../components/PlanPreview', () => ({ PlanPreviewModal: ({ plan, preConfirmed }) => <div data-testid="plan-preview" data-preconfirmed={String(Boolean(preConfirmed))}>{plan.summary}</div> }))
+vi.mock('../../components/PlanPreview', () => ({ PlanPreviewModal: ({ plan, preConfirmed, onRecompute }) => (
+    <div data-testid="plan-preview" data-plan={plan.id} data-preconfirmed={String(Boolean(preConfirmed))}>
+      {plan.summary}
+      <button type="button" data-testid="plan-recompute" onClick={() => onRecompute?.()}>recompute</button>
+    </div>
+  ),
+}))
 
 const { default: HaPage } = await import('./HaPage')
 const { resetNodeNameCache } = await import('./hooks')
@@ -60,6 +68,7 @@ beforeEach(() => {
   setupPlan.mockReset()
   repairPlan.mockReset()
   maintenancePlan.mockReset()
+  servicePlan.mockReset()
   db.denied = []
   db.alerts = []
   db.servers = []
@@ -271,7 +280,12 @@ describe('HA page actions', () => {
     const cards = await screen.findAllByTestId('ha-server')
     expect(within(cards[0]).getByTestId('ha-maintenance-cancel')).toBeEnabled()
     const blocked = within(cards[1]).getByTestId('ha-maintenance-start')
-    expect(blocked).toBeDisabled()
+    // Not natively disabled: it stays reachable by keyboard and its reason is described.
+    expect(blocked).toHaveAttribute('aria-disabled', 'true')
+    expect(blocked).toHaveAttribute('aria-describedby', screen.getByTestId('ha-maintenance-blocked').id)
+    expect(screen.getByTestId('ha-maintenance-blocked')).toHaveTextContent('ns1 is in maintenance')
+    fireEvent.click(blocked)
+    expect(screen.queryByTestId('confirm-button')).toBeNull()
     expect(blocked).toHaveAttribute('title', 'The partner ns1 is in maintenance: end it there first')
     expect(screen.getAllByTestId('ha-maintenance-cancel')).toHaveLength(1)
   })
@@ -315,5 +329,70 @@ describe('HA page actions', () => {
     const table = await screen.findByTestId('ha-servers')
     expect(within(table).getAllByText('Standby').length).toBeGreaterThan(0)
     expect(within(table).getAllByText('Backup').length).toBeGreaterThan(0)
+  })
+
+  it('offers the end of maintenance on the partner when the held server is not known here', async () => {
+    db.ha = [state('ns3', 'backup', 'backup'), state('ns2', 'standby', 'partner-in-maintenance', 'ns1')]
+    maintenancePlan.mockResolvedValue({ id: 'C', summary: 'cancel', changes: [], target_node_ids: [] })
+    renderPage()
+    const cancel = await screen.findByTestId('ha-maintenance-cancel')
+    expect(screen.queryByTestId('ha-maintenance-start')).toBeNull()
+    fireEvent.click(cancel)
+    fireEvent.click(await screen.findByTestId('confirm-button'))
+    await waitFor(() => expect(maintenancePlan).toHaveBeenCalledWith('v4', 'N2', 'cancel'))
+  })
+
+  it('a typed plan recomputed after expiry asks for its checkbox again', async () => {
+    maintenancePlan.mockResolvedValueOnce({ id: 'M1', summary: 'first', changes: [], target_node_ids: [] })
+    maintenancePlan.mockResolvedValueOnce({ id: 'M2', summary: 'second', changes: [], target_node_ids: [] })
+    renderPage()
+    const cards = await screen.findAllByTestId('ha-server')
+    fireEvent.click(within(cards[0]).getByTestId('ha-maintenance-start'))
+    fireEvent.change(screen.getByTestId('confirm-type-input'), { target: { value: 'ns1' } })
+    fireEvent.click(screen.getByTestId('confirm-button'))
+    const first = await screen.findByTestId('plan-preview')
+    expect(first).toHaveAttribute('data-plan', 'M1')
+    expect(first).toHaveAttribute('data-preconfirmed', 'true')
+    fireEvent.click(screen.getByTestId('plan-recompute'))
+    await waitFor(() => expect(screen.getByTestId('plan-preview')).toHaveAttribute('data-plan', 'M2'))
+    expect(screen.getByTestId('plan-preview')).toHaveAttribute('data-preconfirmed', 'false')
+  })
+
+  describe('plans confirmed by a dialog without typing keep their checkbox', () => {
+    const dhcpState = (user) => ({ 'dhcp-state': { 'globally-disabled': false, 'disabled-by-user': user } })
+    const preConfirmed = async () => (await screen.findByTestId('plan-preview')).getAttribute('data-preconfirmed')
+    beforeEach(() => {
+      db.servers = [{ node_id: 'N1', status: dhcpState(false) }, { node_id: 'N2', status: dhcpState(false) }]
+    })
+
+    it('end of maintenance', async () => {
+      db.ha = [state('ns3', 'backup', 'backup'), state('ns1', 'primary', 'in-maintenance', 'ns2'), state('ns2', 'standby', 'partner-in-maintenance', 'ns1')]
+      maintenancePlan.mockResolvedValue({ id: 'C', summary: 'cancel', changes: [], target_node_ids: [] })
+      renderPage()
+      const cards = await screen.findAllByTestId('ha-server')
+      fireEvent.click(within(cards[0]).getByTestId('ha-maintenance-cancel'))
+      fireEvent.click(await screen.findByTestId('confirm-button'))
+      expect(await preConfirmed()).toBe('false')
+    })
+
+    it('service toggle', async () => {
+      servicePlan.mockResolvedValue({ id: 'S', summary: 'service', changes: [], target_node_ids: [] })
+      renderPage()
+      const cards = await screen.findAllByTestId('ha-server')
+      await waitFor(() => expect(within(cards[0]).getByTestId('ha-service-toggle')).toBeInTheDocument())
+      fireEvent.click(within(cards[0]).getByTestId('ha-service-toggle'))
+      fireEvent.click(await screen.findByTestId('confirm-button'))
+      expect(await preConfirmed()).toBe('false')
+    })
+
+    it('repair', async () => {
+      const stuck = (name, role, partner) => ({ ...state(name, role, 'terminated', partner), partner: { ...state(name, role, 'terminated', partner).partner, state: 'terminated' } })
+      db.ha = [state('ns3', 'backup', 'backup'), stuck('ns1', 'primary', 'ns2'), stuck('ns2', 'standby', 'ns1')]
+      repairPlan.mockResolvedValue({ id: 'R', summary: 'repair', changes: [], target_node_ids: [] })
+      renderPage()
+      fireEvent.click(await screen.findByTestId('ha-repair'))
+      fireEvent.click(await screen.findByTestId('confirm-button'))
+      expect(await preConfirmed()).toBe('false')
+    })
   })
 })

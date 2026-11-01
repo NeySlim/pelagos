@@ -568,6 +568,6 @@
       "noTarget": "No online node holds a copy of every selected zone.",
       "failoverRisk": "If the nodes only lost sight of each other, both may end up primary: promote only when the old primary is really down."
     },
-    "twoNodes": "With two nodes, a network cut looks the same as a failure: automatic failover stays disabled."
+    "twoNodes": "With two nodes running BIND, a network cut looks the same as a failure of the other node: keep the automatic promotion off (ddns.failover_auto_enabled) unless the network between them is redundant."
   }
 }

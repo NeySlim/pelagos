@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Prometheus metrics from the Pelagos API, with a read-only API token (role `viewer`).
 
+DEPRECATED: Pelagos serves GET /metrics itself (docs/user/operations.md, "Metrics and monitoring"),
+with more families. This script keeps working; `--from-endpoint` only copies that route's answer,
+so an existing cron line moves over by adding the flag.
+
 Reads GET /dashboard/summary, /alerts/summary and /dhcp/v4/ha and prints the Prometheus text
 format. Run it from cron into the node_exporter textfile directory, or behind any scraper that runs
 a command. Standard library only. docs/user/operations.md ("Metrics and monitoring") lists the
@@ -158,6 +162,19 @@ def ha_metrics(out: Out, ha: dict[str, Any]) -> None:
             )
 
 
+def emit(text: str, dest: str | None) -> int:
+    if not dest:
+        sys.stdout.write(text)
+        return 0
+    # The textfile collector must never read a half-written file.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(dest)), suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, dest)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--url", default=os.environ.get("PELAGOS_URL"), help="node URL (PELAGOS_URL)")
@@ -166,6 +183,7 @@ def main() -> int:
     ap.add_argument("--insecure", action="store_true", help="skip certificate checks (lab only)")
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--family", default="v4", choices=["v4", "v6"], help="DHCP family for HA metrics")
+    ap.add_argument("--from-endpoint", action="store_true", help="copy GET /metrics instead of building it")
     ap.add_argument("--out", help="write atomically to this .prom file instead of stdout")
     args = ap.parse_args()
     token = open(args.token_file).read().strip() if args.token_file else os.environ.get("PELAGOS_TOKEN", "")
@@ -175,6 +193,17 @@ def main() -> int:
     if args.insecure:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
+
+    if args.from_endpoint:
+        req = urllib.request.Request(  # noqa: S310 (the operator's node URL)
+            f"{args.url.rstrip('/')}/metrics", headers={"Authorization": f"Bearer {token}"}
+        )
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=args.timeout) as resp:  # noqa: S310
+                return emit(resp.read().decode(), args.out)
+        except (urllib.error.URLError, OSError) as exc:
+            print(f"pelagos-metrics: /metrics: {exc}", file=sys.stderr)
+            return 1
 
     out = Out()
     sources = (
@@ -190,17 +219,7 @@ def main() -> int:
             print(f"pelagos-metrics: {path}: {exc}", file=sys.stderr)
             ok = 0
         out.metric("pelagos_scrape_success", "gauge", "1 when the API route answered", ok, source=name)
-    text = out.text()
-    if not args.out:
-        sys.stdout.write(text)
-        return 0
-    # The textfile collector must never read a half-written file.
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(args.out)), suffix=".tmp")
-    with os.fdopen(fd, "w") as f:
-        f.write(text)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, args.out)
-    return 0
+    return emit(out.text(), args.out)
 
 
 if __name__ == "__main__":

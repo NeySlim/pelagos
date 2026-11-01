@@ -420,8 +420,8 @@ one JSON object per line, or the Audit log screen).
 
 ## Metrics and monitoring
 
-Pelagos has no Prometheus endpoint of its own; an example exporter reads
-the API (below). What it offers:
+Pelagos serves the Prometheus text format itself (`GET /metrics`, below).
+What it offers:
 
 - **Health**: `GET /api/v1/health` (anonymous) answers
   `{"status": "ok"}` when the node is ready and `"degraded"` while it syncs;
@@ -439,7 +439,61 @@ the API (below). What it offers:
 The statistics channel and the Kea sockets stay local; keep other
 collectors on them local too, or the security audit flags them.
 
-### Supervision with a read-only token
+### Prometheus endpoint
+
+`GET /metrics` answers the Prometheus text format on every node, outside
+`/api/v1`. Scrape each node you want to read; a node shows the whole cluster
+the way the dashboard does (nodes, pools, zones, alerts, HA), and the engine
+counters of every node it can reach.
+
+Access, one of:
+
+- an [API token](api.md#api-tokens) with `read:series` (a `viewer` token is
+  enough), sent as `Authorization: Bearer pel_...`; limit the token to the
+  address of the Prometheus host;
+- no token, from a client inside `metrics.allowed_networks` (Administration,
+  Settings, Metrics endpoint; empty by default). Anyone on a listed network
+  reads the cluster state without signing in: list only the monitoring host.
+
+Without either, the answer is `401`. `metrics.endpoint_enabled` off answers
+`404`. A scrape is never written to the audit log, so the interval can be
+short; the answer is cached for 10 seconds per node.
+
+```yaml
+scrape_configs:
+  - job_name: pelagos
+    scheme: https
+    authorization:
+      credentials_file: /etc/prometheus/pelagos.token
+    tls_config:
+      ca_file: /etc/ssl/certs/example-ca.pem
+    static_configs:
+      - targets: [ns1.example.lan:8443, ns2.example.lan:8443]
+```
+
+Families (`scripts/examples/grafana-pelagos.json` is a Grafana dashboard
+built on them):
+
+| Family | What it counts |
+| --- | --- |
+| `pelagos_build_info` | the Pelagos version (value 1) |
+| `pelagos_node_up`, `pelagos_node_clock_offset_seconds` | node reachability and clock offset |
+| `pelagos_pool_utilization_percent` | assigned addresses of each pool |
+| `pelagos_zone_serial_divergent` | 1 when the nodes serve different SOA serials |
+| `pelagos_d2_updates_total` | kea-dhcp-ddns counters |
+| `pelagos_alerts`, `pelagos_alerts_by_severity`, `pelagos_alerts_by_kind` | unresolved alerts |
+| `pelagos_ha_state`, `pelagos_ha_healthy`, `pelagos_ha_partner_in_touch`, `pelagos_ha_unsent_updates`, `pelagos_ha_leases` | Kea HA, per server |
+| `pelagos_bind_queries_total{node,qtype}`, `pelagos_bind_responses_total{node,rcode}`, `pelagos_bind_transfers_total{node,counter}` | BIND statistics channel, per node |
+| `pelagos_kea_packets_total{node,engine,packet}`, `pelagos_kea_assigned_addresses`, `pelagos_kea_declined_addresses` | Kea statistics, per node and engine |
+| `pelagos_plan_applied_total{scope,result}` | plans applied, rolled back or failed since the web process started |
+| `pelagos_scrape_success{source}` | 1 when the source (`dashboard`, `alerts`, `ha`, `bind`, `kea`) was read |
+
+Counters restart at zero with the web process: use `rate()` or `increase()`.
+A node that does not answer is missing from the engine families (and
+`pelagos_node_up` is 0); the other nodes are still served. The endpoint shows
+what the screens already show a viewer: no secret, lease or client name.
+
+### Supervision with a read-only token (route by route)
 
 Create an API token with the `viewer` role (read only, see
 [API tokens](api.md#api-tokens)), limited to the address of the
@@ -472,7 +526,10 @@ Two fields read like health but are not:
   and Pelagos edits the whole configuration with `config-set`. It is a
   capability, not a fault; before 0.3.0 the field was called `degraded`.
 
-`scripts/examples/pelagos-metrics.py` (Python standard library only) reads
+`scripts/examples/pelagos-metrics.py` (Python standard library only) is
+**deprecated** in favour of `GET /metrics`, and keeps working. Add
+`--from-endpoint` to make it copy the endpoint's answer into the textfile
+instead of building its own (same file, more families). It reads
 these three routes and prints the Prometheus text format, for the
 node_exporter textfile collector:
 
@@ -489,6 +546,6 @@ It exports `pelagos_node_up`, `pelagos_node_clock_offset_seconds`,
 `pelagos_alerts_by_kind`, `pelagos_ha_state`, `pelagos_ha_healthy`,
 `pelagos_ha_partner_in_touch`, `pelagos_ha_unsent_updates`,
 `pelagos_ha_leases` and `pelagos_scrape_success` (one per route). Each
-token call writes an audit entry: with a scrape every minute, set
+token call to these routes writes an audit entry (`GET /metrics` does not): with a scrape every minute, set
 `auth.api_token_audit_reads_enabled = false` to keep only the writes made
 with a token.

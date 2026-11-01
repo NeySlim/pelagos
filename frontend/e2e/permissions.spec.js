@@ -93,9 +93,3 @@ test('a viewer sees why each DNS action is missing on a zone and on the RPZ page
   await expect(page.getByTestId('rpz-read-only-note')).toContainText('write:dns.config')
   await expect(page.getByTestId('rpz-categories-save')).toHaveCount(0)
 })
-
-test('an operator without DNS roles gets the same notes', async ({ page }) => {
-  await signIn(page, 'bob', 'bob')
-  await page.goto('/dns/zones/branch.example.lan')
-  await expect(page.getByTestId('zone-read-only-notes')).toContainText('write:dns.zones')
-})

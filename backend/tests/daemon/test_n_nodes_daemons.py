@@ -676,3 +676,24 @@ def test_generic_collection_and_conflict_across_three_nodes(repl_cluster):
             assert subjects == {"widgets/w1"}
         else:
             assert subjects == set()
+
+
+# B1-AUDIT: sealed audit segments across nodes (section 11). Contract skeleton.
+AUDIT_TODO = "B1-AUDIT: contract skeleton, implemented after the contract review"
+
+
+@pytest.mark.skip(reason=AUDIT_TODO)
+def test_audit_segments_one_node_rotated_the_other_not(repl_cluster):
+    """ns1 rotates, ns2 and ns3 do not; writes on all three; counts, heads and id sets converge."""
+
+
+@pytest.mark.skip(reason=AUDIT_TODO)
+def test_audit_entry_of_a_rotated_year_merged_late(repl_cluster):
+    """ns3 partitioned over the rotation of ns1 writes an entry dated before it; after healing ns1
+    holds it in its live file, scan on ns1 returns it once, verify of ns1's segment still passes."""
+
+
+@pytest.mark.skip(reason=AUDIT_TODO)
+def test_logout_revocation_survives_a_rotation(repl_cluster):
+    """B1-SESSIONS follower: a logout on ns2 merged into ns1 right after ns1 rotated is applied, and a
+    restart of ns1's reader rebuilds it with tail() from the segment."""

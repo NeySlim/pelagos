@@ -13,6 +13,28 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, B1-AUDIT (WP-CORE, WP-COLLECTOR, WP-API-AUTH): sealed audit segments, token reads not audited
+Section 11 "Sealed segments": the live `audit.jsonl` (name and format unchanged) is renamed once a
+year to `audit-<year>.jsonl` (`-<n>` for a second one in a year) with a seal `audit-<year>.seal`
+(SHA-256 chain over the raw lines, length, range, node, time); `core.audit_segments` (`rotate`,
+`seal`, `verify`, `purge`, `Segment`); collector task `audit_rotation` (section 15); CLI
+`pelagos audit-log segments|rotate|verify` (`pelagos audit` stays the security audit). Every
+`AuditLog` read (`read`, `query`, `get`, `get_many`, `ids`, `sorted_ids`, `head`, `export_lines`)
+and `merge` work over segments plus live file; appends and merges always go to the live file (no
+`.late.jsonl`). `AuditLog.scan` returns each entry once across a rotation (it finds the renamed
+file by inode); new `AuditLog.tail(since, needle)` for followers that rebuild at start, then
+`scan`; new `AuditLog.segments()`. Audit actions `audit.rotate`, `audit.purge`. API:
+`GET /audit/segments`, `POST /audit/segments/{name}/verify` (`read:audit`); `GET /audit/export`
+streams segments then the live file (a time range exports the same bytes before and after a
+rotation). Settings: `retention.audit_sealed_years` (default 0, keep); `auth.api_token_audit_reads_enabled`
+default `false`, migrated in `settings_registry.migrate` (a stored `true` nobody chose becomes
+`false` with the deterministic stamp `<c>@~defaults`; a value an operator wrote is kept; section 10
+"Changed defaults"). Replication protocol unchanged; a 0.3.x node keeps reading `audit.jsonl` and
+adopts the new default at the next merge. B1-SESSIONS: `Revocations` rebuilds with `tail` and
+follows with `scan`. F0-PLANS, F0-REPL, notifications: `query` already covers the segments.
+B1-ARCHIVES: archives already take the whole audit directory. WP-FRONTEND: nothing required
+(`/audit/segments` is in the mock; a segments view is left to a later lot).
+
 ## 2026-11-01, FIX-PEERROLLBACK (WP-CORE, WP-REPL): peer rollback pre-check, parts finished_at
 Additive. New replication route `POST /repl/v1/plans/check-rollback` (`{"plan"}` ->
 `{"problem", "code"?}`), served from `core.registry.ConnectorRegistry.check_rollback`; client

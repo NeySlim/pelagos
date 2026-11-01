@@ -57,7 +57,6 @@ function peer(name, id) {
     modules: isBackup(name) ? { bind: true, kea4: true, kea6: false, d2: false } : { bind: true, kea4: true, kea6: true, d2: true },
     enrolled_at: ago(86400 * (isBackup(name) ? 3 : 40)),
     enrolled_by: name === 'ns1' ? null : 'admin',
-    site: null,
   }
 }
 
@@ -69,7 +68,7 @@ const SITES = {
 
 function makeNodes(names, scenario) {
   return names.map((name, i) => ({
-    peer: { ...peer(name, NODE_IDS[name]), site: SITES[scenario]?.[name] ?? null },
+    peer: { ...peer(name, NODE_IDS[name]), ...(SITES[scenario]?.[name] ? { site: SITES[scenario][name] } : {}) },
     is_self: name === 'ns1',
     status: 'online',
     version: '0.3.0',

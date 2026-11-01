@@ -5,7 +5,7 @@
 // (notify, reload, retransfer), the zone edit and deletion plans, the view selector
 // for a zone present in several views and the conversion of a static zone.
 import { useEffect, useMemo, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Globe, ArrowsClockwise, ArrowsSplit, Info, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
@@ -28,6 +28,8 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { PlanPreviewModal } from '../../components/PlanPreview'
+import { NodeLink } from '../../components/NodeLink'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { TransferBar, TransferSerial } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
 import { isMessage, useMessage } from '../../i18n/message'
@@ -68,6 +70,7 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
   const msg = useMessage()
   const { isMobile } = useMobile()
   const { showToast, showError } = useNotification()
+  const { hasPermission } = usePermission()
   const [type, setType] = useState('')
   const [q, setQ] = useState('')
   const [editor, setEditor] = useState(null)
@@ -91,7 +94,7 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
       message: t('records.applied'),
       detail: msg(plan.summary_message, plan.summary),
       action: {
-        label: t('records.rollbackPlan'),
+        label: t('common:plan.rollback'),
         testId: 'toast-rollback-plan',
         onClick: async () => {
           try {
@@ -167,6 +170,9 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
   return (
     <>
       <RecordsHomeNote home={home} nameOf={nameOf} />
+      {!hasPermission('write:dns.records') && ['here', 'primary'].includes(home?.where) && (
+        <ReadOnlyNote permission="write:dns.records" className="mb-3" testId="zone-note-records" />
+      )}
       {mode === 'static' && (
         <p className="mb-3 flex items-start gap-2 rounded-lg border border-border-op50 p-3 text-xs text-text-secondary" data-testid="zone-static-note">
           <FileText size={14} className="shrink-0 mt-0.5 text-accent-primary" />
@@ -229,12 +235,30 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
   )
 }
 
+// One line for every action of the zone page the roles lack: edit and delete, rndc operations,
+// the hand-over of a zone in the user's own files and the conversion of a static zone.
+function ZoneReadOnlyNotes({ zone, mode, hasPermission, hasHandover }) {
+  const missing = []
+  if (!hasPermission('write:dns.zones')) missing.push('write:dns.zones')
+  if (zone.kind !== 'forward' && !hasPermission('ops:dns')) missing.push('ops:dns')
+  if (zone.source === 'user_conf' && !hasHandover && !hasPermission('write:dns.config')) missing.push('write:dns.config')
+  if (mode === 'static' && !hasPermission('admin:install')) missing.push('admin:install')
+  if (!missing.length) return null
+  return (
+    <div className="mb-3 space-y-1" data-testid="zone-read-only-notes">
+      {missing.map((permission) => (
+        <ReadOnlyNote key={permission} permission={permission} testId="zone-note" />
+      ))}
+    </div>
+  )
+}
+
 // Why the records of a copy are edited here and applied on its primary, or why they are read-only.
 function RecordsHomeNote({ home, nameOf }) {
   const { t } = useTranslation('dns')
   if (!home || home.where === 'here') return null
   let text
-  if (home.where === 'primary') text = t('detail.recordsOnPrimary', { node: nameOf(home.node) })
+  if (home.where === 'primary') text = <Trans t={t} i18nKey="detail.recordsOnPrimary" components={{ node: <NodeLink nodeId={home.node} name={nameOf(home.node)} /> }} />
   else if (home.where === 'unreachable') text = t('detail.recordsUnreachable', { nodes: home.nodes.map(nameOf).join(', ') })
   else if (home.primaries.length) text = t('detail.recordsExternal', { primaries: home.primaries.join(', ') })
   else text = t('detail.recordsExternalUnknown')
@@ -285,7 +309,7 @@ function SecondariesCard({ choice, nameOf, onPlan, busy }) {
   )
 }
 
-function StatusTab({ status, copies, nameOf, zone, canOps, onRetransfer, busyNode, choice, canPlan, onSecondaries, planning }) {
+function StatusTab({ status, copies, nameOf, zone, canOps, onRetransfer, busyNode, choice, canPlan, onSecondaries, planning, home }) {
   const { t } = useTranslation(['dns', 'common'])
   // Only the nodes that hold the zone have a status worth a card.
   const entries = Object.entries(status || {}).filter(([id, s]) => !copies || id in copies || !s.error)
@@ -315,6 +339,11 @@ function StatusTab({ status, copies, nameOf, zone, canOps, onRetransfer, busyNod
         </Card>
       )}
       {choice && canPlan && <SecondariesCard choice={choice} nameOf={nameOf} onPlan={onSecondaries} busy={planning} />}
+      {!choice && home?.where === 'primary' && (
+        <ReadOnlyNote reason="custom" testId="zone-secondaries-on-primary">
+          <Trans t={t} i18nKey="detail.secondaries.onPrimary" components={{ node: <NodeLink nodeId={home.node} name={nameOf(home.node)} /> }} />
+        </ReadOnlyNote>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4" data-testid="zone-status">
       {entries.map(([id, s]) => (
         <Card key={id} className="p-4 space-y-3" hover={false}>
@@ -590,7 +619,9 @@ export default function ZoneDetailPage() {
             <ModeBadge mode={mode} />
             <FailoverBadge zone={zone} />
             {home?.where === 'primary' && (
-              <Badge variant="gray" size="sm" data-testid="zone-primary-on">{t('detail.primaryOn', { node: nameOf(home.node) })}</Badge>
+              <Badge variant="gray" size="sm" data-testid="zone-primary-on">
+                {t('detail.primaryLabel')} <NodeLink nodeId={home.node} name={nameOf(home.node)} />
+              </Badge>
             )}
           </span>
         )
@@ -637,6 +668,9 @@ export default function ZoneDetailPage() {
                 ...(canOps && zone.kind === 'primary'
                   ? [{ id: 'notify', label: t('detail.notify'), icon: <Bell size={14} />, onClick: () => op('notify', () => api.dns.notify(zone.name, viewArg)), disabled: busy === 'notify', testId: 'zone-notify' }]
                   : []),
+                ...(canOps && zone.kind === 'secondary' && home?.where === 'primary'
+                  ? [{ id: 'notify', label: t('detail.notifyOnPrimary', { node: nameOf(home.node) }), icon: <Bell size={14} />, disabled: true, testId: 'zone-notify' }]
+                  : []),
                 ...(canOps && zone.kind !== 'forward'
                   ? [{ id: 'reload', label: t('detail.reload'), icon: <ArrowClockwise size={14} />, onClick: () => op('reload', () => api.dns.reload(zone.name, viewArg)), disabled: busy === 'reload', testId: 'zone-reload' }]
                   : []),
@@ -655,6 +689,7 @@ export default function ZoneDetailPage() {
         <EmptyState icon={Globe} title={zoneError(error).title} description={zoneError(error).detail} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
+          <ZoneReadOnlyNotes zone={zone} mode={mode} hasPermission={hasPermission} hasHandover={Boolean(handoverItem)} />
           {activeTab === 'forwarding' && <ForwardingTab forwarding={data.forwarding} nameOf={nameOf} />}
           {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} home={home} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
           {activeTab === 'status' && (
@@ -669,6 +704,7 @@ export default function ZoneDetailPage() {
               zone={zone}
               canOps={canOps}
               busyNode={busy}
+              home={home}
               onRetransfer={(nodeId) => op(nodeId, () => api.dns.retransfer(zone.name, nodeId, view))}
             />
           )}

@@ -22,7 +22,7 @@ export function HandoverCard({ items, flow, compact = false, testId = 'handover'
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-text-primary">{t('handover.title')}</h3>
-          <p className="text-xs text-text-secondary">{t('handover.help', { count: items.length })}</p>
+          <p className="text-xs text-text-secondary">{items.every((i) => i.kind === 'zones') ? t('handover.zonesHelp', { count: items.length }) : t('handover.help', { count: items.length })}</p>
         </div>
         <Button size="sm" variant="secondary" onClick={() => run(batch)} loading={flow.busy} data-testid={`${testId}-all`}>
           <HandGrabbing size={14} />

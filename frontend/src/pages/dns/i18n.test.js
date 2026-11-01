@@ -9,10 +9,16 @@ const flatKeys = (obj, prefix = '') =>
   Object.entries(obj).flatMap(([k, v]) => (v && typeof v === 'object' ? flatKeys(v, `${prefix}${k}.`) : [`${prefix}${k}`]))
 // Literal first arguments of t(...) calls; template keys are checked by the label tests.
 const literalKeys = (src) => [...src.matchAll(/\bt\(\s*'([^'$]+)'/g)].map((m) => m[1])
+// A key with a count resolves through its _one/_other forms.
+function pluralized(lang, ns, path) {
+  const keys = path.split('.')
+  const parent = keys.slice(0, -1).reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), lang[ns])
+  return typeof parent?.[`${keys.at(-1)}_other`] === 'string'
+}
 function resolves(lang, key) {
   const [ns, path] = key.includes(':') ? key.split(':') : [NS, key]
   const value = path.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), lang[ns])
-  return typeof value === 'string'
+  return typeof value === 'string' || (value === undefined && pluralized(lang, ns, path))
 }
 
 const sources = import.meta.glob(['./*.jsx', './*.js', '!./*.test.*'], { query: '?raw', import: 'default', eager: true })

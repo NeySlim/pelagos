@@ -4,10 +4,10 @@
 // helper plan fixes it, and the RPZ plan then applies.
 import { test, expect } from '@playwright/test'
 
-async function signIn(page) {
+async function signIn(page, username = 'admin', password = 'admin') {
   await page.goto('/login')
-  await page.getByTestId('login-username').fill('admin')
-  await page.getByTestId('login-password').fill('admin')
+  await page.getByTestId('login-username').fill(username)
+  await page.getByTestId('login-password').fill(password)
   await page.getByTestId('login-submit').click()
   await expect(page.getByTestId('sidebar')).toBeVisible()
 }
@@ -22,7 +22,7 @@ test('a refused RPZ plan, the Permissions card, its fix, then the RPZ plan appli
     // A category no other spec touches: the mock keeps its state across specs.
     const gambling = page.getByTestId('rpz-category-gambling')
     await gambling.getByRole('switch').click()
-    await gambling.getByTestId('rpz-category-save').click()
+    await page.getByTestId('rpz-categories-save').click()
 
     // Refused at plan time: the finding names the path and the command, nothing can be applied.
     const preview = page.getByTestId('plan-preview')
@@ -78,4 +78,24 @@ test('the Permissions card in French', async ({ page }) => {
     if ((await page.locator('html').getAttribute('lang')) === 'fr') await switchLanguage(page, 'Français', 'English', 'en')
     await page.request.post('/api/v1/_mock/permissions', { data: { broken: false } })
   }
+})
+
+test('a viewer sees why each DNS action is missing on a zone and on the RPZ page', async ({ page }) => {
+  await signIn(page, 'viewer', 'viewer')
+  await page.goto('/dns/zones/branch.example.lan')
+  const notes = page.getByTestId('zone-read-only-notes')
+  await expect(notes).toContainText('write:dns.zones')
+  await expect(notes).toContainText('ops:dns')
+  await expect(page.getByTestId('zone-note-records')).toContainText('write:dns.records')
+  await expect(page.getByTestId('record-add')).toHaveCount(0)
+  await expect(page.getByTestId('zone-delete')).toHaveCount(0)
+  await page.goto('/dns/rpz')
+  await expect(page.getByTestId('rpz-read-only-note')).toContainText('write:dns.config')
+  await expect(page.getByTestId('rpz-categories-save')).toHaveCount(0)
+})
+
+test('an operator without DNS roles gets the same notes', async ({ page }) => {
+  await signIn(page, 'bob', 'bob')
+  await page.goto('/dns/zones/branch.example.lan')
+  await expect(page.getByTestId('zone-read-only-notes')).toContainText('write:dns.zones')
 })

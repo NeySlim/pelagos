@@ -646,7 +646,7 @@ export default function ZoneDetailPage() {
               <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('common:fieldLabel', { label: t('detail.view') })} ${v}` }))} data-testid="zone-view-select" />
             )}
             {editableZone(zone) && hasPermission('write:dns.zones') && (
-              <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open" title={isCopy ? t('detail.editCopyHelp', { node: nameOf(home.node) }) : undefined}>
+              <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open" aria-describedby={isCopy ? 'zone-edit-copy-help' : undefined}>
                 <PencilSimple size={14} />
                 {isCopy ? t('detail.editCopy') : t('detail.edit')}
               </Button>
@@ -698,6 +698,11 @@ export default function ZoneDetailPage() {
         <EmptyState icon={Globe} title={zoneError(error).title} description={zoneError(error).detail} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
+          {isCopy && editableZone(zone) && hasPermission('write:dns.zones') && (
+            <p id="zone-edit-copy-help" className="text-xs text-text-tertiary mb-2" data-testid="zone-edit-copy-help">
+              {t('detail.editCopyHelp', { node: nameOf(home.node) })}
+            </p>
+          )}
           <ZoneReadOnlyNotes zone={zone} mode={mode} hasPermission={hasPermission} hasHandover={Boolean(handoverItem)} home={home} nameOf={nameOf} />
           {activeTab === 'forwarding' && <ForwardingTab forwarding={data.forwarding} nameOf={nameOf} />}
           {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} home={home} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}

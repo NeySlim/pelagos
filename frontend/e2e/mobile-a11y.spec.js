@@ -21,6 +21,29 @@ test.afterEach(() => expect(errors).toEqual([]))
 test.describe('at 400px', () => {
   test.use({ viewport: { width: 400, height: 800 } })
 
+  test('the phone menu folds its sections and tells DHCP from DHCPv6', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/dns/zones')
+    await page.getByRole('button', { name: 'Menu' }).click()
+    // Only the section of the current page is open.
+    await expect(page.getByTestId('menu-group-dns').locator('[data-nav="dns-zones"]')).toBeVisible()
+    await expect(page.locator('[data-nav="dhcp-v4-subnets"]')).toHaveCount(0)
+    const v6 = page.getByTestId('menu-group-dhcpv6')
+    await v6.getByRole('button').click()
+    await page.getByTestId('menu-group-dhcp').getByRole('button').click()
+    const v4Item = page.locator('[data-nav="dhcp-v4-subnets"]')
+    const v6Item = page.locator('[data-nav="dhcp-v6-subnets"]')
+    await expect(v4Item).toBeVisible()
+    await expect(v6Item).toBeVisible()
+    await expect(v6Item.getByTestId('menu-v6-badge')).toHaveText('v6')
+    await expect(v4Item.getByTestId('menu-v6-badge')).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    // The search opens from the header once the menu is folded away.
+    await page.locator('.ui-scrim').click({ position: { x: 200, y: 780 } })
+    await page.getByTestId('global-search-open').click()
+    await expect(page.getByTestId('global-search-input')).toBeFocused()
+  })
+
   test('page actions stay reachable: new subnet, enroll a node', async ({ page }) => {
     await signIn(page)
     await page.goto('/dhcp/v4/subnets')
@@ -89,8 +112,7 @@ test.describe('at 390px', () => {
   // A table that opts into mobileCard renders as cards: nothing scrolls sideways.
   test('tables with mobile cards do not scroll horizontally', async ({ page }) => {
     await signIn(page)
-    // The zones table has no card layout yet: nothing to wait for there.
-    for (const [path, cards] of [['/hosts', true], ['/dns/zones', false], ['/nodes', true], ['/alerts', true]]) {
+    for (const [path, cards] of [['/hosts', true], ['/dns/zones', true], ['/nodes', true], ['/alerts', true]]) {
       await page.goto(path)
       await expect(page.getByTestId('page-stagger')).toBeVisible()
       // Rows load after the page: wait for the cards, or the loop below would check nothing.

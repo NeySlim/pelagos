@@ -326,7 +326,7 @@
     "nextRefresh": "Next refresh",
     "expires": "Expires",
     "files": "Files",
-    "collectedAt": "Read at",
+    "collectedAt": "Collected at",
     "class": "Class",
     "file": "File",
     "configPath": "Declared in",
@@ -561,7 +561,7 @@
     "uptime": "Uptime",
     "uptimeValue": "{{days}} d {{hours}} h",
     "configTime": "Configuration loaded",
-    "collectedAt": "Read at",
+    "collectedAt": "Collected at",
     "counters": {
       "queries": "Queries",
       "responses": "Responses",

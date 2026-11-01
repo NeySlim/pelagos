@@ -318,6 +318,27 @@ export default function ZonesPage() {
             },
           ]}
           onRowClick={(row) => navigate(zoneHref(row.zone.name, row.zone.view))}
+          mobileCard={{
+            title: (row) => row.zone.name,
+            subtitle: (row) => t(`kind.${row.zone.kind}`, { defaultValue: row.zone.kind }),
+            status: (row) => <StatusBadge status={row.divergent ? 'divergent' : 'in-sync'} />,
+            fields: ['zone.view', 'mode', 'serials'],
+            primaryAction: (row) => (canOps && !CONFIG_KINDS.includes(row.zone.kind) ? (
+              <Button
+                variant={row.divergent ? 'warning-soft' : 'secondary'}
+                size="xs"
+                loading={resyncing === `${row.zone.view}/${row.zone.name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  resync(row)
+                }}
+                data-testid="zone-resync"
+              >
+                <ArrowsClockwise size={12} />
+                {t('zones.resync')}
+              </Button>
+            ) : null),
+          }}
           emptyTitle={t('zones.empty')}
           shared={{ name: 'zones-panel', to: '/' }}
           testId="zones-table"

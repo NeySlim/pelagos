@@ -326,7 +326,7 @@
     "nextRefresh": "Prochain rafraîchissement",
     "expires": "Expiration",
     "files": "Fichiers",
-    "collectedAt": "Lu à",
+    "collectedAt": "Relevé à",
     "class": "Classe",
     "file": "Fichier",
     "configPath": "Déclarée dans",
@@ -561,7 +561,7 @@
     "uptime": "En marche depuis",
     "uptimeValue": "{{days}} j {{hours}} h",
     "configTime": "Configuration chargée",
-    "collectedAt": "Lu à",
+    "collectedAt": "Relevé à",
     "counters": {
       "queries": "Requêtes",
       "responses": "Réponses",

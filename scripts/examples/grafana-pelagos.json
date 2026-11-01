@@ -44,7 +44,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_node_up",
+          "expr": "max by (node) (pelagos_node_up)",
           "legendFormat": "{{node}}"
         }
       ]
@@ -72,7 +72,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_alerts_by_severity",
+          "expr": "max by (severity) (pelagos_alerts_by_severity)",
           "legendFormat": "{{severity}}"
         }
       ]
@@ -156,7 +156,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_pool_utilization_percent",
+          "expr": "max by (node, engine, subnet, pool) (pelagos_pool_utilization_percent)",
           "legendFormat": "{{node}} {{subnet}} {{pool}}"
         }
       ]
@@ -184,7 +184,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_node_clock_offset_seconds",
+          "expr": "max by (node) (pelagos_node_clock_offset_seconds)",
           "legendFormat": "{{node}}"
         }
       ]
@@ -212,7 +212,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (node, qtype) (rate(pelagos_bind_queries_total[5m]))",
+          "expr": "max by (node, qtype) (rate(pelagos_bind_queries_total[5m]))",
           "legendFormat": "{{node}} {{qtype}}"
         }
       ]
@@ -240,7 +240,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (node, rcode) (rate(pelagos_bind_responses_total[5m]))",
+          "expr": "max by (node, rcode) (rate(pelagos_bind_responses_total[5m]))",
           "legendFormat": "{{node}} {{rcode}}"
         }
       ]
@@ -268,7 +268,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (node, engine, packet) (rate(pelagos_kea_packets_total[5m]))",
+          "expr": "max by (node, engine, packet) (rate(pelagos_kea_packets_total[5m]))",
           "legendFormat": "{{node}} {{engine}} {{packet}}"
         }
       ]
@@ -296,12 +296,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_kea_assigned_addresses",
+          "expr": "max by (node, engine) (pelagos_kea_assigned_addresses)",
           "legendFormat": "assigned {{node}} {{engine}}"
         },
         {
           "refId": "B",
-          "expr": "pelagos_kea_declined_addresses",
+          "expr": "max by (node, engine) (pelagos_kea_declined_addresses)",
           "legendFormat": "declined {{node}} {{engine}}"
         }
       ]
@@ -329,12 +329,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "pelagos_ha_healthy",
+          "expr": "max by (server) (pelagos_ha_healthy)",
           "legendFormat": "healthy {{server}}"
         },
         {
           "refId": "B",
-          "expr": "pelagos_ha_unsent_updates",
+          "expr": "max by (server) (pelagos_ha_unsent_updates)",
           "legendFormat": "unsent {{server}}"
         }
       ]
@@ -362,7 +362,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(pelagos_zone_serial_divergent)",
+          "expr": "count(max by (zone, view) (pelagos_zone_serial_divergent) > 0) or vector(0)",
           "legendFormat": "divergent zones"
         }
       ]
@@ -370,7 +370,7 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "Plans per hour",
+      "title": "Plans per hour (all scraped nodes)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -418,7 +418,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (counter) (rate(pelagos_d2_updates_total[5m]))",
+          "expr": "max by (node, counter) (rate(pelagos_d2_updates_total[5m]))",
           "legendFormat": "{{counter}}"
         }
       ]

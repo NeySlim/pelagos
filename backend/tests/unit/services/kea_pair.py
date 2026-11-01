@@ -84,7 +84,10 @@ class Gateway:
         self.counts[("preflight_plan", peer.id)] += 1
         if peer.id in self.engine_down:
             return f"{peer.name}: kea-dhcp4 is not running", None if peer.id in self.old else "engine_down"
-        return self.refusing.get(peer.id), None
+        if peer.id in self.refusing:
+            return self.refusing[peer.id], None
+        check = getattr(self.backends[peer.id], "preflight", None)
+        return (check(plan) if callable(check) else None), None
 
     def _peer_plan(self, peer: Peer, plan: Plan) -> Plan:
         out = Plan.from_dict(plan.to_dict())
@@ -129,7 +132,8 @@ def kea_files_names() -> tuple[str, ...]:
 
 
 class Pair:
-    def __init__(self, node_ctx: Any) -> None:
+    def __init__(self, node_ctx: Any, k1: Any = None, k2: Any = None) -> None:
+        """Fake backends by default; a daemon test passes real KeaBackends of an HA pair."""
         self.ctx = node_ctx
         self.n1 = node_ctx.node.id
 
@@ -146,11 +150,13 @@ class Pair:
 
         node_ctx.config_store.update_cluster(add, updated_by="test")
         root = node_ctx.paths.backups_dir
-        self.k1 = FakeDhcpBackend(fake_context(self.n1, "kea4", root / "k1"), node_id=self.n1)
-        self.k2 = FakeDhcpBackend(fake_context(N2, "kea4", root / "k2"), node_id=N2)
-        ha_config(self.k1.config, "ns1")
-        ha_config(self.k2.config, "ns2")
-        self.k2.ha.server_name, self.k2.ha.partner.server_name = "ns2", "ns1"  # type: ignore[union-attr]
+        if k1 is None:
+            k1 = FakeDhcpBackend(fake_context(self.n1, "kea4", root / "k1"), node_id=self.n1)
+            k2 = FakeDhcpBackend(fake_context(N2, "kea4", root / "k2"), node_id=N2)
+            ha_config(k1.config, "ns1")
+            ha_config(k2.config, "ns2")
+            k2.ha.server_name, k2.ha.partner.server_name = "ns2", "ns1"
+        self.k1, self.k2 = k1, k2
         self.gateway = Gateway(node_ctx, {N2: self.k2})
         self.plans = PlanService(node_ctx, ConnectorRegistry(kea4=self.k1), self.gateway)
         self.dhcp = DhcpService(node_ctx, Family.V4, self.k1, self.gateway)
@@ -178,12 +184,14 @@ class Pair:
     def away(self, node_id: str, *, in_touch: bool = False, engine_down: bool = False) -> None:
         """The peer goes away (or only its Kea); this node's Kea sees the partner lost unless in touch."""
         (self.gateway.engine_down if engine_down else self.gateway.offline).add(node_id)
-        self.k1.ha.partner.communication_interrupted = not in_touch  # type: ignore[union-attr]
+        if isinstance(self.k1, FakeDhcpBackend):
+            self.k1.ha.partner.communication_interrupted = not in_touch  # type: ignore[union-attr]
 
     def back(self, node_id: str) -> None:
         self.gateway.offline.discard(node_id)
         self.gateway.engine_down.discard(node_id)
-        self.k1.ha.partner.communication_interrupted = False  # type: ignore[union-attr]
+        if isinstance(self.k1, FakeDhcpBackend):
+            self.k1.ha.partner.communication_interrupted = False  # type: ignore[union-attr]
 
     def subnet_plan(self, sid: int = 40) -> Plan:
         change = {"op": "add", "target": f"subnet4/{sid}", "after": {"subnet": f"198.51.100.{sid}/30"}}

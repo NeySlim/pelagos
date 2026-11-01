@@ -132,13 +132,15 @@ def test_kea_plan_applies_on_both_peers(role_client, peer_b, fake_registry, node
 
 
 def test_unreachable_peer_stops_the_plan_before_any_node(role_client, peer_b, fake_registry, node_ctx):
-    """The preflight asks every target first: a peer that does not answer leaves every node as it was."""
+    """The preflight asks every target first: a peer that does not answer leaves every node as it was
+    (B1-KEAOFFLINE: a Kea configuration plan names it with node_unreachable; its Kea still in touch)."""
     op = role_client("dhcp-operator")
     change = {"op": "add", "target": "subnet4/21", "after": {"subnet": "192.0.2.224/27"}}
     plan = op.post("/api/v1/dhcp/v4/subnets/plan", json={"change": change}).get_json()
     peer_b.reachable = False
     resp = op.post(f"/api/v1/plans/{plan['id']}/apply", json={})
-    assert resp.status_code == 409 and resp.get_json()["code"] == "preflight_failed"
+    assert resp.status_code == 409 and resp.get_json()["code"] == "node_unreachable"
+    assert resp.get_json()["partial_allowed"] is False
     assert not any(s["id"] == 21 for s in fake_registry.kea4.config["subnet4"])
 
 

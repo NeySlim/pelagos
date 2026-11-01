@@ -251,10 +251,11 @@ def test_repl_config_exchanges_bases_and_tolerates_their_absence(pair):  # noqa:
 def test_status_lists_known_collections(pair, monkeypatch):  # noqa: F811
     a, b = pair
     monkeypatch.setitem(colls.COLLECTIONS, "widgets", colls.Collection())
-    assert b.service.app.status_payload()["collections"] == ["widgets"]
+    known = sorted([*colls.COLLECTIONS])
+    assert b.service.app.status_payload()["collections"] == known
     client = _client(a, b)
-    assert client.status().collections == ["widgets"]
-    assert client.status().to_dict()["collections"] == ["widgets"]
+    assert client.status().collections == known
+    assert client.status().to_dict()["collections"] == known
 
 
 def test_status_parses_missing_collections_as_none(pair, monkeypatch):  # noqa: F811

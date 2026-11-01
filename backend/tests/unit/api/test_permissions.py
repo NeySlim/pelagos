@@ -212,6 +212,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/dhcp/<string:family>/config/file", "/dhcp/v4/config/file", None, "read:dhcp"),
     (
         "POST",
+        "/dhcp/<string:family>/config/reconcile/plan",
+        "/dhcp/v4/config/reconcile/plan",
+        {"source_node_id": "a", "target_node_id": "b"},
+        "write:dhcp.config",
+    ),
+    (
+        "POST",
         "/dhcp/<string:family>/config/adopt/plan",
         "/dhcp/v4/config/adopt/plan",
         {"source": "file"},

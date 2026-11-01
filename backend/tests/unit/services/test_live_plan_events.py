@@ -38,6 +38,9 @@ def test_plan_phases_and_one_step_per_node(node_ctx, monkeypatch):
         assert [m["event"] for m in validated] == ["validated"]
         assert validated[0]["data"]["target_node_ids"] == [node_ctx.node.id, PEER]
         monkeypatch.setattr(services.peers, "peer", lambda node_id: SimpleNamespace(id=node_id, name="ns2"))
+        # B1-KEAOFFLINE: a Kea configuration part asks the peer's status, then its preflight verdict.
+        monkeypatch.setattr(services.peers, "status", lambda peer: SimpleNamespace(reachable=True))
+        monkeypatch.setattr(services.peers, "preflight_verdict", lambda peer, p: (None, None))
         monkeypatch.setattr(
             services.peers,
             "apply_plan",

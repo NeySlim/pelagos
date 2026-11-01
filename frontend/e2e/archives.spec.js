@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Administration > Backups against the mock: an SFTP destination whose key is never shown again
-// and its test, "Back up now" as a job, the identity shown once on rotation, schedule and
+// and its test, "Back up now" as a job, the identity shown once on rotation and its test, schedule and
 // retention, and a restore through inspect, parts and the plan preview applied as a job.
 import { test, expect } from '@playwright/test'
 
@@ -72,6 +72,21 @@ test('rotates the key behind the password and shows the identity once', async ({
   await once.getByTestId('archives-identity-close').click()
   await expect(once).toBeHidden()
   await expect(page.getByTestId('archives-retired')).toContainText('1 former identity')
+
+  // The new key is not tested: scheduling waits until its private key opens a test archive.
+  await expect(page.getByTestId('archives-key-unverified')).toBeVisible()
+  await expect(page.getByTestId('archives-schedule-toggle').getByRole('switch')).toBeDisabled()
+  await page.getByTestId('archives-key-proof').first().getByTestId('archives-key-verify').click()
+  const verify = page.getByTestId('archives-verify-dialog')
+  await verify.getByTestId('archives-verify-identity').fill('not a key')
+  await verify.getByRole('button', { name: 'Test my key' }).click()
+  await expect(verify).toContainText('does not open archives encrypted to this public key')
+  await verify.getByTestId('archives-verify-identity').fill(`AGE-SECRET-KEY-1${'Q'.repeat(58)}`)
+  await verify.getByRole('button', { name: 'Test my key' }).click()
+  await expect(verify).toBeHidden()
+  await expect(page.getByTestId('archives-key-unverified')).toBeHidden()
+  await expect(page.getByTestId('archives-key-proof').first()).toHaveAttribute('data-verified', 'true')
+  await expect(page.getByTestId('archives-schedule-toggle').getByRole('switch')).toBeEnabled()
 })
 
 test('turns scheduling on and off, and saves the retention', async ({ page }) => {

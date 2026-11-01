@@ -13,7 +13,7 @@ export const SFTP_TARGET = ['host', 'port', 'username']
 export const SETTING_GROUPS = {
   schedule: ['start_time', 'interval_hours', 'stagger_minutes'],
   retention: ['keep_daily_count', 'keep_weekly_count', 'keep_monthly_count', 'local_keep_count'],
-  checks: ['include_leases_enabled', 'verify_enabled', 'test_restore_days', 'max_archive_mb'],
+  checks: ['include_leases_enabled', 'verify_enabled', 'test_restore_days', 'max_archive_mb', 'key_reminder_days'],
 }
 
 export function formFromDestination(d = {}) {
@@ -119,6 +119,11 @@ export function destinationTarget(d, nameOf = (id) => id) {
 }
 
 // The settings form: strings for the inputs, booleans kept.
+// Recipients an operator proved to hold the private key of (verified_at), newest proof first.
+export function provenKeys(recipients = []) {
+  return recipients.filter((r) => r.verified_at).sort((a, b) => (a.verified_at < b.verified_at ? 1 : -1))
+}
+
 export function settingsForm(settings = {}) {
   const out = {}
   for (const keys of Object.values(SETTING_GROUPS)) {
@@ -130,6 +135,7 @@ export function settingsForm(settings = {}) {
 const LIMITS = {
   interval_hours: [1, 168], stagger_minutes: [0, 720], keep_daily_count: [0, 366], keep_weekly_count: [0, 520],
   keep_monthly_count: [0, 240], local_keep_count: [1, 100], test_restore_days: [0, 365], max_archive_mb: [1, 65536],
+  key_reminder_days: [0, 3650],
 }
 
 export function settingsErrors(form) {

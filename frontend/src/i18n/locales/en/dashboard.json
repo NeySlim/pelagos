@@ -206,6 +206,7 @@
     "archive_failed": "archive failed",
     "archive_stale": "archive overdue",
     "archive_incomplete": "archive incomplete",
+    "archive_key_unverified": "archive key not tested",
     "ddns_outage": "DDNS outage",
     "ddns_replay": "DDNS catch-up needed",
     "dns_stale_primary": "stale DNS primary",

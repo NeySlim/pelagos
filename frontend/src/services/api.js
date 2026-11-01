@@ -323,7 +323,7 @@ export const notifications = {
 // Encrypted archives and restore (Administration > Backups, section 23).
 export const archives = {
   overview: () => apiClient.get('/admin/archives'),
-  // Partial [settings.archives]: schedule, retention, checks (refused: scheduling with no recipient).
+  // Partial [settings.archives]: schedule, retention, checks (refused: scheduling with no recipient or no tested key).
   updateSettings: (partial) => apiClient.put('/admin/archives/settings', partial),
   createDestination: (destination) => apiClient.post('/admin/archives/destinations', destination),
   updateDestination: (id, partial) => apiClient.put(`/admin/archives/destinations/${enc(id)}`, partial),
@@ -342,6 +342,8 @@ export const archives = {
   },
   // {op: generate|rotate|add_recipient|remove_recipient|prune_retired, recipient?, label?, password?}
   identity: (body) => apiClient.post('/admin/archives/identity', body),
+  // Proves an operator holds the private key of a recipient; the key is never stored.
+  verifyKey: (recipient, identity) => apiClient.post(`/admin/archives/keys/${enc(recipient)}/verify`, { identity }),
   // {identity?, target_node_id?, substitute?, ha_tls?}
   inspect: (id, body) => apiClient.post(`/admin/archives/${enc(id)}/inspect`, body || {}),
   restorePlan: (id, body) => apiClient.post(`/admin/archives/${enc(id)}/restore/plan`, body),

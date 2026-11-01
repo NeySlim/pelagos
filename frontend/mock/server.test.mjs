@@ -75,6 +75,7 @@ function concrete(spec, state) {
       if (spec.includes('/admin/certificates/')) return state.nodeIds.ns2
       if (spec.includes('/admin/notifications/channels/')) return 'ch-ntfy'
       if (spec.includes('/admin/archives/destinations/')) return 'dst-peer'
+      if (spec.includes('/admin/archives/keys/')) return state.archives.recipients[0].recipient
       if (spec.includes('/admin/archives/')) return state.archives.list[0].id
       if (spec.includes('/admin/users/')) return userId
       if (spec.includes('/audit/')) return audit
@@ -94,6 +95,7 @@ const BODIES = {
   'POST /admin/archives/destinations': { type: 'mounted', name: 'NAS', params: { path: '/mnt/backup' } },
   'POST /admin/archives/destinations/test': { destination_id: 'dst-peer' },
   'POST /admin/archives/identity': { op: 'prune_retired' },
+  'POST /admin/archives/keys/{id}/verify': { identity: `AGE-SECRET-KEY-1${'Q'.repeat(58)}` },
   'PUT /admin/archives/settings': { start_time: '02:30' },
   'POST /admin/archives/{id}/restore/plan': { parts: ['pelagos.settings:settings'] },
   'POST /dhcp/ddns/failover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),

@@ -120,7 +120,16 @@
     "copy": "Copier",
     "saveFile": "Enregistrer dans un fichier",
     "savedAck": "J'ai rangé cette identité hors du cluster.",
-    "done": "Terminé"
+    "done": "Terminé",
+    "proof": "Clé privée",
+    "verify": "Tester ma clé",
+    "verifyTitle": "Tester la clé privée de {{label}}",
+    "verifyHelp": "Collez la clé privée age (AGE-SECRET-KEY-1...). Le serveur ouvre avec elle une archive de test, et la plus récente archive de ce nœud chiffrée pour elle, en mémoire. La clé n'est jamais enregistrée ni journalisée.",
+    "verifyIdentity": "Clé privée age",
+    "verifyWrong": "Cette clé privée n'ouvre pas les archives chiffrées pour cette clé publique.",
+    "verifiedAt": "Testée le {{when}}",
+    "notVerified": "Non testée",
+    "unverified": "Aucune clé privée n'a encore été testée : la planification reste désactivée tant que vous n'en collez pas une sous Tester ma clé, pour savoir qu'une restauration fonctionne."
   },
   "toast": {
     "recipientAdded": "Clé ajoutée",
@@ -130,7 +139,8 @@
     "prunedNone": "Rien de retiré : {{reason}}",
     "settings": "Réglages des sauvegardes enregistrés",
     "destDeleted": "{{name}} supprimée",
-    "destSaved": "{{name}} enregistrée"
+    "destSaved": "{{name}} enregistrée",
+    "keyVerified": "Clé testée : les archives s'ouvrent avec elle"
   },
   "run": {
     "progress": "{{percent}} %",
@@ -166,6 +176,7 @@
     "title": "Planification et rétention",
     "schedule_enabled": "Archives planifiées",
     "needKey": "Générez d'abord la clé des archives.",
+    "needProof": "Testez d'abord une clé privée d'archive (Tester ma clé).",
     "scheduleHelp": "Chaque nœud archive à l'heure de départ, décalée selon son rang, puis à chaque intervalle.",
     "groups": {
       "schedule": "Planification",
@@ -183,6 +194,7 @@
     "verify_enabled": "Relire chaque copie",
     "test_restore_days": "Restauration à blanc tous les (jours, 0 : jamais)",
     "max_archive_mb": "Archive la plus grande (Mo)",
+    "key_reminder_days": "Tester la clé tous les (jours, 0 : jamais)",
     "help": "Les seuils d'alerte (archive trop ancienne, échecs) sont dans Administration, Paramètres."
   },
   "upload": {

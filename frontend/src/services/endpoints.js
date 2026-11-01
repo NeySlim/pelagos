@@ -261,6 +261,7 @@ export const ENDPOINTS = [
   'GET /admin/archives/list',
   'POST /admin/archives/upload',
   'POST /admin/archives/identity',
+  'POST /admin/archives/keys/{id}/verify',
   'GET /admin/archives/{id}/download',
   'POST /admin/archives/{id}/inspect',
   'POST /admin/archives/{id}/restore/plan',

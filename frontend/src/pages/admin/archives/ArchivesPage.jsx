@@ -2,7 +2,7 @@
 // Administration > Backups (architecture section 23): the archive key (the cluster identity, shown
 // once, and operator keys), each node's last and next archive, schedule and retention, the
 // destinations with their test, the archives every node holds (download, upload) and the restore
-// wizard. Scheduling stays refused until a key exists.
+// wizard. Scheduling stays refused until a key exists and an operator tested its private key.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -19,7 +19,7 @@ import { errorMessage } from '../../../services/apiClient'
 import { downloadBlob, formatDate, formatSize } from '../../../lib/utils'
 import DestinationDialog, { TestResult } from './DestinationDialog'
 import RestoreWizard from './RestoreWizard'
-import { RECIPIENT_RE, SETTING_GROUPS, destinationTarget, settingsChanges, settingsErrors, settingsForm } from './archivesForm'
+import { RECIPIENT_RE, SETTING_GROUPS, destinationTarget, provenKeys, settingsChanges, settingsErrors, settingsForm } from './archivesForm'
 import { ErrorNotice } from '../../../components/ErrorNotice'
 
 function Field({ label, children, testId }) {
@@ -92,6 +92,48 @@ function PasswordDialog({ op, onClose, onDone }) {
   )
 }
 
+// "Test my key": the pasted private key opens a test archive on the server, never stored.
+function VerifyKeyDialog({ entry, onClose, onDone }) {
+  const { t } = useTranslation(['archives', 'common'])
+  const [identity, setIdentity] = useState('')
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      onDone(await api.archives.verifyKey(entry.recipient, identity))
+    } catch (e) {
+      const field = (e.errors || []).find((x) => x.field === 'identity')
+      setError(field ? t('key.verifyWrong') : errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <FormModal open onClose={onClose} title={t('key.verifyTitle', { label: entry.label || entry.recipient })} onSubmit={submit} submitLabel={t('key.verify')} loading={busy} disabled={!identity.trim()} testId="archives-verify-dialog">
+      <p className="text-xs text-text-secondary">{t('key.verifyHelp')}</p>
+      <p className="font-mono text-2xs text-text-tertiary break-all">{entry.recipient}</p>
+      <Textarea label={t('key.verifyIdentity')} value={identity} onChange={(e) => setIdentity(e.target.value)} rows={3} className="font-mono text-2xs" spellCheck={false} autoComplete="off" placeholder="AGE-SECRET-KEY-1..." error={error} data-testid="archives-verify-identity" />
+    </FormModal>
+  )
+}
+
+// Whether a recipient's private key was proven, and the button that proves it.
+function KeyProof({ entry, onVerify }) {
+  const { t } = useTranslation('archives')
+  return (
+    <span className="flex flex-wrap items-center gap-2" data-testid="archives-key-proof" data-verified={entry.verified_at ? 'true' : 'false'}>
+      {entry.verified_at ? (
+        <span className="text-2xs status-success-text flex items-center gap-1"><ShieldCheck size={12} />{t('key.verifiedAt', { when: formatDate(entry.verified_at) })}</span>
+      ) : (
+        <span className="text-2xs status-warning-text">{t('key.notVerified')}</span>
+      )}
+      <Button size="xs" variant="ghost" onClick={() => onVerify(entry)} data-testid="archives-key-verify">{t('key.verify')}</Button>
+    </span>
+  )
+}
+
 function KeyCard({ data, onChanged }) {
   const { t } = useTranslation(['archives', 'common'])
   const { showSuccess, showError } = useNotification()
@@ -102,7 +144,9 @@ function KeyCard({ data, onChanged }) {
   const [label, setLabel] = useState('')
   const [removing, setRemoving] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [verifying, setVerifying] = useState(null)
   const identity = data.identity || {}
+  const proven = provenKeys(data.recipients)
   const operators = (data.recipients || []).filter((r) => r.kind === 'operator')
   const cluster = (data.recipients || []).find((r) => r.kind === 'cluster')
   const recipientError = recipient && !RECIPIENT_RE.test(recipient.trim()) ? t('errors.recipient') : null
@@ -147,11 +191,15 @@ function KeyCard({ data, onChanged }) {
       {!cluster && !operators.length && (
         <p role="alert" className="text-xs status-danger-text flex items-start gap-1.5" data-testid="archives-no-key"><Warning size={14} className="shrink-0 mt-0.5" />{t('key.none')}</p>
       )}
+      {(cluster || operators.length > 0) && !proven.length && (
+        <p role="alert" className="text-xs status-warning-text flex items-start gap-1.5" data-testid="archives-key-unverified"><Warning size={14} className="shrink-0 mt-0.5" />{t('key.unverified')}</p>
+      )}
       {cluster && (
-        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Field label={t('key.recipient')} testId="archives-key-recipient"><span className="font-mono text-2xs break-all">{cluster.recipient}</span></Field>
           <Field label={t('key.stored')}>{identity.stored ? t('key.storedYes') : t('key.storedNo')}</Field>
           <Field label={t('key.shownAt')}>{cluster.downloaded_at ? formatDate(cluster.downloaded_at) : t('key.never')}</Field>
+          <Field label={t('key.proof')}><KeyProof entry={cluster} onVerify={setVerifying} /></Field>
         </dl>
       )}
       <p className="text-2xs text-text-tertiary">{t('key.help')}</p>
@@ -171,6 +219,7 @@ function KeyCard({ data, onChanged }) {
           <div key={r.recipient} className="flex flex-wrap items-center gap-2 text-xs" data-testid="archives-recipient">
             <span className="font-medium">{r.label || '-'}</span>
             <span className="font-mono text-2xs text-text-secondary break-all flex-1 min-w-0">{r.recipient}</span>
+            <KeyProof entry={r} onVerify={setVerifying} />
             <Button size="xs" variant="ghost" onClick={() => setRemoving(r)} aria-label={t('key.removeOperator', { label: r.label || r.recipient })}><Trash size={12} /></Button>
           </div>
         ))}
@@ -196,6 +245,17 @@ function KeyCard({ data, onChanged }) {
         />
       )}
       {shown && <IdentityOnce identity={shown} onClose={() => setShown(null)} />}
+      {verifying && (
+        <VerifyKeyDialog
+          entry={verifying}
+          onClose={() => setVerifying(null)}
+          onDone={() => {
+            setVerifying(null)
+            showSuccess(t('toast.keyVerified'))
+            onChanged()
+          }}
+        />
+      )}
       <ConfirmDialog
         open={Boolean(removing)}
         onOpenChange={(o) => !o && setRemoving(null)}
@@ -302,7 +362,7 @@ function NodesCard({ nodes, canRun, onRun, running }) {
   )
 }
 
-function ScheduleCard({ settings, hasKey, onSaved }) {
+function ScheduleCard({ settings, hasKey, hasProof, onSaved }) {
   const { t } = useTranslation(['archives', 'common'])
   const { showSuccess, showError } = useNotification()
   const [form, setForm] = useState(() => settingsForm(settings))
@@ -324,7 +384,7 @@ function ScheduleCard({ settings, hasKey, onSaved }) {
       showSuccess(t('toast.settings'))
       onSaved()
     } catch (e) {
-      const fields = Object.fromEntries((e.errors || []).map((x) => [x.field, x.message]))
+      const fields = Object.fromEntries((e.errors || []).map((x) => [x.field, e.code === 'archive_key_unverified' ? 'needProof' : x.message]))
       if (Object.keys(fields).length) setServer(fields)
       showError(errorMessage(e))
     } finally {
@@ -341,11 +401,13 @@ function ScheduleCard({ settings, hasKey, onSaved }) {
         <ToggleSwitch
           checked={Boolean(settings.schedule_enabled)}
           onChange={(on) => save({ schedule_enabled: on })}
-          disabled={busy || (!settings.schedule_enabled && !hasKey)}
+          disabled={busy || (!settings.schedule_enabled && (!hasKey || !hasProof))}
           label={t('settings.schedule_enabled')}
-          description={!hasKey && !settings.schedule_enabled ? t('settings.needKey') : t('settings.scheduleHelp')}
+          description={settings.schedule_enabled ? t('settings.scheduleHelp') : !hasKey ? t('settings.needKey') : !hasProof ? t('settings.needProof') : t('settings.scheduleHelp')}
         />
-        {server.schedule_enabled && <p className="text-2xs status-danger-text">{t('settings.needKey')}</p>}
+        {server.schedule_enabled && (
+          <p role="alert" className="text-2xs status-danger-text" data-testid="archives-schedule-refused">{t(server.schedule_enabled === 'needProof' ? 'settings.needProof' : 'settings.needKey')}</p>
+        )}
       </div>
       {Object.entries(SETTING_GROUPS).map(([group, keys]) => (
         <div key={group} className="space-y-2">
@@ -575,6 +637,7 @@ export default function ArchivesPage() {
   const nodes = useMemo(() => data?.nodes || [], [data])
   const nameOf = (id) => nodes.find((n) => n.node_id === id)?.name || id
   const hasKey = (data?.recipients || []).length > 0
+  const hasProof = provenKeys(data?.recipients).length > 0
   useWsTopic('system', (m) => m?.event === 'archive' && overviewQ.refetch())
 
   const runNow = async (nodeIds) => {
@@ -615,7 +678,7 @@ export default function ArchivesPage() {
           )}
           <KeyCard data={data} onChanged={overviewQ.refetch} />
           <NodesCard nodes={nodes} canRun={hasKey} running={running} onRun={runNow} />
-          <ScheduleCard settings={data.settings || {}} hasKey={hasKey} onSaved={overviewQ.refetch} />
+          <ScheduleCard settings={data.settings || {}} hasKey={hasKey} hasProof={hasProof} onSaved={overviewQ.refetch} />
           <DestinationsCard destinations={data.destinations || []} nodes={nodes} nameOf={nameOf} onChanged={overviewQ.refetch} />
           <ArchivesTable nodes={nodes} destinations={data.destinations || []} nameOf={nameOf} reloadKey={reloadKey} onRestore={setRestoring} />
         </div>

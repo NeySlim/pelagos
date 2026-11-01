@@ -16,7 +16,7 @@ export const KINDS = [
   'insecure_key', 'insecure_listener', 'custom_hook', 'rpz_update',
   'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses',
   'resolver_health', 'delegation_issue', 'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory', 'cert_expiry', 'cert_renewal_failed', 'ddns_advice', 'config_syntax_warning', 'managed_drift',
-  'notification_failed', 'archive_failed', 'archive_stale', 'archive_incomplete', 'ddns_outage', 'ddns_replay', 'dns_stale_primary',
+  'notification_failed', 'archive_failed', 'archive_stale', 'archive_incomplete', 'archive_key_unverified', 'ddns_outage', 'ddns_replay', 'dns_stale_primary',
   'kea_series_obsolete', 'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa', 'root_hints_stale', 'api_token_expiry',
   'ipv6_source_failed',
   'path_not_writable',

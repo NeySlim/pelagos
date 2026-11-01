@@ -24,13 +24,21 @@ const BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
 const randomRecipient = () => `age1${Array.from({ length: 58 }, () => BECH32[Math.floor(Math.random() * 32)]).join('')}`
 const randomIdentity = () => `AGE-SECRET-KEY-1${Array.from({ length: 58 }, () => BECH32[Math.floor(Math.random() * 32)].toUpperCase()).join('')}`
 
+const IDENTITY_RE = /^AGE-SECRET-KEY-1[0-9A-Z]{58}$/m
+
 export function hasRecipient(state) {
   return (state.archives?.recipients || []).some((r) => RECIPIENT_RE.test(r.recipient))
 }
 
+// A recipient whose private key an operator tested (POST /admin/archives/keys/{id}/verify).
+export function hasProvenKey(state) {
+  return (state.archives?.recipients || []).some((r) => r.verified_at && RECIPIENT_RE.test(r.recipient))
+}
+
 export function archivesHandlers(state, { Problem, invalid, createPlan }) {
-  const now = Date.now()
-  const nodeIds = state.nodes.map((n) => n.peer.id)
+  // A scenario switch empties the state object: nodes and archives are read again on every call.
+  let nodeIds = []
+  let a
   const nameOf = (id) => state.nodes.find((n) => n.peer.id === id)?.peer.name || id
   const archive = (nodeId, t, extra = {}) => ({
     id: ulid(t), node_id: nodeId, node_name: nameOf(nodeId), created_at: iso(t), size: 1843200 + (t % 4096),
@@ -38,14 +46,19 @@ export function archivesHandlers(state, { Problem, invalid, createPlan }) {
     verified_at: iso(t + 60000), filename: `${nameOf(nodeId)}-${new Date(t).toISOString().replace(/[-:]/g, '').slice(0, 15)}Z.tar.gz.age`,
     recipients: null, held_by: [nodeId, ...nodeIds.filter((x) => x !== nodeId).slice(0, 1)], ...extra,
   })
-  state.archives ||= {
-    destinations: [{ id: 'dst-peer', type: 'peer', name: 'Other nodes', enabled: true, params: { node_ids: [] }, keep: null, ssh_key: null }],
-    recipients: [{ recipient: randomRecipient(), label: 'cluster', kind: 'cluster', added_at: iso(now - 7 * 86400000), added_by: 'admin', downloaded_at: iso(now - 7 * 86400000) }],
-    retired: [],
-    list: nodeIds.flatMap((id, i) => [archive(id, now - 3600000 - i * 900000), archive(id, now - 90000000 - i * 900000)]),
-    runs: Object.fromEntries(nodeIds.map((id) => [id, { failures: {}, errors: {}, last_error: null }])),
+  const ensure = () => {
+    const now = Date.now()
+    nodeIds = state.nodes.map((n) => n.peer.id)
+    state.archives ||= {
+      destinations: [{ id: 'dst-peer', type: 'peer', name: 'Other nodes', enabled: true, params: { node_ids: [] }, keep: null, ssh_key: null }],
+      recipients: [{ recipient: randomRecipient(), label: 'cluster', kind: 'cluster', added_at: iso(now - 7 * 86400000), added_by: 'admin', downloaded_at: iso(now - 7 * 86400000), verified_at: iso(now - 6 * 86400000), verified_by: 'admin' }],
+      retired: [],
+      list: nodeIds.flatMap((id, i) => [archive(id, now - 3600000 - i * 900000), archive(id, now - 90000000 - i * 900000)]),
+      runs: Object.fromEntries(nodeIds.map((id) => [id, { failures: {}, errors: {}, last_error: null }])),
+    }
+    a = state.archives
   }
-  const a = state.archives
+  ensure()
   const settings = () => Object.fromEntries(Object.entries(state.settings.archives || {}).filter(([k]) => !MANAGED.includes(k)))
   const identityState = () => {
     const cluster = a.recipients.find((r) => r.kind === 'cluster')
@@ -121,7 +134,7 @@ export function archivesHandlers(state, { Problem, invalid, createPlan }) {
     if (!record || record.password !== password) throw new Problem(401, 'invalid_credentials', 'password is wrong')
   }
 
-  return {
+  const handlers = {
     'GET /admin/archives': () => ({
       settings: settings(),
       recipients: a.recipients,
@@ -137,6 +150,9 @@ export function archivesHandlers(state, { Problem, invalid, createPlan }) {
       if (body.start_time !== undefined && !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(body.start_time)) errors.push({ field: 'start_time', message: 'HH:MM expected' })
       if (body.schedule_enabled === true && !hasRecipient(state)) errors.push({ field: 'schedule_enabled', message: 'no archive recipient' })
       if (errors.length) throw new Problem(400, 'validation_error', 'invalid archive settings', errors)
+      if (body.schedule_enabled === true && !state.settings.archives?.schedule_enabled && !hasProvenKey(state)) {
+        throw new Problem(409, 'archive_key_unverified', 'test an archive key first: paste its private key under Test my key', [{ field: 'schedule_enabled', message: 'no verified archive key' }])
+      }
       state.settings.archives = { ...state.settings.archives, ...body }
       auditEntry(state, user, { action: 'admin.settings.replace', target: 'settings', request: { archives: body } })
       return { settings: settings() }
@@ -273,6 +289,21 @@ export function archivesHandlers(state, { Problem, invalid, createPlan }) {
       auditEntry(state, user, { action: 'admin.archive.op', target: 'archives:identity', request: { op, recipient: body.recipient } })
       return { recipients: a.recipients, identity_state: identityState(), ...out }
     },
+    'POST /admin/archives/keys/{id}/verify': ({ params, body, user }) => {
+      const r = a.recipients.find((x) => x.recipient === params.id)
+      if (!r) throw new Problem(404, 'not_found', 'unknown recipient')
+      const ok = typeof body.identity === 'string' && IDENTITY_RE.test(body.identity.trim())
+      auditEntry(state, user, { action: 'admin.archive.op', target: 'archives:identity', request: { op: 'verify_key', recipient: r.recipient }, result: ok ? 'ok' : 'error' })
+      if (!ok) throw invalid('identity', 'this private key does not open archives encrypted to this recipient')
+      r.verified_at = iso(Date.now())
+      r.verified_by = user.username
+      const own = a.list.find((x) => x.node_id === state.selfId && (x.recipients || []).includes(r.recipient))
+      return {
+        recipient: r,
+        recipients: a.recipients,
+        checks: [{ what: 'test archive', ok: true, output: '' }, ...(own ? [{ what: `archive ${own.filename}`, ok: true, output: '' }] : [])],
+      }
+    },
     'GET /admin/archives/{id}/download': ({ params, user, res }) => {
       const found = archiveOf(params.id)
       auditEntry(state, user, { action: 'admin.archive.op', target: `archive:${found.id}`, request: { op: 'download' } })
@@ -326,4 +357,5 @@ export function archivesHandlers(state, { Problem, invalid, createPlan }) {
       })
     },
   }
+  return Object.fromEntries(Object.entries(handlers).map(([spec, fn]) => [spec, (...args) => (ensure(), fn(...args))]))
 }

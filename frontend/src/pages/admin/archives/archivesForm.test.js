@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { resources, languages } from '../../../i18n'
 import {
   destinationBody, destinationErrors, formFromDestination, partChanged, partInfo, restorePlanBody, restoreRequest,
-  serverFieldErrors, settingsChanges, settingsErrors, settingsForm,
+  provenKeys, serverFieldErrors, settingsChanges, settingsErrors, settingsForm,
 } from './archivesForm'
 
 const FP = `SHA256:${'A'.repeat(43)}`
@@ -36,7 +36,7 @@ describe('archive destination form', () => {
 })
 
 describe('archive settings form', () => {
-  const settings = { schedule_enabled: false, start_time: '03:15', interval_hours: 24, stagger_minutes: 15, keep_daily_count: 7, keep_weekly_count: 4, keep_monthly_count: 6, local_keep_count: 3, include_leases_enabled: true, verify_enabled: true, test_restore_days: 7, max_archive_mb: 512 }
+  const settings = { schedule_enabled: false, start_time: '03:15', interval_hours: 24, stagger_minutes: 15, keep_daily_count: 7, keep_weekly_count: 4, keep_monthly_count: 6, local_keep_count: 3, include_leases_enabled: true, verify_enabled: true, test_restore_days: 7, max_archive_mb: 512, key_reminder_days: 90 }
   it('sends only the changed values, typed', () => {
     const form = settingsForm(settings)
     expect(settingsChanges(form, settings)).toEqual({})
@@ -79,5 +79,17 @@ describe('archives i18n', () => {
         for (const { code } of languages) expect(resolve(code, m[1]), `${code}: ${m[1]}`).toBeTruthy()
       }
     }
+  })
+})
+
+describe('archive key proofs', () => {
+  it('lists the tested recipients, newest proof first', () => {
+    const rows = [
+      { recipient: 'a', verified_at: '2026-10-01T00:00:00Z' },
+      { recipient: 'b' },
+      { recipient: 'c', verified_at: '2026-11-01T00:00:00Z' },
+    ]
+    expect(provenKeys(rows).map((r) => r.recipient)).toEqual(['c', 'a'])
+    expect(provenKeys()).toEqual([])
   })
 })

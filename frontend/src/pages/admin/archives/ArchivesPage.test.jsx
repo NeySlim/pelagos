@@ -8,7 +8,7 @@ vi.mock('../../../services/api', () => {
   const api = {
     archives: {
       overview: vi.fn(), updateSettings: vi.fn(), createDestination: vi.fn(), updateDestination: vi.fn(), deleteDestination: vi.fn(),
-      testDestination: vi.fn(), run: vi.fn(), list: vi.fn(), download: vi.fn(), upload: vi.fn(), identity: vi.fn(), inspect: vi.fn(), restorePlan: vi.fn(),
+      testDestination: vi.fn(), run: vi.fn(), list: vi.fn(), download: vi.fn(), upload: vi.fn(), identity: vi.fn(), verifyKey: vi.fn(), inspect: vi.fn(), restorePlan: vi.fn(),
     },
     jobs: { get: vi.fn() },
     plans: { apply: vi.fn(), rollback: vi.fn(), get: vi.fn() },
@@ -21,7 +21,7 @@ vi.mock('../../../hooks/usePermission', () => ({ usePermission: () => ({ hasPerm
 
 const { default: ArchivesPage } = await import('./ArchivesPage')
 
-const SETTINGS = { schedule_enabled: false, start_time: '03:15', interval_hours: 24, stagger_minutes: 15, keep_daily_count: 7, keep_weekly_count: 4, keep_monthly_count: 6, local_keep_count: 3, include_leases_enabled: true, verify_enabled: true, test_restore_days: 7, max_archive_mb: 512 }
+const SETTINGS = { schedule_enabled: false, start_time: '03:15', interval_hours: 24, stagger_minutes: 15, keep_daily_count: 7, keep_weekly_count: 4, keep_monthly_count: 6, local_keep_count: 3, include_leases_enabled: true, verify_enabled: true, test_restore_days: 7, max_archive_mb: 512, key_reminder_days: 90 }
 const NODE = { node_id: 'n1', name: 'ns1', reachable: true, last_success: '2026-10-28T03:15:00Z', last_archive: { size: 1843200 }, next_run: null, running: false, complete: true, failures: {}, errors: {}, unreadable: [], test_restore: null }
 const SFTP = { id: 'd1', type: 'sftp', name: 'Off site', enabled: true, params: { host: 'backup.example.lan', port: 22, username: 'pelagos', path: 'archives', host_key_fingerprint: `SHA256:${'A'.repeat(43)}` }, keep: null, secrets: { ssh_key: true }, error: null, status: [{ node_id: 'n1', failures: 2, error: 'connection refused' }] }
 const ARCHIVE = { id: 'a1', node_id: 'n1', node_name: 'ns1', created_at: '2026-10-28T03:15:00Z', size: 1843200, sha256: 'ab', destinations: ['local', 'd1'], complete: true, verified_at: '2026-10-28T03:16:00Z', filename: 'ns1-20261028T031500Z.tar.gz.age', held_by: ['n1'] }
@@ -62,6 +62,44 @@ describe('ArchivesPage', () => {
     expect(within(once).getByTestId('archives-identity-close')).toBeDisabled()
     fireEvent.click(within(once).getByTestId('archives-identity-saved'))
     expect(within(once).getByTestId('archives-identity-close')).toBeEnabled()
+  })
+
+  it('keeps scheduling off until a private key is tested, then tests one', async () => {
+    const recipient = `age1${'q'.repeat(58)}`
+    api.archives.overview.mockResolvedValue(overview({ recipients: [{ recipient, kind: 'cluster', label: 'cluster' }], identity: { stored: true, retired: [] } }))
+    api.archives.verifyKey
+      .mockRejectedValueOnce(Object.assign(new Error('no'), { code: 'validation_error', errors: [{ field: 'identity', message: 'x' }] }))
+      .mockResolvedValueOnce({ recipient: { recipient, verified_at: '2026-11-01T05:00:00Z' }, recipients: [], checks: [] })
+    renderPage()
+    expect(await screen.findByTestId('archives-key-unverified')).toHaveTextContent('No private key was tested yet')
+    const toggle = screen.getByTestId('archives-schedule-toggle')
+    expect(within(toggle).getByRole('switch')).toBeDisabled()
+    expect(toggle).toHaveTextContent('Test an archive private key first')
+    expect(screen.getByTestId('archives-key-proof').dataset.verified).toBe('false')
+    fireEvent.click(screen.getByTestId('archives-key-verify'))
+    const dialog = await screen.findByTestId('archives-verify-dialog')
+    const identity = `AGE-SECRET-KEY-1${'Q'.repeat(58)}`
+    fireEvent.change(within(dialog).getByTestId('archives-verify-identity'), { target: { value: identity } })
+    fireEvent.submit(dialog)
+    expect(await within(dialog).findByText('This private key does not open archives encrypted to this public key.')).toBeInTheDocument()
+    fireEvent.submit(dialog)
+    await waitFor(() => expect(api.archives.verifyKey).toHaveBeenLastCalledWith(recipient, identity))
+    await waitFor(() => expect(screen.queryByTestId('archives-verify-dialog')).not.toBeInTheDocument())
+    expect(api.archives.overview.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('shows the refusal when the server still wants a tested key', async () => {
+    const recipient = `age1${'q'.repeat(58)}`
+    api.archives.overview.mockResolvedValue(overview({ recipients: [{ recipient, kind: 'cluster', label: 'cluster', verified_at: '2026-11-01T05:00:00Z' }], identity: { stored: true, retired: [] } }))
+    api.archives.updateSettings.mockRejectedValue(Object.assign(new Error('test an archive key first'), { code: 'archive_key_unverified', errors: [{ field: 'schedule_enabled', message: 'no verified archive key' }] }))
+    renderPage()
+    expect(await screen.findByTestId('archives-key-proof')).toHaveTextContent('Tested')
+    expect(screen.queryByTestId('archives-key-unverified')).not.toBeInTheDocument()
+    const sw = within(screen.getByTestId('archives-schedule-toggle')).getByRole('switch')
+    expect(sw).toBeEnabled()
+    fireEvent.click(sw)
+    await waitFor(() => expect(api.archives.updateSettings).toHaveBeenCalledWith({ schedule_enabled: true }))
+    expect(await screen.findByTestId('archives-schedule-refused')).toHaveTextContent('Test an archive private key first')
   })
 
   it('shows node state, destination failures, and tests a destination', async () => {

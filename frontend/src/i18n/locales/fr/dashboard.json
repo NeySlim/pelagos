@@ -206,6 +206,7 @@
     "archive_failed": "archive en échec",
     "archive_stale": "archive en retard",
     "archive_incomplete": "archive incomplète",
+    "archive_key_unverified": "clé d'archive non testée",
     "ddns_outage": "panne DDNS",
     "ddns_replay": "rattrapage DDNS à faire",
     "dns_stale_primary": "ancien primaire DNS",

@@ -58,6 +58,13 @@ export function updateSettings(state, rawBody, invalidMany) {
   const recipients = (state.archives?.recipients || []).length
   if (body.archives?.schedule_enabled === true && !recipients) errors.push({ field: 'archives.schedule_enabled', message: 'no archive recipient' })
   if (errors.length) throw invalidMany(errors)
+  const proven = (state.archives?.recipients || []).some((r) => r.verified_at)
+  if (body.archives?.schedule_enabled === true && !state.settings.archives?.schedule_enabled && !proven) {
+    // Same refusal as the archives screen: 409 archive_key_unverified.
+    const refused = invalidMany([{ field: 'archives.schedule_enabled', message: 'no verified archive key' }])
+    Object.assign(refused, { status: 409, code: 'archive_key_unverified', message: 'test an archive key first: paste its private key under Test my key' })
+    throw refused
+  }
   state.settings = merged
   return { settings: merged, body }
 }

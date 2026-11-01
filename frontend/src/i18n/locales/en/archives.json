@@ -120,7 +120,16 @@
     "copy": "Copy",
     "saveFile": "Save as a file",
     "savedAck": "I stored this identity outside the cluster.",
-    "done": "Done"
+    "done": "Done",
+    "proof": "Private key",
+    "verify": "Test my key",
+    "verifyTitle": "Test the private key of {{label}}",
+    "verifyHelp": "Paste the age private key (AGE-SECRET-KEY-1...). The server opens a test archive with it, and the newest archive of this node encrypted to it, in memory. The key is never stored nor logged.",
+    "verifyIdentity": "age private key",
+    "verifyWrong": "This private key does not open archives encrypted to this public key.",
+    "verifiedAt": "Tested {{when}}",
+    "notVerified": "Not tested",
+    "unverified": "No private key was tested yet: scheduling stays off until you paste one under Test my key, so a restore is known to work."
   },
   "toast": {
     "recipientAdded": "Key added",
@@ -130,7 +139,8 @@
     "prunedNone": "Nothing dropped: {{reason}}",
     "settings": "Backup settings saved",
     "destDeleted": "{{name}} deleted",
-    "destSaved": "{{name}} saved"
+    "destSaved": "{{name}} saved",
+    "keyVerified": "Key tested: archives open with it"
   },
   "run": {
     "progress": "{{percent}} %",
@@ -166,6 +176,7 @@
     "title": "Schedule and retention",
     "schedule_enabled": "Scheduled archives",
     "needKey": "Generate the archive key first.",
+    "needProof": "Test an archive private key first (Test my key).",
     "scheduleHelp": "Each node archives at the start time, shifted by its rank, then at every interval.",
     "groups": {
       "schedule": "Schedule",
@@ -183,6 +194,7 @@
     "verify_enabled": "Read back each copy",
     "test_restore_days": "Test restore every (days, 0: never)",
     "max_archive_mb": "Largest archive (MB)",
+    "key_reminder_days": "Test the key every (days, 0: never)",
     "help": "Alert thresholds (stale archive, failures) are in Administration, Settings."
   },
   "upload": {

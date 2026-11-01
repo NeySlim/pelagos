@@ -340,6 +340,7 @@ def test_tasks_and_retention(rig):
         "observe_ipv6": 60.0,
         "discover": 300.0,
         "retention": 3600.0,
+        "audit_rotation": 3600.0,
     }
     counts = collector.retention()
     assert counts["backups_deleted"] == 0 and counts["pool_raw_deleted"] == 0

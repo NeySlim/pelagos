@@ -171,8 +171,12 @@ class Ledger:
     lease_until: dict[str, datetime] = field(default_factory=dict)
 
     def refresh(self, now: datetime) -> None:
-        fresh, self.offset, self.inode = self.audit_log.scan(self.offset, self.inode, AUDIT_NEEDLE)
         horizon = now - timedelta(days=LEDGER_DAYS)
+        if self.inode is None:
+            # B1-AUDIT: rebuilt over every file, so a rotation never hides a recent notify.sent.
+            fresh, self.offset, self.inode = self.audit_log.tail(horizon, AUDIT_NEEDLE)
+        else:
+            fresh, self.offset, self.inode = self.audit_log.scan(self.offset, self.inode, AUDIT_NEEDLE)
         changed = False
         for entry in fresh:
             if entry.action in (ACTION_SENT, ACTION_FAILED) and entry.ts >= horizon:

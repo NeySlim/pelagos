@@ -177,6 +177,8 @@ export const ENDPOINTS = [
   'GET /audit',
   'GET /audit/{id}',
   'GET /audit/export',
+  'GET /audit/segments',
+  'POST /audit/segments/{name}/verify',
   // Advanced
   'GET /advanced/bind/grammar',
   'GET /advanced/bind/tree',

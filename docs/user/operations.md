@@ -465,6 +465,25 @@ logs to the terminal; add `-v` for debug messages. What changed, by whom,
 on which node, is in the audit log (`/var/lib/pelagos/audit/audit.jsonl`,
 one JSON object per line, or the Audit log screen).
 
+The audit log rotates once a year: the live file becomes
+`audit-<year>.jsonl` with a seal `audit-<year>.seal` (a SHA-256 chain over
+its lines, also recorded in an `audit.rotate` entry replicated to every
+node), and a new live file starts. Reads, the export and replication cover
+the segments and the live file alike. Commands:
+
+```sh
+sudo -u pelagos pelagos audit-log segments          # segments and live file, with sizes
+sudo -u pelagos pelagos audit-log verify            # every seal; exit 1 and the reason on failure
+sudo -u pelagos pelagos audit-log rotate            # rotate now (named after the current year)
+```
+
+A verified seal proves the segment unchanged on this disk since its
+rotation; `POST /api/v1/audit/segments/{name}/verify` also compares the
+anchor with each reachable node. Seals are per node: two nodes hold the
+same year in different orders, only the set of entries is the same.
+Segments are kept forever unless `retention.audit_sealed_years` is set
+(see [Configuration](configuration.md)).
+
 ## Metrics and monitoring
 
 Pelagos serves the Prometheus text format itself (`GET /metrics`, below).
@@ -606,6 +625,6 @@ It exports `pelagos_node_up`, `pelagos_node_clock_offset_seconds`,
 `pelagos_alerts_by_kind`, `pelagos_ha_state`, `pelagos_ha_healthy`,
 `pelagos_ha_partner_in_touch`, `pelagos_ha_unsent_updates`,
 `pelagos_ha_leases` and `pelagos_scrape_success` (one per route). Each
-token call to these routes writes an audit entry (`GET /metrics` does not): with a scrape every minute, set
-`auth.api_token_audit_reads_enabled = false` to keep only the writes made
-with a token.
+token call to these routes that writes gets an audit entry (`GET /metrics` never does); reads are
+audited only with `auth.api_token_audit_reads_enabled = true` (off by default since 0.4.0), which
+with a scrape every minute adds an entry per minute.

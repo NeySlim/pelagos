@@ -49,8 +49,10 @@ untouched, and that no error is logged by the collector after a rollback.
 
    Only `series.sqlite` is not worth keeping (it is rebuilt). Never copy this
    archive to another node: it holds the master key and the CA.
-5. Note the audit count of the node (**Nodes**, `audit_count`, or
-   `sudo wc -l /var/lib/pelagos/audit/audit.jsonl`) to compare afterwards.
+5. Note the audit count of the node (**Nodes**, `audit_count` of the
+   replication state) to compare afterwards. Counting the lines of
+   `audit.jsonl` does not work across a yearly rotation (0.4.0 and later
+   move the past year to `audit-<year>.jsonl`).
 6. If you changed thresholds or other settings, print them under their old
    names now: `sudo pelagos settings --legacy`. You need them only for a
    rollback.
@@ -358,7 +360,8 @@ systemctl is-active pelagos pelagos-collector named kea-dhcp4-server kea-dhcp-dd
 for u in pelagos pelagos-collector; do                  # 0 and 0: the processes started by the install
   sudo journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value $u)" | grep -c ' ERROR '
 done
-sudo wc -l /var/lib/pelagos/audit/audit.jsonl           # not lower than before
+sudo -u pelagos curl -sk --cert /var/lib/pelagos/pki/node.crt --key /var/lib/pelagos/pki/node.key \
+  https://127.0.0.1:8444/repl/v1/status | grep -o '"audit_count": *[0-9]*'   # not lower than before
 dig +short @127.0.0.1 ns1.example.lan                   # engines still answer
 ```
 

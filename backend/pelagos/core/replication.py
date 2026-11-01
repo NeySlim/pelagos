@@ -53,7 +53,7 @@ from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
 from pelagos.core.update_sources import HeldReleases
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import Peer
-from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
+from pelagos.domain.common import from_rfc3339, to_rfc3339, ulid_time, utcnow
 from pelagos.domain.plan import NodeApplyResult, Plan
 
 log = logging.getLogger(__name__)
@@ -1310,6 +1310,20 @@ def _who(by: str | None) -> str:
     return m.group(1) if m else "system"
 
 
+def _after_horizon(ids: set[str], horizon: datetime | None) -> set[str]:
+    """B1-AUDIT: ids whose ULID time is not before the purge horizon (all of them without one)."""
+    if horizon is None:
+        return ids
+    out = set()
+    for i in ids:
+        try:
+            if ulid_time(i) >= horizon:
+                out.add(i)
+        except ValueError:
+            out.add(i)
+    return out
+
+
 class ConflictReporter:
     """`on_conflict` of ConfigStore.merge_remote: one replication.conflict audit entry per item."""
 
@@ -1396,6 +1410,8 @@ class Replicator:
         self.self_id = self_id
         self.timeout = timeout
         self.statuses: dict[str, PeerStatus] = {}
+        # B1-AUDIT: per peer, (its count, its head, our count) after an exchange that changed nothing.
+        self._audit_idle: dict[str, tuple[int | None, str | None, int]] = {}
         self.failures: dict[str, int] = {}
         self._lock = threading.Lock()
 
@@ -1517,17 +1533,28 @@ class Replicator:
         self._push_audit_to(client, status.audit_head)
         count, _head = self.audit_log.head()
         fresh = client.status()
-        if fresh.audit_count != count:
-            added += self._exchange_audit_ids(client)
+        # B1-AUDIT: an exchange that changed neither side (ids under a purge horizon) is not
+        # repeated until either count or the peer's head moves.
+        seen = (fresh.audit_count, fresh.audit_head, count)
+        if fresh.audit_count != count and self._audit_idle.get(client.peer.id) != seen:
+            got = self._exchange_audit_ids(client)
+            added += got
             fresh = client.status()
+            after = (fresh.audit_count, fresh.audit_head, self.audit_log.head()[0])
+            if got == 0 and after[:2] == seen[:2]:
+                self._audit_idle[client.peer.id] = after
+            else:
+                self._audit_idle.pop(client.peer.id, None)
         status.audit_count, status.audit_head = fresh.audit_count, fresh.audit_head
         return added
 
     def _exchange_audit_ids(self, client: ReplicationClient) -> int:
+        """Entries added here; ids under the purge horizon never move (section 11, Retention)."""
         remote = set(client.audit_ids())
         local = self.audit_log.ids()
-        missing_here = sorted(remote - local)
-        missing_there = sorted(local - remote)
+        horizon = self.audit_log.horizon()
+        missing_here = sorted(_after_horizon(remote - local, horizon))
+        missing_there = sorted(_after_horizon(local - remote, horizon))
         log.info(
             "audit id exchange with %s: pulling %d, pushing %d",
             client.peer.name,

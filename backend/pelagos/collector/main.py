@@ -487,7 +487,13 @@ class Collector:
             inode = int(self.store.get_meta(META_ACK_INODE) or 0) or None
         except ValueError:
             offset, inode = 0, None
-        fresh, offset, inode = self.ctx.audit_log.scan(offset, inode, needle=ACK_NEEDLE)
+        if inode is None:
+            # B1-AUDIT: no cursor (first start, --rebuild): acks of open alerts may sit in a segment.
+            opened = [a.first_seen for a in self.alerts.open_alerts() if a.first_seen is not None]
+            since = min(opened) if opened else datetime.now(UTC)
+            fresh, offset, inode = self.ctx.audit_log.tail(since, ACK_NEEDLE)
+        else:
+            fresh, offset, inode = self.ctx.audit_log.scan(offset, inode, needle=ACK_NEEDLE)
         legacy = self.alerts.consumed_acks()  # markers of the time-window scan, dropped below
         fresh = [e for e in fresh if e.action == ACK_ACTION and e.id not in legacy]
         waiting = self.alerts.pending_acks()
@@ -1352,6 +1358,20 @@ class Collector:
         counts["backups_deleted"] = series_mod.purge_backups(self.ctx.paths.backups_dir, days, now)
         return counts
 
+    def audit_rotation(self) -> dict[str, Any]:
+        """B1-AUDIT: finish an interrupted rotation, rotate the live audit file when due, purge."""
+        from pelagos.core import audit_segments
+
+        years = int(reg.get(self.ctx.settings(), "retention.audit_sealed_years"))
+        peer_ids = [p.id for p in self.ctx.cluster().nodes if p.id != self.node_id]
+        statuses = getattr(getattr(self.peers, "liveness", None), "peer_statuses", None)
+        versions = {s.node_id: s.version for s in statuses()} if statuses is not None else {}
+        if not hasattr(self, "_audit_task"):
+            self._audit_task = audit_segments.TaskState()
+        return audit_segments.run_task(
+            self.ctx.audit_log, self.node_id, years, peer_ids, versions, state=self._audit_task
+        )
+
     def cycle(self) -> CycleReport:
         """One pass over every task, in order; used by --once and by tests."""
         self.last_report = CycleReport()
@@ -1425,6 +1445,7 @@ class Collector:
             # B1-DISCOVERY: IPv4 neighbor read (section 27), outside the live pass.
             Task("discover", float(reg.get(settings, "discovery.poll_seconds")), self.discover),
             Task("retention", 3600.0, self.retention),
+            Task("audit_rotation", 3600.0, self.audit_rotation),  # B1-AUDIT
         ]
 
     def refresh_tasks(self, tasks: list[Task], now: float | None = None) -> list[str]:

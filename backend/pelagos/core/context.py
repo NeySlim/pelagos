@@ -154,7 +154,7 @@ class NodeContext:
                     request={"op": "migrate", "renamed": dict(moved)},
                     response={"ok": True},
                     result=AuditResult.OK,
-                    message=f"{len(moved)} settings renamed to the current names",
+                    message=f"{len(moved)} settings migrated to the current names and defaults",
                 )
             )
         return moved

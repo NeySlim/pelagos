@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -678,22 +679,148 @@ def test_generic_collection_and_conflict_across_three_nodes(repl_cluster):
             assert subjects == set()
 
 
-# B1-AUDIT: sealed audit segments across nodes (section 11). Contract skeleton.
-AUDIT_TODO = "B1-AUDIT: contract skeleton, implemented after the contract review"
+# B1-AUDIT: sealed audit segments across nodes (section 11) -----------------------------------
 
 
-@pytest.mark.skip(reason=AUDIT_TODO)
+def _audit_entry(node: Live, when: datetime, action: str = "dns.rrset.add", entry_id: str | None = None):
+    from pelagos.domain import AuditEntry
+
+    kw = {"id": entry_id} if entry_id else {}
+    return AuditEntry(node_id=node.id, action=action, target="zone:example.lan.", ts=when, **kw)
+
+
+def _ulid_at(when: datetime) -> str:
+    """A ULID whose time part is `when` (entries of an old year, as a long-lived peer holds them)."""
+    import secrets as secrets_
+
+    alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+    value = (int(when.timestamp() * 1000) << 80) | int.from_bytes(secrets_.token_bytes(10), "big")
+    return "".join(alphabet[(value >> (5 * i)) & 31] for i in range(25, -1, -1))
+
+
+def _id_sets(cluster: Cluster) -> list[set[str]]:
+    return [n.ctx.audit_log.ids() for n in cluster.nodes]
+
+
 def test_audit_segments_one_node_rotated_the_other_not(repl_cluster):
-    """ns1 rotates, ns2 and ns3 do not; writes on all three; counts, heads and id sets converge."""
+    from pelagos.core import audit_segments
+
+    cluster = repl_cluster
+    ns1, ns2, _ns3 = cluster.nodes
+    for node in cluster.nodes:
+        node.ctx.audit_log.append(_audit_entry(node, utcnow()))
+    settle(cluster)
+    audit_segments.rotate(ns1.ctx.audit_log, ns1.id, utcnow(), on_demand=True)
+    for node in cluster.nodes:
+        node.ctx.audit_log.append(_audit_entry(node, utcnow()))
+    settle(cluster)
+    sets = _id_sets(cluster)
+    assert sets[0] == sets[1] == sets[2]
+    assert len({n.ctx.audit_log.head() for n in cluster.nodes}) == 1
+    assert [s.name for s in ns1.ctx.audit_log.segments()] and not ns2.ctx.audit_log.segments()
+    assert all(v.ok for v in audit_segments.verify(ns1.ctx.audit_log, ns1.id))
 
 
-@pytest.mark.skip(reason=AUDIT_TODO)
 def test_audit_entry_of_a_rotated_year_merged_late(repl_cluster):
-    """ns3 partitioned over the rotation of ns1 writes an entry dated before it; after healing ns1
-    holds it in its live file, scan on ns1 returns it once, verify of ns1's segment still passes."""
+    from pelagos.core import audit_segments
+
+    cluster = repl_cluster
+    ns1, _ns2, ns3 = cluster.nodes
+    settle(cluster)
+    log1 = ns1.ctx.audit_log
+    _, offset, inode = log1.scan(0, None)
+    late = _audit_entry(ns3, utcnow() - timedelta(minutes=5))
+    ns3.ctx.audit_log.merge([late])  # written while partitioned: no push
+    audit_segments.rotate(log1, ns1.id, utcnow(), on_demand=True)
+    settle(cluster)
+    assert late.id.encode() in log1.path.read_bytes()
+    got, _, _ = log1.scan(offset, inode)
+    assert [e.id for e in got].count(late.id) == 1
+    assert all(v.ok for v in audit_segments.verify(log1, ns1.id))
 
 
-@pytest.mark.skip(reason=AUDIT_TODO)
 def test_logout_revocation_survives_a_rotation(repl_cluster):
-    """B1-SESSIONS follower: a logout on ns2 merged into ns1 right after ns1 rotated is applied, and a
-    restart of ns1's reader rebuilds it with tail() from the segment."""
+    from pelagos.core import audit_segments
+
+    cluster = repl_cluster
+    ns1, ns2, _ = cluster.nodes
+    settle(cluster)
+    log1 = ns1.ctx.audit_log
+    _, offset, inode = log1.tail(utcnow() - timedelta(hours=12), b'"auth.')
+    before = _audit_entry(ns2, utcnow(), action="auth.logout")
+    ns2.ctx.audit_log.append(before)
+    settle(cluster)
+    audit_segments.rotate(log1, ns1.id, utcnow(), on_demand=True)
+    after = _audit_entry(ns2, utcnow(), action="auth.logout")
+    ns2.ctx.audit_log.append(after)
+    settle(cluster)
+    got, _, _ = log1.scan(offset, inode, b'"auth.')
+    assert [e.id for e in got] == [before.id, after.id]
+    rebuilt, _, _ = log1.tail(utcnow() - timedelta(hours=12), b'"auth.')
+    assert [e.id for e in rebuilt if e.action == "auth.logout"] == [before.id, after.id]
+
+
+def test_audit_purge_does_not_loop_and_waits_for_old_peers(repl_cluster, monkeypatch):
+    from pelagos.core import audit_segments
+    from pelagos.core.replication import ReplicationClient
+
+    cluster = repl_cluster
+    ns1, ns2, ns3 = cluster.nodes
+    old_ts = datetime(2020, 6, 1, tzinfo=UTC)
+    old = [_audit_entry(ns1, old_ts, entry_id=_ulid_at(old_ts)) for _ in range(3)]
+    ns1.ctx.audit_log.merge(old)
+    settle(cluster)
+    log1 = ns1.ctx.audit_log
+    audit_segments.rotate(log1, ns1.id, datetime(2021, 1, 1, tzinfo=UTC), on_demand=True)
+    peers = [ns2.id, ns3.id]
+    versions = {s.node_id: s.version for s in ns1.service.replicator.peer_statuses()}
+    report = audit_segments.run_task(
+        log1, ns1.id, 1, peers, {**versions, ns3.id: "0.3.5"}, datetime(2030, 1, 1, tzinfo=UTC)
+    )
+    assert report["purge_waiting"] == [ns3.id] and log1.horizon() is None
+    report = audit_segments.run_task(
+        log1, ns1.id, 1, peers, {ns2.id: "0.4.0", ns3.id: "0.4.0"}, datetime(2030, 1, 1, tzinfo=UTC)
+    )
+    assert report["purged"] and log1.horizon() is not None
+    assert not {e.id for e in old} & log1.ids()
+    fetched: list[str] = []
+    real = ReplicationClient.fetch_audit_ids
+
+    def spy(self, ids):
+        fetched.extend(ids)
+        return real(self, ids)
+
+    monkeypatch.setattr(ReplicationClient, "fetch_audit_ids", spy)
+    head = log1.head()
+    for _ in range(2):
+        cluster.converge()
+    assert not {e.id for e in old} & set(fetched)
+    assert log1.head() == head and not {e.id for e in old} & log1.ids()
+    idle = dict(ns1.service.replicator._audit_idle)
+    cluster.converge()
+    assert ns1.service.replicator._audit_idle == idle and idle
+
+
+def test_audit_verify_compares_the_anchor_with_both_peers(repl_cluster):
+    from pelagos.core import audit_segments
+
+    cluster = repl_cluster
+    ns1 = cluster.nodes[0]
+    log1 = ns1.ctx.audit_log
+    ns1.ctx.audit_log.append(_audit_entry(ns1, utcnow()))
+    data = audit_segments.rotate(log1, ns1.id, utcnow(), on_demand=True)
+    settle(cluster)
+    fetch = audit_segments.peer_fetch(cluster.gateway(0))
+    (v,) = audit_segments.verify(log1, ns1.id, data["segment"], peers=fetch)
+    assert v.ok and v.peers_checked == 2
+    # Segment, seal and the local copy of the anchor rewritten together: only the peers can tell.
+    segment = next(x for x in log1.segments() if x.name == data["segment"])
+    raw = segment.path.read_bytes()
+    i = raw.index(b"dns.rrset.add")
+    segment.path.write_bytes(raw[:i] + b"D" + raw[i + 1 :])
+    forged = audit_segments.seal(log1, segment, ns1.id)
+    log1.path.write_bytes(log1.path.read_bytes().replace(data["chain"].encode(), forged["chain"].encode()))
+    (v,) = audit_segments.verify(log1, ns1.id, data["segment"], peers=lambda _id: [])
+    assert v.ok  # the local check alone is fooled
+    (v,) = audit_segments.verify(log1, ns1.id, data["segment"], peers=fetch)
+    assert not v.ok and v.reason == "anchor"

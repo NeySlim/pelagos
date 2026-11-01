@@ -173,6 +173,9 @@ def file_alerts(node_id: str, files: list[FileObs], cfg: CheckSettings) -> list[
             **obs.extra,
         }
         engine = None
+        if obs.category == "audit":
+            # The live file only: sealed segments are kept on purpose (B1-AUDIT, section 11).
+            details["segments_bytes"] = _segments_bytes(Path(obs.path).parent)
         if obs.category == "log":
             engine = Engine.BIND
             rotated = bool(obs.extra.get("rotated"))
@@ -242,3 +245,9 @@ def bind_log_files(checkconf_output: str, directory: Path) -> list[tuple[str, bo
             path = directory / path
         out.append((str(path), "versions" in m.group(2) or "size" in m.group(2)))
     return out
+
+
+def _segments_bytes(directory: Path) -> int:
+    from pelagos.core.audit_log import list_segments
+
+    return sum(seg.bytes for seg in list_segments(directory))

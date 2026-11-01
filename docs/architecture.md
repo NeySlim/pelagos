@@ -2098,7 +2098,7 @@ copy the mock server serves):
 - Every threshold that raises an alert lives in `[settings.checks]`, whatever
   raises it (a poller, a health check, the certificate manager).
 - Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
-  spelled out: `_milliseconds`, `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
+  spelled out: `_milliseconds`, `_seconds`, `_minutes`, `_hours`, `_days`, `_years`, `_percent`, `_mb`,
   `_bytes`, `_factor`, `_per_minute`, `_per_hour`; a count ends with the plural noun it counts
   (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`, `_names`) or
   `_count`. A ratio is a percentage, never a fraction.

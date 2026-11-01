@@ -31,6 +31,7 @@ import { desiredHandlers } from './desired.mjs'
 import { updatesHandlers } from './updates.mjs'
 import { searchHandlers } from './search.mjs'
 import { keaOfflineHandlers, partialApply } from './keaOffline.mjs'
+import { auditSegmentsHandlers } from './b1-audit.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
 import { tokenHandlers } from './tokens.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
@@ -86,6 +87,7 @@ const PERMISSIONS = {
   'POST /dns/ptr/coverage': 'read:dns', 'GET /dns/ptr/orphans': 'read:dns', 'POST /dns/ptr/orphans/plan': 'write:dns.records',
   'GET /series/pools': 'read:series', 'GET /series/serials': 'read:series', 'GET /series/ha-transitions': 'read:series',
   'GET /audit': 'read:audit', 'GET /audit/{id}': 'read:audit', 'GET /audit/export': 'read:audit',
+  'GET /audit/segments': 'read:audit', 'POST /audit/segments/{name}/verify': 'read:audit',
   'GET /advanced/bind/grammar': 'read:advanced', 'GET /advanced/bind/tree': 'read:advanced',
   'GET /advanced/kea/{family}/schema': 'read:advanced', 'GET /advanced/history': 'read:advanced',
   'GET /advanced/history/{id}': 'read:advanced',
@@ -2856,6 +2858,8 @@ function buildHandlers(state, emit) {
     ...plansHandlers(state, { Problem, invalid, hasPermission, emit }),
     // B1-KEAOFFLINE
     ...keaOfflineHandlers(state, { invalid, createPlan, Problem }),
+    // B1-AUDIT
+    ...auditSegmentsHandlers(state, { notFound }),
   }
   return handlers
 }

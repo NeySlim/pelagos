@@ -32,6 +32,7 @@ UNIT_SUFFIXES = {
     "_minutes": "minutes",
     "_hours": "hours",
     "_days": "days",
+    "_years": "years",
     "_percent": "percent",
     "_mb": "mb",
     "_bytes": "bytes",

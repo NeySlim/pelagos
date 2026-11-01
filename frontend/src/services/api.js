@@ -225,6 +225,8 @@ export const audit = {
   // NDJSON stream: returned as text, one AuditEntry per line.
   exportEntries: (params) => apiClient.get(`/audit/export${buildQueryString(params)}`, { responseType: 'text' }),
   exportUrl: (params) => `${API_BASE_URL}/audit/export${buildQueryString(params)}`,
+  segments: () => apiClient.get('/audit/segments'),
+  verifySegment: (name) => apiClient.post(`/audit/segments/${enc(name)}/verify`, {}),
 }
 
 export const advanced = {

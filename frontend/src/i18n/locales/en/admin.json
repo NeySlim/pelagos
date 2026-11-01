@@ -193,6 +193,7 @@
       "minutes": "min",
       "hours": "h",
       "days": "days",
+      "years": "years",
       "percent": "%",
       "mb": "MB",
       "factor": "×",
@@ -432,7 +433,8 @@
         "resolver_hourly_days": "Hourly resolver series",
         "ipv6_observation_days": "IPv6 observations",
         "lease_history_days": "Lease history",
-        "neighbor_observation_days": "IPv4 neighbors"
+        "neighbor_observation_days": "IPv4 neighbors",
+        "audit_sealed_years": "Sealed audit segments (years)"
       },
       "dns": {
         "read_key": "Transfer key",
@@ -554,7 +556,7 @@
         "require_webauthn_roles": "Members of these roles sign in with a security key; TOTP alone is not enough.",
         "api_token_default_days": "Expiry proposed when a token is created.",
         "api_token_max_days": "No token may live longer.",
-        "api_token_audit_reads_enabled": "Every call made with a token is audited; off: only writes (POST, PUT, PATCH, DELETE)."
+        "api_token_audit_reads_enabled": "Calls made with a token that only read (GET) are audited too; off: only writes (POST, PUT, PATCH, DELETE). Off by default since 0.4.0."
       },
       "plans": {
         "ttl_seconds": "A plan not applied within this delay expires.",
@@ -633,6 +635,9 @@
       },
       "discovery": {
         "unknown_after_minutes": "A device seen this long with no lease, reservation nor A or PTR record raises an info alert; an exception on its MAC silences it."
+      },
+      "retention": {
+        "audit_sealed_years": "Sealed audit segments older than this many years are deleted (the live file never is); 0 keeps every segment. The purge starts once every node runs 0.4.0 or later."
       }
     }
   },

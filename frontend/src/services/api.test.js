@@ -72,6 +72,7 @@ const invocations = [
   () => api.alerts.runConsistency(), () => api.alerts.exceptions({ kind: 'ptr_mismatch' }), () => api.alerts.addException({}), () => api.alerts.revokeException('e1'),
   () => api.series.pools({ engine: 'kea4' }), () => api.series.serials({ zone: 'example.lan' }), () => api.series.haTransitions(),
   () => api.audit.list({ user: 'admin' }), () => api.audit.get('e1'), () => api.audit.exportEntries({ from: 1 }),
+  () => api.audit.segments(), () => api.audit.verifySegment('audit-2025.jsonl'),
   () => api.advanced.bindGrammar(), () => api.advanced.bindTree(), () => api.advanced.keaSchema('v4'),
   () => api.advanced.history(), () => api.advanced.historyEntry('h1'),
   () => api.ops.bindCatalog(), () => api.ops.bindRun({ op: 'status' }), () => api.ops.keaCatalog('v4'),

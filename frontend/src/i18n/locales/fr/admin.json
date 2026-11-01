@@ -193,6 +193,7 @@
       "minutes": "min",
       "hours": "h",
       "days": "jours",
+      "years": "ans",
       "percent": "%",
       "mb": "Mo",
       "factor": "×",
@@ -432,7 +433,8 @@
         "resolver_hourly_days": "Séries horaires du résolveur",
         "ipv6_observation_days": "Observations IPv6",
         "lease_history_days": "Historique des baux",
-        "neighbor_observation_days": "Voisins IPv4"
+        "neighbor_observation_days": "Voisins IPv4",
+        "audit_sealed_years": "Segments d'audit scellés (années)"
       },
       "dns": {
         "read_key": "Clé de transfert",
@@ -554,7 +556,7 @@
         "require_webauthn_roles": "Les membres de ces rôles se connectent avec une clé de sécurité ; le TOTP seul ne suffit pas.",
         "api_token_default_days": "Expiration proposée à la création d'un jeton.",
         "api_token_max_days": "Aucun jeton ne peut vivre plus longtemps.",
-        "api_token_audit_reads_enabled": "Chaque appel fait avec un jeton est audité ; désactivé : seulement les écritures (POST, PUT, PATCH, DELETE)."
+        "api_token_audit_reads_enabled": "Les appels par jeton qui ne font que lire (GET) sont audités aussi ; désactivé : seulement les écritures (POST, PUT, PATCH, DELETE). Désactivé par défaut depuis 0.4.0."
       },
       "plans": {
         "ttl_seconds": "Un plan non appliqué dans ce délai expire.",
@@ -633,6 +635,9 @@
       },
       "discovery": {
         "unknown_after_minutes": "Un appareil vu aussi longtemps sans bail, réservation ni enregistrement A ou PTR lève une alerte info ; une exception sur son MAC la fait taire."
+      },
+      "retention": {
+        "audit_sealed_years": "Les segments d'audit scellés plus anciens que ce nombre d'années sont supprimés (jamais le fichier courant) ; 0 garde tous les segments. La purge commence quand tous les nœuds sont en 0.4.0 ou plus."
       }
     }
   },

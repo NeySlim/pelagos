@@ -66,7 +66,7 @@ function concrete(spec, state) {
     .replace('{family}', 'v4')
     .replace('{category}', 'ads')
     .replace('{zone}', zone)
-    .replace('{name}', spec.includes('/keys/') ? 'ddi-admin' : 'helpdesk')
+    .replace('{name}', spec.includes('/keys/') ? 'ddi-admin' : spec.includes('/audit/segments/') ? 'audit-2025.jsonl' : 'helpdesk')
     .replace('{ip}', '192.0.2.100')
     .replace('{key}', 'ip:192.0.2.10')
     .replace('{mac}', 'b8:27:eb:5a:01:22')

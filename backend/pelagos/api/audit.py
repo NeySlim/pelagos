@@ -9,8 +9,10 @@ from flask_restx import Namespace, Resource
 from pelagos.api import models as m
 from pelagos.api.common import arg, paged, pagination, time_arg
 from pelagos.api.errors import ApiError
-from pelagos.api.security import ctx, require
+from pelagos.api.security import ctx, require, services
+from pelagos.core.audit_log import SEGMENT_RE
 from pelagos.domain import AuditResult, Engine
+from pelagos.domain.common import to_rfc3339
 
 ns = Namespace("audit", description="Replicated audit log", path="/audit")
 
@@ -66,6 +68,62 @@ class Export(Resource):
     def get(self):
         lines = ctx().audit_log.export_lines(time_arg("from"), time_arg("to"))
         return Response(lines, mimetype="application/x-ndjson")
+
+
+@ns.route("/segments")
+class Segments(Resource):
+    @require("read:audit")
+    @ns.response(200, "Sealed segments, the live file and the retention setting")
+    def get(self):
+        from pelagos.core import settings_registry as reg
+
+        c = ctx()
+        log_ = c.audit_log
+        first, count = log_.opening()
+        size = log_.path.stat().st_size if log_.path.exists() else 0
+        return {
+            "segments": [s.to_dict() for s in log_.segments()],
+            "live": {
+                "name": log_.path.name,
+                "bytes": size,
+                "entries": count,
+                "first_ts": to_rfc3339(first) if first else None,
+            },
+            "retention_years": int(reg.get(c.settings(), "retention.audit_sealed_years")),
+        }
+
+
+@ns.route("/segments/<string:name>/verify")
+class VerifySegment(Resource):
+    @require("read:audit")
+    @ns.response(200, "Verdict: ok, reason, note, lines, entries, peers_checked, checked_at")
+    @ns.response(404, "not_found", m.Problem)
+    def post(self, name: str):
+        from pelagos.core import audit_segments
+
+        if not SEGMENT_RE.match(name):
+            raise ApiError("not_found", f"audit segment {name}")
+        c = ctx()
+        try:
+            verdicts = audit_segments.verify(c.audit_log, c.node.id, name, peers=_peer_copies, pause=_pause)
+        except KeyError:
+            raise ApiError("not_found", f"audit segment {name}") from None
+        return verdicts[0].to_dict()
+
+
+def _pause() -> None:
+    """Hand the gevent hub a turn between two blocks of a long hash (one web worker)."""
+    try:
+        import gevent
+    except ImportError:  # pragma: no cover
+        return
+    gevent.sleep(0)
+
+
+def _peer_copies(entry_id: str) -> list[dict | None]:
+    from pelagos.core.audit_segments import peer_fetch
+
+    return peer_fetch(services().peers)(entry_id)
 
 
 @ns.route("/<string:entry_id>")

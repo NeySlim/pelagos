@@ -225,6 +225,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_permissions_parser(sub)
 
+    from pelagos.core.audit_segments import add_parser as add_audit_log_parser
+
+    add_audit_log_parser(sub)
+
     from pelagos.auth.recovery import add_parser as add_user_parser
 
     add_user_parser(sub).set_defaults(func=cmd_user)

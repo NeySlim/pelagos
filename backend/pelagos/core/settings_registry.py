@@ -106,7 +106,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("auth.require_webauthn_roles", "list", [], pattern=NAME_PATTERN),
     S("auth.api_token_default_days", "integer", 90, 1, 3650, "days", "api_tokens"),
     S("auth.api_token_max_days", "integer", 365, 1, 3650, "days", "api_tokens"),
-    S("auth.api_token_audit_reads_enabled", "boolean", True, group="api_tokens"),
+    S("auth.api_token_audit_reads_enabled", "boolean", False, group="api_tokens"),
     # Plans and peers
     S("plans.ttl_seconds", "integer", 600, 60, DAY, "seconds"),
     S("plans.rollback_window_seconds", "integer", DAY, 600, 7 * DAY, "seconds"),
@@ -210,6 +210,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("retention.ha_transition_days", "integer", 365, 1, 3650, "days"),
     S("retention.alerts_resolved_days", "integer", 90, 1, 3650, "days"),
     S("retention.backups_days", "integer", 90, 1, 3650, "days"),
+    S("retention.audit_sealed_years", "integer", 0, 0, 100, "years"),
     S("retention.resolver_raw_days", "integer", 7, 1, 3650, "days"),
     S("retention.resolver_hourly_days", "integer", 90, 1, 3650, "days"),
     S("retention.ipv6_observation_days", "integer", 30, 1, 3650, "days"),
@@ -526,6 +527,14 @@ def _entry(*parts: str) -> str:
     return path_of("settings", *parts)
 
 
+# Defaults that changed: key -> (former default, new default) (section 10, "Changed defaults").
+CHANGED_DEFAULTS: dict[str, tuple[Any, Any]] = {
+    "auth.api_token_audit_reads_enabled": (True, False),  # 0.4.0, decision D5
+}
+# Node part of the stamp of a migrated default: sorts after every node id, the same on every node.
+DEFAULTS_NODE = "~defaults"
+
+
 def migrate(data: dict[str, Any]) -> list[tuple[str, str]]:
     """Rename former settings keys in a parsed cluster.toml, in place; returns (old, new) moved.
 
@@ -564,6 +573,7 @@ def migrate(data: dict[str, Any]) -> list[tuple[str, str]]:
                 repl["tombstones"] = {old_entry: text}
                 tombs = repl["tombstones"]
         moved.append((old, new))
+    moved.extend(_migrate_defaults(settings, repl, stamps, tombs))
     # Earlier releases stored their admin grant as the default: those exact lists still mean "the default".
     dns = settings.get("dns")
     types = dns.get("update_types_admin") if isinstance(dns, dict) else None
@@ -572,6 +582,55 @@ def migrate(data: dict[str, Any]) -> list[tuple[str, str]]:
         dns["update_types_admin"] = list(zone_updates.ADMIN_UPDATE_TYPES)
         moved.append(("dns.update_types_admin", "dns.update_types_admin"))
     return moved
+
+
+def _migrate_defaults(
+    settings: dict[str, Any],
+    repl: dict[str, Any] | None,
+    stamps: dict[str, Any] | None,
+    tombs: dict[str, Any] | None,
+) -> list[tuple[str, str]]:
+    """A former default nobody chose becomes the new one: unstamped or stamped at the creation
+    counter c0 (any later write has a greater counter); absent from a stamped file, inserted."""
+    from pelagos.core.cluster_merge import parse_stamp
+
+    moved: list[tuple[str, str]] = []
+    counters = [parse_stamp(v)[0] for v in (stamps or {}).values()] + [
+        parse_stamp(v)[0] for v in (tombs or {}).values()
+    ]
+    c0 = min((c for c in counters if c > 0), default=0)
+    for key, (former, new) in CHANGED_DEFAULTS.items():
+        path, entry = BY_KEY[key].path, _entry(*BY_KEY[key].path)
+        present = _has(settings, path)
+        if repl is None:
+            if present and _same(_get(settings, path), former):
+                _put(settings, path, copy.deepcopy(new))
+                moved.append((key, key))
+            continue
+        if present:
+            if not _same(_get(settings, path), former):
+                continue
+            counter = parse_stamp(stamps[entry])[0] if stamps and entry in stamps else 0
+            if counter not in (0, c0):
+                continue
+        elif tombs and entry in tombs:
+            continue
+        _put(settings, path, copy.deepcopy(new))
+        if stamps is None:
+            repl["stamps"] = stamps = {}
+        stamps[entry] = f"{c0}@{DEFAULTS_NODE}"
+        moved.append((key, key))
+    return moved
+
+
+def _get(target: dict[str, Any], path: tuple[str, ...]) -> Any:
+    for part in path:
+        target = target[part]
+    return target
+
+
+def _same(a: Any, b: Any) -> bool:
+    return type(a) is type(b) and a == b
 
 
 def _stamp(stamps: dict[str, Any] | None, entry: str) -> tuple[int, str]:

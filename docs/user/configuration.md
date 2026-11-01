@@ -20,7 +20,8 @@
 | `/etc/pelagos/tls/server.crt`, `server.key` | HTTPS certificate of the web process | `pelagos`, certificate 0644, key 0600 |
 | `/etc/pelagos/pelagos.env` | environment of the units and of `/usr/bin/pelagos` | `root:root`, 0644 |
 | `/var/lib/pelagos/cluster.toml` | replicated configuration | `pelagos`, 0640 |
-| `/var/lib/pelagos/audit/audit.jsonl` | replicated audit log, one JSON object per line | `pelagos`, 0640 |
+| `/var/lib/pelagos/audit/audit.jsonl` | replicated audit log, live file, one JSON object per line | `pelagos`, 0640 |
+| `/var/lib/pelagos/audit/audit-<year>.jsonl`, `.seal` | sealed yearly segments of the audit log and their seals | `pelagos`, 0640 |
 | `/var/lib/pelagos/series.sqlite` | local cache of time series, alerts and last engine reads (rebuildable) | `pelagos`, 0640 |
 | `/var/lib/pelagos/pki/` | `ca.crt`, `ca.key` (CA nodes only), `node.crt`, `node.key` | `pelagos`, directory 0750, certificates 0644, keys 0600 |
 | `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` | write pipeline backups with a `manifest.json` | `pelagos`, 0750 |
@@ -228,6 +229,7 @@ section 10, "Settings naming".
 | `require_webauthn_roles` | `[]` | role names | members of these roles sign in with a security key; without one, a sign-in only allows adding one; the TOTP code alone is refused |
 | `api_docs_public_enabled` | `off` |  | serve `/api/v1/docs` and `/api/v1/swagger.json` without a session; by default they need one |
 | `session_resume_enabled` | `on` |  | a session opened on one node is accepted by every node under the same name and survives a web restart ([operations](operations.md#a-load-balancer-in-front-of-the-ui)); off: one login per node and per restart |
+| `api_token_audit_reads_enabled` | `off` |  | calls made with an API token that only read get an audit entry too; writes always do. Off by default since 0.4.0: an upgrade turns it off on the whole cluster unless it was turned off and on again |
 
 ### Plans (`[settings.plans]`)
 
@@ -313,7 +315,7 @@ Disk and file sizes:
 | `lease_file_max_mb` | `512` | 1 to 10000000 MB | the same for the Kea lease file |
 | `journal_max_mb` | `256` | 1 to 10000000 MB | the same for a zone journal |
 | `backups_max_mb` | `2048` | 1 to 10000000 MB | the same for the write backups |
-| `audit_max_mb` | `512` | 1 to 10000000 MB | the same for the audit log |
+| `audit_max_mb` | `512` | 1 to 10000000 MB | the same for the live audit file; the sealed segments are listed in `GET /audit/segments` (size in the alert's `segments_bytes`), the volume is covered by `disk_space` |
 
 Resolver:
 
@@ -391,8 +393,18 @@ ISC security advisories:
 | `resolver_raw_days` | `7` | 1 to 3650 days | resolver measures per collector pass, then averaged per hour |
 | `resolver_hourly_days` | `90` | 1 to 3650 days | hourly resolver measures |
 | `neighbor_observation_days` | `30` | 1 to 3650 days | IPv4 neighbors seen by each node ([Hosts](hosts.md#discovery)) |
+| `audit_sealed_years` | `0` | 0 to 100 years | sealed audit segments of a year older than this many years are deleted; 0 keeps them all |
 
-The audit log is never purged.
+The audit log rotates once a year: in the first hour of a new UTC year,
+`audit.jsonl` becomes `audit-<year>.jsonl` with a seal
+`audit-<year>.seal` and a new live file starts. Segments stay readable,
+exported and replicated with the live file; `pelagos audit-log verify`
+checks them. They are never purged unless `audit_sealed_years` is above 0,
+and then only once every node of the cluster runs 0.4.0 or later (an older
+node would keep sending the purged entries back); entries older than the
+purge horizon are refused from peers and from archive restores. An old
+entry merged late lives in a newer segment until that one is purged. The
+live file is never purged.
 
 ### DNS (`[settings.dns]`)
 

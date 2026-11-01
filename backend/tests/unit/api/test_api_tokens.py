@@ -78,13 +78,12 @@ def test_admin_with_required_key_scripts_through_a_token(app, admin_key, node_ct
     r = t.post(f"{P}/plans/{pid}/apply", json={"confirm": True})
     assert r.status_code == 200 and r.get_json()["state"] == "applied", r.get_json()
 
-    # Every call is audited with the token's name; the plan's own entries name it too.
+    # Every write is audited with the token's name (reads not by default since 0.4.0); the plan's
+    # own entries name it too.
     entries = node_ctx.audit_log.read(limit=10000)
     calls = [e for e in entries if e.action == "auth.token_call"]
-    assert {(e.request["method"], e.request["path"]) for e in calls} >= {
-        ("GET", f"{P}/nodes"),
-        ("POST", f"{P}/plans/{pid}/apply"),
-    }
+    assert ("POST", f"{P}/plans/{pid}/apply") in {(e.request["method"], e.request["path"]) for e in calls}
+    assert ("GET", f"{P}/nodes") not in {(e.request["method"], e.request["path"]) for e in calls}
     assert all(e.user == "admin" and e.request["token"] == "deploy" for e in calls)
     applied = [e for e in entries if e.plan_id == pid and e.action != "auth.token_call"]
     assert applied and all(e.request.get("token") == "deploy" for e in applied)

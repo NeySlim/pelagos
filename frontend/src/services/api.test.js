@@ -131,6 +131,8 @@ const invocations = [
   () => api.desired.option('v4', 'dhcp4', '6'), () => api.desired.putOption('v4', 'dhcp4', '6', { data: '192.0.2.53' }), () => api.desired.deleteOption('v4', 'dhcp4', '6'),
   // F0-PLANS
   () => api.plans.list({ state: 'applied', page: 1 }),
+  // B1-KEAOFFLINE
+  () => api.dhcp.reconcilePlan('v4', 'n1', 'n2'),
 ]
 
 describe('api.js', () => {

@@ -7,6 +7,7 @@ import json
 import logging
 import shutil
 import sqlite3
+import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -67,6 +68,7 @@ CREATE INDEX IF NOT EXISTS lease_events_hw ON lease_events(hw, ts);
 CREATE INDEX IF NOT EXISTS lease_events_duid ON lease_events(duid, ts);
 CREATE INDEX IF NOT EXISTS lease_events_hostname ON lease_events(hostname, ts);
 CREATE INDEX IF NOT EXISTS lease_events_ts ON lease_events(ts);
+CREATE INDEX IF NOT EXISTS lease_events_node ON lease_events(node_id, engine, ip, lease_type);
 """
 # Columns of a lease_events row, in table order (section 15, Lease history).
 LEASE_EVENT_COLUMNS = (
@@ -86,6 +88,10 @@ LEASE_EVENT_COLUMNS = (
     "state",
 )
 LEASE_EVENT_FILTERS = ("ip", "hw", "duid", "hostname")
+# Retention deletes lease_events in chunks and stops after the budget (the rest goes at the next
+# run), so lowering the retention never holds the collector loop for long.
+LEASE_PURGE_CHUNK = 10_000
+LEASE_PURGE_SECONDS = 2.0
 
 
 def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
@@ -488,6 +494,19 @@ class SeriesStore:
             self._commit()
         return len(rows)
 
+    def purge_lease_events(self, before_ts: int, budget: float = LEASE_PURGE_SECONDS) -> int:
+        deleted = 0
+        start = time.monotonic()
+        while True:
+            n = self.conn.execute(
+                "DELETE FROM lease_events WHERE rowid IN"
+                " (SELECT rowid FROM lease_events WHERE ts < ? LIMIT ?)",
+                (before_ts, LEASE_PURGE_CHUNK),
+            ).rowcount
+            deleted += n
+            if n < LEASE_PURGE_CHUNK or time.monotonic() - start >= budget:
+                return deleted
+
     def lease_history_seed(self, node_id: str, engine: str) -> list[dict[str, Any]]:
         """The last row written for each address of one engine on one node (the walk's known state)."""
         rows = self.conn.execute(
@@ -626,9 +645,7 @@ class SeriesStore:
             "DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?",
             (now - days("alerts_resolved_days", 90) * DAY,),
         ).rowcount
-        lease_events_deleted = self.conn.execute(
-            "DELETE FROM lease_events WHERE ts < ?", (now - days("lease_history_days", 90) * DAY,)
-        ).rowcount
+        lease_events_deleted = self.purge_lease_events(now - days("lease_history_days", 90) * DAY)
         self._commit()
         self.set_meta("last_run_retention", str(now))
         return {

@@ -260,3 +260,13 @@ def test_live_pass_writes_the_rows_and_the_setting_turns_it_off(rig, node_ctx):
     collector.watch_leases()  # seeded from the table: only the lease it did not record
     rows, _ = store.lease_events(engine="kea4", node_id=None, since=0, until=T0 * 2, limit=10)
     assert [(r["event"], r["ip"]) for r in rows] == [("new", "192.0.2.11"), ("new", "192.0.2.10")]
+
+
+def test_purge_goes_in_chunks_within_its_budget(store, monkeypatch):
+    monkeypatch.setattr(series_mod, "LEASE_PURGE_CHUNK", 10)
+    rows = [(T0 + i, NODE, "kea4", "new", f"192.0.2.{i}", None, MAC_A, None, None, None, 1, T0, 60, "default")
+            for i in range(35)]  # fmt: skip
+    store.write_lease_events(rows)
+    assert store.purge_lease_events(T0 + 1000, budget=0.0) == 10  # one chunk, then out of budget
+    assert store.purge_lease_events(T0 + 1000) == 25
+    assert store.counts()["lease_events"] == 0

@@ -155,7 +155,7 @@ def _sources_enabled(settings: Any, modules: Mapping[str, Any]) -> bool:
 
 def _late(settings: Any) -> int:
     """Seconds after which a source's last poll means its observer stopped: three passes."""
-    passes = (int(reg.get(settings, k)) for k in ("ipv6.poll_seconds", "collector.poll_seconds"))
+    passes = (int(reg.get(settings, k)) for k in ("discovery.poll_seconds", "collector.poll_seconds"))
     return 3 * max(passes)
 
 
@@ -492,7 +492,11 @@ class Ipv6Service:
         return {
             "prefixes": [str(p) for p in listed] if isinstance(listed, list) else [],
             "effective_prefixes": [p.to_dict() for p in self.effective_prefixes()],
-            "settings": {s.path[1]: reg.get(settings, s.key) for s in reg.REGISTRY if s.domain == DOMAIN},
+            "settings": {
+                **{s.path[1]: reg.get(settings, s.key) for s in reg.REGISTRY if s.domain == DOMAIN},
+                # B1-DISCOVERY: the DHCPv6 walk period moved to discovery.poll_seconds; same answer.
+                "poll_seconds": reg.get(settings, "discovery.poll_seconds"),
+            },
             "status": status,
         }
 

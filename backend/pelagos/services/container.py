@@ -131,6 +131,11 @@ class Services:
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)
         self.ipv6_plans = Ipv6Plans(ctx, self.ipv6, self.ptr, self.dns)
         self.ptr.observed = self.ipv6.last_seen_by_address
+        # B1-DISCOVERY: IPv4 neighbors and vendors (section 27); the hosts join reads them.
+        from pelagos.services.discovery_service import DiscoveryService
+
+        self.discovery = DiscoveryService(ctx, self.peers, self.hosts, self.cache)
+        self.hosts.discovery = self.discovery
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

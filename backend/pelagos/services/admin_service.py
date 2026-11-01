@@ -18,7 +18,7 @@ from pelagos.services.masking import masked
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
 ROLE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
-MODULE_KEYS = ("dhcpv6", "advanced_editor")
+MODULE_KEYS = ("dhcpv6", "advanced_editor", "discovery")
 
 
 class AdminService:
@@ -441,7 +441,8 @@ class AdminService:
     def modules(self) -> dict[str, Any]:
         cfg = self.ctx.cluster()
         return {
-            "cluster": {k: cfg.modules.get(k) for k in MODULE_KEYS},
+            # A module absent from cluster.toml is off (discovery is only written once switched).
+            "cluster": {k: bool(cfg.modules.get(k, False)) for k in MODULE_KEYS},
             "nodes": {n.id: n.modules.to_dict() for n in cfg.nodes},
         }
 

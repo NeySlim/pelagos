@@ -271,6 +271,11 @@ class Collector:
             (lambda: _all_leases(kea6, self.node_id, self.backend_lock)) if kea6 is not None else None,
         )
         self.ipv6.kea6_unavailable = self._kea6_unavailable
+        # B1-DISCOVERY: this node's IPv4 neighbors (section 27); peers asked for theirs by the check.
+        from pelagos.collector.checks.discovery import NeighborWatch
+
+        self.neighbors4 = NeighborWatch(ctx, store, clock)
+        self.discovery_gateway: Any = None  # tests set a fake
         # Updates from the UI (section 29): this node's turn runs on its own thread once run()
         # sets `rollout_background`; `replication_client` (set by run()) reaches the peers.
         self.replication_client: Callable[[Any], Any] | None = None
@@ -530,6 +535,11 @@ class Collector:
             observed = observed + self.ipv6_checks(leases, reservations, forward, reverse)
         except Exception:  # the IPv6 checks never cost the consistency pass
             log.exception("IPv6 checks failed")
+        # B1-DISCOVERY
+        try:
+            observed = observed + self.discovery_checks(leases, reservations, forward, reverse)
+        except Exception:  # nor does discovery
+            log.exception("discovery checks failed")
         replay = self._ddns_replay(leases, forward, reverse)
         if replay is not None:
             self._finish(replay)
@@ -604,6 +614,61 @@ class Collector:
             kinds -= {AlertKind.IPV6_MISSING_AAAA.value, AlertKind.IPV6_STALE_AAAA.value}
             log.info("IPv6 host checks kept as they were: %s", ", ".join(u["node_id"] for u in g.unavailable))
         self._finish(PollOutcome(alerts=alerts, kinds=frozenset(kinds)))
+        return alerts
+
+    # B1-DISCOVERY ---------------------------------------------------------------------------
+
+    def discover(self) -> dict[str, Any] | None:
+        """This node's IPv4 neighbor table into the cache (section 27); None while discovery is off."""
+        return self.neighbors4.tick()
+
+    def discovery_checks(
+        self,
+        leases: list[Lease],
+        reservations: list[Reservation],
+        forward: dict[str, list[RRset]],
+        reverse: list[RRset],
+        gateway: Any = None,
+    ) -> list[Alert]:
+        """`unknown_device` on a node with a DHCPv4 backend and primary forward zones, over every
+        node's neighbors; kept as it is while a node does not answer."""
+        from pelagos.collector.checks import discovery
+        from pelagos.collector.ipv6 import store as obs_store
+        from pelagos.services import discovery_service
+
+        kinds = frozenset({AlertKind.UNKNOWN_DEVICE.value})
+        cluster = self.ctx.cluster()
+        settings = cluster.settings
+        v4 = any(b.family is Family.V4 for b in self.backends.dhcp)
+        if not discovery.enabled(cluster, settings) or not forward or not v4:
+            self._finish(PollOutcome(alerts=[], kinds=kinds))
+            return []
+        gateway = gateway or self.discovery_gateway
+        if gateway is None:
+            from pelagos.services.peers import PeerGateway
+
+            gateway = PeerGateway(self.ctx)
+        g = discovery_service.gather(
+            self.node_id,
+            lambda: obs_store.neighbor_payload(self.store.conn, self.node_id),
+            gateway,
+            [n.id for n in cluster.nodes],
+            timeout=5.0,
+        )
+        if not g.complete:
+            log.info("unknown_device kept as it was: %s", ", ".join(u["node_id"] for u in g.unavailable))
+            return []
+        alerts = discovery.unknown_devices(
+            g.neighbors,
+            leases,
+            reservations,
+            [r for rs in forward.values() for r in rs],
+            reverse,
+            int(self.clock()),
+            discovery.after_seconds(settings),
+            discovery.present_seconds(settings),
+        )
+        self._finish(PollOutcome(alerts=alerts, kinds=kinds))
         return alerts
 
     def _ddns_replay(
@@ -1299,6 +1364,7 @@ class Collector:
             ("archive", self.archive),
             ("rollout", self.rollout),
             ("observe_ipv6", self.observe_ipv6),
+            ("discover", self.discover),  # B1-DISCOVERY
             ("retention", self.retention),
         ):
             try:
@@ -1342,6 +1408,8 @@ class Collector:
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
             Task("rollout", ROLLOUT_SECONDS, self.rollout),
+            # B1-DISCOVERY: IPv4 neighbor read (section 27), outside the live pass.
+            Task("discover", float(reg.get(settings, "discovery.poll_seconds")), self.discover),
             Task("retention", 3600.0, self.retention),
         ]
 

@@ -8,7 +8,7 @@ from flask_restx import Namespace, Resource
 from pelagos.api import models as m
 from pelagos.api.common import arg, bool_arg, int_arg, json_body, page_of, plan_answer, time_arg
 from pelagos.api.errors import ApiError
-from pelagos.api.security import check_permission, require, services, username
+from pelagos.api.security import check_permission, require, require_module, services, username
 from pelagos.auth.rbac import host_plan_permissions
 
 ns = Namespace("hosts", description="Lease + reservation + records join", path="/hosts")
@@ -48,6 +48,37 @@ class HostPlan(Resource):
         if not host_plan_permissions(session.permissions, True, bool(body.get("reservation"))):
             raise ApiError("forbidden", "requires write:hosts")
         return plan_answer(services().hosts.plan(body, username()))
+
+
+# B1-DISCOVERY: IPv4 neighbors seen over the cluster and the OUI vendor (section 27).
+@ns.route("/discovered")
+class DiscoveredHosts(Resource):
+    @require("read:hosts")
+    @ns.doc(
+        params={
+            "filter": "unknown (no host holds the MAC or an address) or known",
+            "q": "part of the MAC, an address or the vendor",
+            "page": "1-based",
+            "per_page": "default 50, max 500",
+        }
+    )
+    @ns.response(200, "One row per MAC, latest sighting first; meta.unavailable, meta.errors", m.RawList)
+    @ns.response(404, "module_disabled", m.Problem)
+    def get(self):
+        require_module("discovery")
+        rows, meta = services().discovery.discovered(arg("filter"), arg("q"))
+        return page_of(rows, meta)
+
+
+@ns.route("/vendor/<string:mac>")
+class HostVendor(Resource):
+    @require("read:hosts")
+    @ns.response(200, "{mac, vendor, prefix}: the OUI manufacturer, null when none matches")
+    @ns.response(400, "validation_error", m.Problem)
+    @ns.response(404, "module_disabled", m.Problem)
+    def get(self, mac: str):
+        require_module("discovery")
+        return services().discovery.vendor_of(mac)
 
 
 # B1-LEASEHIST: one host's lease events (section 15, Lease history); before /<path:key>.

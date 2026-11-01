@@ -15,7 +15,8 @@
     "ddns",
     "resolver",
     "ipv6",
-    "updates"
+    "updates",
+    "discovery"
   ],
   "settings": [
     {
@@ -823,6 +824,14 @@
       "unit": "days"
     },
     {
+      "key": "retention.neighbor_observation_days",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
       "key": "dns.read_key",
       "type": "string",
       "default": "ddi-read",
@@ -1291,14 +1300,6 @@
       "default": true
     },
     {
-      "key": "ipv6.poll_seconds",
-      "type": "integer",
-      "default": 300,
-      "min": 60,
-      "max": 86400,
-      "unit": "seconds"
-    },
-    {
       "key": "ipv6.stable_min_days",
       "type": "integer",
       "default": 8,
@@ -1318,6 +1319,27 @@
       "key": "ipv6.auto_apply_enabled",
       "type": "boolean",
       "default": false
+    },
+    {
+      "key": "discovery.ipv4_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "discovery.poll_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "discovery.unknown_after_minutes",
+      "type": "integer",
+      "default": 60,
+      "min": 5,
+      "max": 43200,
+      "unit": "minutes"
     },
     {
       "key": "updates.check_enabled",
@@ -1492,7 +1514,8 @@
     "checks.declined_addresses_warning": "checks.declined_addresses_warning_count",
     "checks.declined_received_warning": "checks.declined_received_warning_per_hour",
     "checks.resolver_drop_min_qpm": "checks.resolver_drop_min_per_minute",
-    "rpz.bytes_per_entry": "rpz.memory_per_entry_bytes"
+    "rpz.bytes_per_entry": "rpz.memory_per_entry_bytes",
+    "ipv6.poll_seconds": "discovery.poll_seconds"
   },
   "scaled": {
     "alerts_d2_error_rate": 100

@@ -49,6 +49,8 @@ DOMAINS = (
     "resolver",
     "ipv6",
     "updates",
+    # B1-DISCOVERY
+    "discovery",
 )
 UPDATE_SOURCE_PATTERN = r"^(upload|github|repository)$"
 TIME_OF_DAY_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
@@ -209,6 +211,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("retention.resolver_hourly_days", "integer", 90, 1, 3650, "days"),
     S("retention.ipv6_observation_days", "integer", 30, 1, 3650, "days"),
     S("retention.lease_history_days", "integer", 90, 1, 3650, "days"),
+    S("retention.neighbor_observation_days", "integer", 30, 1, 3650, "days"),
     # DNS
     S("dns.read_key", "string", "ddi-read", pattern=NAME_PATTERN),
     S("dns.admin_key", "string", "ddi-admin", pattern=NAME_PATTERN),
@@ -295,10 +298,13 @@ REGISTRY: tuple[Setting, ...] = (
     S("resolver.fallback_return_healthy_minutes", "integer", 15, 1, 1440, "minutes"),
     # Observed IPv6 addresses (section 27)
     S("ipv6.neighbors_enabled", "boolean", True),
-    S("ipv6.poll_seconds", "integer", 300, 60, DAY, "seconds"),
     S("ipv6.stable_min_days", "integer", 8, 1, 365, "days"),
     S("ipv6.stale_days", "integer", 14, 1, 365, "days"),
     S("ipv6.auto_apply_enabled", "boolean", False),
+    # B1-DISCOVERY: IPv4 neighbors (section 27); poll_seconds also paces the DHCPv6 lease walk.
+    S("discovery.ipv4_enabled", "boolean", True),
+    S("discovery.poll_seconds", "integer", 300, 60, DAY, "seconds"),
+    S("discovery.unknown_after_minutes", "integer", 60, 5, 30 * 1440, "minutes"),
     # Updates from the UI (section 29)
     S("updates.check_enabled", "boolean", True),
     S("updates.check_interval_hours", "integer", 24, 1, 720, "hours"),
@@ -383,6 +389,7 @@ RENAMED: dict[str, tuple[str, float | None]] = {
     "checks.declined_received_warning": ("checks.declined_received_warning_per_hour", None),
     "checks.resolver_drop_min_qpm": ("checks.resolver_drop_min_per_minute", None),
     "rpz.bytes_per_entry": ("rpz.memory_per_entry_bytes", None),
+    "ipv6.poll_seconds": ("discovery.poll_seconds", None),
 }
 
 

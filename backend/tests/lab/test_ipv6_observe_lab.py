@@ -99,3 +99,36 @@ def test_observer_records_real_neighbors(lan, tmp_path):
     classes = {o["address"]: o["class"] for o in row["observed"]}
     assert classes[lan.eui] == "eui64" and classes[OPAQUE] == "unknown"
     assert row["proposal"]["address"] == lan.eui and row["proposal"]["class"] == "eui64"
+
+
+def test_discovery_sees_the_client_in_ipv4_with_its_vendor(tmp_path):
+    """B1-DISCOVERY (section 27, IPv4 neighbors): one discovery pass with the real `ip -j -4 neigh`
+    records lab-client, named by its OUI (Proxmox gives its VMs bc:24:11 MACs)."""
+    from pelagos.collector.checks import discovery
+    from pelagos.services.discovery_service import vendor
+
+    client = CLIENT[1]
+    dev = json.loads(local(["ip", "-j", "route", "get", client]))[0]["dev"]
+    mac = ssh(client, "cat /sys/class/net/eth0/address")[1].strip()
+    local(["ping", "-c", "2", "-W", "2", client])
+    settings = {"discovery": {"ipv4_enabled": True}}
+    ctx = SimpleNamespace(
+        node=SimpleNamespace(id="n1"),
+        settings=lambda: settings,
+        cluster=lambda: SimpleNamespace(nodes=[SimpleNamespace(id="n1")], modules={"discovery": True}),
+    )
+    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.db"))
+    now = int(time.time())
+    status = discovery.NeighborWatch(ctx, store, lambda: now).tick()
+    assert status is not None and status["error"] is None and status["entries"] >= 1, (status, dev)
+    rows = {(r["mac"], r["address"]) for r in obs_store.neighbor_rows(store.conn)}
+    assert (mac, client) in rows
+    if mac.startswith("bc:24:11:"):
+        assert vendor(mac) == "Proxmox Server Solutions"
+    neighbors = obs_store.neighbor_rows(store.conn)
+    later = now + 2 * 3600
+    alerts = discovery.unknown_devices(neighbors, [], [], [], [], later, 3600, 3 * 3600)
+    assert f"mac:{mac}" in {a.subject for a in alerts}
+    a = RRset("client.example.lan.", "A", 300, [client])
+    alerts = discovery.unknown_devices(neighbors, [], [], [a], [], later, 3600, 3 * 3600)
+    assert f"mac:{mac}" not in {a.subject for a in alerts}

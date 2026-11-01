@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from pelagos.domain.alerts import Alert
 from pelagos.domain.common import Model
@@ -21,6 +22,10 @@ class Host(Model):
     reservation: Reservation | None = None
     records: list[RRset] = field(default_factory=list)
     alerts: list[Alert] = field(default_factory=list)
+    # B1-DISCOVERY (section 27): {"first","last","node"} of the IPv4 neighbor sightings, and the
+    # OUI manufacturer of `mac`; null without the discovery module.
+    seen: dict[str, Any] | None = None
+    vendor: str | None = None
 
 
 def host_key(mac: str | None, ip: str | None, name: str | None) -> str:

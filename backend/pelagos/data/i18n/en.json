@@ -109,6 +109,8 @@
   "alert.serial_divergence": "zone {{zone}} serial {{serial}} differs from the primary ({{reference}})",
   "alert.soa_field": "{{field}} {{value}} ({{low}} to {{high}})",
   "alert.soa_range": "zone {{zone}}: SOA values outside the usual range: {{fields}}",
+  "alert.unknown_device": "device {{mac}} at {{address}} has no lease, reservation nor DNS record",
+  "alert.unknown_device_vendor": "device {{mac}} ({{vendor}}) at {{address}} has no lease, reservation nor DNS record",
   "alert.update_available": "Pelagos {{version}} is available (installed: {{installed}})",
   "alert.update_available_unsigned": "Pelagos {{version}} is available (installed: {{installed}}); it is not signed: its origin is not verified",
   "alert.update_denied": "named refused {{count}} dynamic updates in {{hours}} h, usually clients updating DNS themselves; set {{settings}} in Kea (Dhcp4 and Dhcp6) so that it updates DNS for them",

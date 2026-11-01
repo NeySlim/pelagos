@@ -54,7 +54,9 @@ class Capabilities(Resource):
         cluster = c.cluster()
         return {
             "node": c.self_node().to_dict(),
-            "modules": {k: cluster.modules.get(k) for k in ("dhcpv6", "advanced_editor")},
+            "modules": {
+                k: bool(cluster.modules.get(k, False)) for k in ("dhcpv6", "advanced_editor", "discovery")
+            },
             "engines": services().dashboard.engines(),
             "engines_configured": c.node.modules.to_dict(),
         }

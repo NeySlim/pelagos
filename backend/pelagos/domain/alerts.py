@@ -80,6 +80,8 @@ class AlertKind(enum.StrEnum):
     UPDATE_STALLED = "update_stalled"
     # F0-REPL: a write of this node lost to a concurrent one (section 13).
     REPLICATION_CONFLICT = "replication_conflict"
+    # B1-DISCOVERY: an IPv4 neighbor with no lease, reservation nor record (section 27).
+    UNKNOWN_DEVICE = "unknown_device"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:
@@ -134,6 +136,7 @@ EXCEPTABLE_KINDS = frozenset(
         AlertKind.IPV6_REVERSE_MISSING,
         AlertKind.IPV6_STALE_AAAA,
         AlertKind.UPDATE_AVAILABLE,
+        AlertKind.UNKNOWN_DEVICE,
     }
 )
 

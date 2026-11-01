@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""`ipv6_observations` in the node's series cache, and the status of each source's last poll."""
+"""`ipv6_observations` and `neighbor_observations` in the node's series cache, and the status of each
+source's last poll."""
 
 from __future__ import annotations
 
@@ -107,3 +108,98 @@ def payload(conn: sqlite3.Connection | None, node_id: str, since: int | None = N
     except sqlite3.OperationalError:  # table not created yet on a read-only connection
         found, status = [], []
     return {"node_id": node_id, "observations": found, "sources": status}
+
+
+# IPv4 neighbors (section 27, IPv4 neighbors and discovery) -------------------------------------
+
+NEIGHBOR_STATUS_META = "discovery.status"
+NEIGHBORS_MAX = 65536
+NEIGHBOR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS neighbor_observations (
+  family INTEGER NOT NULL, mac TEXT NOT NULL, address TEXT NOT NULL, node_id TEXT NOT NULL,
+  first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, state TEXT,
+  PRIMARY KEY (family, mac, address));
+CREATE INDEX IF NOT EXISTS neighbor_observations_mac ON neighbor_observations(mac);
+CREATE INDEX IF NOT EXISTS neighbor_observations_seen ON neighbor_observations(last_seen);
+"""
+
+
+def ensure_neighbors(conn: sqlite3.Connection) -> None:
+    conn.executescript(NEIGHBOR_SCHEMA)
+
+
+def record_neighbors(
+    conn: sqlite3.Connection, neighbors: Iterable[Neighbor], family: int, node_id: str, now: int
+) -> int:
+    """As `record`: a stale entry never moves `last_seen`. At most NEIGHBORS_MAX pairs a pass."""
+    rows: dict[tuple[str, str], str | None] = {}
+    for n in neighbors:
+        if len(rows) >= NEIGHBORS_MAX:
+            break
+        rows[(n.mac, n.address)] = n.state
+    conn.executemany(
+        "INSERT INTO neighbor_observations VALUES (?,?,?,?,?,?,?)"
+        " ON CONFLICT(family, mac, address) DO UPDATE SET"
+        " last_seen = CASE WHEN excluded.state = 'stale' THEN last_seen"
+        " ELSE MAX(last_seen, excluded.last_seen) END, state = excluded.state,"
+        " node_id = excluded.node_id",
+        [(family, mac, addr, node_id, now, now, state) for (mac, addr), state in rows.items()],
+    )
+    return len(rows)
+
+
+def prune_neighbors(conn: sqlite3.Connection, now: int, days: int) -> int:
+    return conn.execute("DELETE FROM neighbor_observations WHERE last_seen < ?", (now - days * DAY,)).rowcount
+
+
+def neighbor_rows(conn: sqlite3.Connection, since: int | None = None) -> list[dict[str, Any]]:
+    """NeighborObservation dicts, oldest first; `since` keeps rows seen at or after it."""
+    rows = conn.execute(
+        "SELECT * FROM neighbor_observations WHERE last_seen >= ? ORDER BY first_seen, mac, address",
+        (int(since or 0),),
+    ).fetchall()
+    return [
+        {
+            "family": r["family"],
+            "mac": r["mac"],
+            "address": r["address"],
+            "node_id": r["node_id"],
+            "first_seen": r["first_seen"],
+            "last_seen": r["last_seen"],
+            "state": r["state"],
+        }
+        for r in rows
+    ]
+
+
+def read_neighbor_status(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (NEIGHBOR_STATUS_META,)).fetchone()
+    try:
+        value = json.loads(row["value"]) if row else None
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def write_neighbor_status(conn: sqlite3.Connection, status: dict[str, Any]) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+        (NEIGHBOR_STATUS_META, json.dumps(status, separators=(",", ":"))),
+    )
+
+
+def neighbor_payload(
+    conn: sqlite3.Connection | None, node_id: str, since: int | None = None
+) -> dict[str, Any]:
+    """The answer of the `discovery.neighbors` peer action (empty before the first pass)."""
+    if conn is None:
+        return {"node_id": node_id, "neighbors": [], "status": None}
+    try:
+        found = neighbor_rows(conn, since)
+    except sqlite3.OperationalError:  # table not created yet on a read-only connection
+        found = []
+    try:
+        status = read_neighbor_status(conn)
+    except sqlite3.OperationalError:
+        status = None
+    return {"node_id": node_id, "neighbors": found, "status": status}

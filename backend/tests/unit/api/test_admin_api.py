@@ -182,7 +182,7 @@ def test_settings_validation_and_runtime(admin, node_ctx):
 
 def test_modules(admin, node_ctx):
     mods = admin.get("/api/v1/admin/modules").get_json()
-    assert mods["cluster"] == {"dhcpv6": True, "advanced_editor": True}
+    assert mods["cluster"] == {"dhcpv6": True, "advanced_editor": True, "discovery": False}
     assert mods["nodes"][node_ctx.node.id] == {"bind": True, "kea4": True, "kea6": False, "d2": False}
     r = admin.put("/api/v1/admin/modules", json={"cluster": {"dhcpv6": "no", "foo": True}})
     assert r.status_code == 400 and len(r.get_json()["errors"]) == 2

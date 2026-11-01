@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """One observation pass: poll the sources, keep watched addresses, record them, prune, status.
 
-Every node reads its own neighbor table on each pass and its DHCPv6 leases every `poll_seconds`.
+Every node reads its own neighbor table on each pass and its DHCPv6 leases every
+`discovery.poll_seconds` (`ipv6.poll_seconds` before 0.4.0).
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ class Ipv6Observer:
         previous = {(s.get("source"), s.get("source_id")): s for s in obs_store.read_status(self.conn)}
         if domain.get("neighbors_enabled", True):
             p.polls.append((self.neighbors, None))
-        period = int(domain.get("poll_seconds") or 300)
+        period = int(reg.get(settings, "discovery.poll_seconds"))
 
         def due(kind: str, source_id: str | None) -> bool:
             # Lease walks run every poll_seconds; between them the last status stays.

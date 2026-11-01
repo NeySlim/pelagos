@@ -162,6 +162,7 @@ class HostsService:
         self.alerts = alerts
         self.plans = plans
         self.cache = cache or HostCache(self._max_age)
+        self.discovery: Any = None  # B1-DISCOVERY: DiscoveryService, set by the container
 
     def _max_age(self) -> float:
         return float(reg.get(self.ctx.settings(), "collector.hosts_cache_max_age_seconds"))
@@ -248,6 +249,8 @@ class HostsService:
         records, errors = read.records, read.errors
         dhcp_rows: list[Lease | Reservation] = [*read.leases, *read.reservations]
         join = _join(dhcp_rows, records.values())
+        if self.discovery is not None:  # B1-DISCOVERY: Host.seen and Host.vendor
+            self.discovery.decorate(join.hosts.values())
         if self.alerts is not None:
             for alert in self.alerts.open_inconsistencies():
                 for host in self._hosts_for_alert(join, alert):

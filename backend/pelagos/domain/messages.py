@@ -475,6 +475,11 @@ CATALOG: dict[str, str] = {
     "alert.replication_conflict": (
         "{path}: write by {local_user} on {local_node} lost to {remote_user} on {remote_node}"
     ),
+    # B1-DISCOVERY: IPv4 neighbors (section 27).
+    "alert.unknown_device": "device {mac} at {address} has no lease, reservation nor DNS record",
+    "alert.unknown_device_vendor": (
+        "device {mac} ({vendor}) at {address} has no lease, reservation nor DNS record"
+    ),
     "plan.update.pelagos": "update Pelagos to {version} on {nodes}, in this order",
     "plan.update.engine_packages": "update {packages} on {nodes}, in this order",
     "plan.update.rollback": "go back to Pelagos {version} on {nodes}, in this order",

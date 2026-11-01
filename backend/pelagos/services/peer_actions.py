@@ -77,6 +77,8 @@ ARCHIVE_RUN = "archive.run"
 ARCHIVE_PROBE = "archive.probe"
 # IPv6 addresses this node observed and the status of its sources (collector.ipv6.store).
 IPV6_OBSERVATIONS = "ipv6.observations"
+# B1-DISCOVERY: IPv4 neighbors this node recorded (collector.ipv6.store, section 27).
+DISCOVERY_NEIGHBORS = "discovery.neighbors"
 # Kea migration analysis of this node (services.kea_migration_service, section 26).
 KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
 KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
@@ -109,6 +111,7 @@ LOCKLESS = frozenset(
         ARCHIVE_RUN,
         ARCHIVE_PROBE,
         IPV6_OBSERVATIONS,
+        DISCOVERY_NEIGHBORS,
         TOKENS_USAGE,
         # Package queries and the helper's dry run over the files: no connector, and a dry run
         # lasts a minute or more, far beyond what the collector may wait on the engine lock.
@@ -157,6 +160,7 @@ class PeerActions:
             ARCHIVE_RUN: self.archive_run,
             ARCHIVE_PROBE: self.archive_probe,
             IPV6_OBSERVATIONS: self.ipv6_observations,
+            DISCOVERY_NEIGHBORS: self.discovery_neighbors,
             KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
             KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
             UPDATES_NODE: self.updates_node,
@@ -316,6 +320,30 @@ class PeerActions:
             raise PeerActionError("engine_unavailable", f"observation cache unreadable: {exc}") from None
         try:
             return obs_store.payload(conn, self.ctx.node.id, since)
+        finally:
+            conn.close()
+
+    def discovery_neighbors(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """B1-DISCOVERY: the IPv4 neighbors this node recorded (section 27); `since` bounds last_seen."""
+        import sqlite3
+
+        from pelagos.collector import series as series_mod
+        from pelagos.collector.ipv6 import store as obs_store
+
+        since = body.get("since")
+        try:
+            since = int(since) if since not in (None, "") else None
+        except (TypeError, ValueError):
+            raise PeerActionError("invalid_request", "since must be a Unix time") from None
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return obs_store.neighbor_payload(None, self.ctx.node.id)
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"observation cache unreadable: {exc}") from None
+        try:
+            return obs_store.neighbor_payload(conn, self.ctx.node.id, since)
         finally:
             conn.close()
 

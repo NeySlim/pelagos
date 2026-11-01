@@ -30,6 +30,7 @@ from pelagos.core import engine_packages as ep
 from pelagos.core import settings_registry as reg
 from pelagos.core import update_rollout as ur
 from pelagos.core import update_sources as src
+from pelagos.core.config_store import same_once_migrated
 from pelagos.domain import Alert, AlertKind, AuditEntry, AuditResult, Severity, messages
 from pelagos.domain.common import from_rfc3339, to_rfc3339
 from pelagos.domain.updates import SANDBOX_DENIED, NodeState, Rollout, RolloutKind, RolloutState
@@ -999,7 +1000,12 @@ class LiveView:
             if status is None:
                 continue
             name = peer.name or peer.id
-            if status.config_digest and status.config_digest != mine and not self._same_without(status):
+            if (
+                status.config_digest
+                and status.config_digest != mine
+                and not self._same_without(status)
+                and not self._same_once_migrated(peer, status)
+            ):
                 problems.append(f"{name}: cluster.toml differs")
             if status.audit_count is not None and status.audit_count < floor:
                 problems.append(f"{name}: audit count {status.audit_count}, here {floor}")
@@ -1011,6 +1017,17 @@ class LiveView:
         known = getattr(status, "collections", None) or []
         missing = [n for n, recs in cfg.collections.items() if recs and n not in known]
         return bool(missing) and status.config_digest == cfg.digest(without=missing)
+
+    # A 0.3.x peer keeps the values settings_registry.migrate rewrites (config_store.same_once_migrated).
+    def _same_once_migrated(self, peer: Any, status: Any) -> bool:
+        if getattr(status, "collections", None) is not None or self.client_for is None:
+            return False
+        try:
+            toml_text = self.client_for(peer).fetch_config()["toml"]
+            return same_once_migrated(self.ctx.config_store.load_cluster(), toml_text)
+        except Exception as exc:
+            log.info("rollout: config of %s unreadable: %s", peer.name or peer.id, exc)
+            return False
 
     def audit_count(self) -> int:
         return int(self.ctx.audit_log.head()[0])

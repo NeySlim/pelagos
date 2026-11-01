@@ -568,6 +568,16 @@ def bases_payload(bases: cm.Bases) -> dict[str, list[Any]]:
     return {p: [cm.stamp_text(s), cm.stamp_text(b), by] for p, (s, b, by) in bases.items()}
 
 
+def same_once_migrated(local: ClusterConfig, peer_toml: str) -> bool:
+    """A peer on an older release keeps the values `settings_registry.migrate` rewrites at their
+    stamps, so no merge carries them: its file, loaded here, equals ours (without our collections)."""
+    theirs = ClusterConfig.from_toml(tomllib.loads(peer_toml))
+    if not theirs.migrated:
+        return False
+    missing = [name for name, recs in local.collections.items() if recs]
+    return theirs.digest(without=missing) == local.digest(without=missing)
+
+
 def merge_configs(local: ClusterConfig, remote: ClusterConfig) -> ClusterConfig:
     """The deterministic merge of two cluster files: the same result whichever side computes it."""
     return _merge(local, remote, {}, {}, None)[0]

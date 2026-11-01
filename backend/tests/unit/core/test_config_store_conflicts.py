@@ -262,7 +262,7 @@ def test_status_parses_missing_collections_as_none(pair, monkeypatch):  # noqa: 
     a, b = pair
     real = b.service.app.status_payload
 
-    def older():
+    def older(*_args):
         data = real()
         data.pop("collections")
         return data

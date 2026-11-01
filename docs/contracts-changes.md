@@ -13,6 +13,19 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, FIX-P1 (WP-CORE, WP-COLLECTOR): 0.3.x peers and the 0.4.0 settings migration
+Section 13 and section 29 `convergence`. `settings_registry.migrate` rewrites `dns.update_types_admin`
+and tombstones `ipv6.poll_seconds` at their existing stamps, so a 0.3.x peer keeps the former values
+(and refills the former name from its defaults): its `config_digest` never matched and an Updates
+rollout from 0.3.x failed on "cluster.toml differs" (on the 0.4.0 node, then in the 0.3.x node's
+precheck). New `config_store.same_once_migrated(local, peer_toml)`: the peer's file, loaded on this
+release, gives our digest (without our non-empty collections), only when that load migrated
+something. `Replicator` keeps `(peer digest, our digest)` per peer without `collections` after each
+config exchange (`migrated_digest(peer_id, mine)`); `ReplicationApp.status_payload(caller)` answers
+that caller with its own digest while our digest is unchanged; anyone else gets the real one.
+`LiveView.convergence` applies the same test to a fetched file. No file format change; no package
+must react.
+
 ## 2026-11-01, B1-KEACOMMENTS (WP-KEA, WP-INSTALLER): Kea comments kept
 Additive (section 9). Import plan change `import/<engine>/include-tree`, on by default for a Kea
 file with comments and no include (`kea_include_tree` in `POST /install/import/plan`, CLI

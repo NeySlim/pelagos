@@ -22,7 +22,7 @@ import tomli_w
 from pelagos.collector.events import SignalListener
 from pelagos.core import ca as ca_mod
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
-from pelagos.core.config_store import ConfigStore, NodeConfig
+from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig
 from pelagos.core.context import (
     SYNCING_STALE_SECONDS,
     NodeContext,
@@ -798,7 +798,7 @@ def test_malformed_peer_answers_never_escape_the_replicator(pair, monkeypatch):
     assert replicator.audit_skipped >= 2
     monkeypatch.setattr(b.service.app, "config_payload", lambda: {"version": 99})
     monkeypatch.setattr(
-        b.service.app, "status_payload", lambda: {"node_id": b.id, "config_version": 99, "audit_count": 0}
+        b.service.app, "status_payload", lambda *_: {"node_id": b.id, "config_version": 99, "audit_count": 0}
     )
     assert replicator.sync_peer(peer_b).reachable is False
 
@@ -868,7 +868,7 @@ def test_installer_plans_do_not_wait_for_the_backend_lock():
 def test_internal_errors_do_not_leak_details_to_peers(pair, monkeypatch):
     a, b = pair
 
-    def boom():
+    def boom(*_args):
         raise RuntimeError("/var/lib/pelagos/secret-path exploded")
 
     monkeypatch.setattr(b.service.app, "status_payload", boom)
@@ -908,7 +908,7 @@ def test_newer_schema_on_a_peer_is_a_divergence_not_an_outage(pair, monkeypatch)
     )
     real_status = b.service.app.status_payload
 
-    def status_payload():
+    def status_payload(*_args):
         data = real_status()
         data["config_version"] += 5
         data["config_digest"] = "sha256:newer"
@@ -1121,3 +1121,75 @@ def test_housekeeping_keeps_backups_for_the_rollback_window(cluster, monkeypatch
         (sets[age] / "manifest.json").write_text("{}")
     assert a.service.housekeeping() == [sets[4]]
     assert sets[2].is_dir()
+
+
+def _older_file(raw: dict) -> dict:
+    """A cluster.toml as a 0.3.5 node holds it after 0.4.0 joined: former admin grant and
+    `ipv6.poll_seconds` still live, at the stamps the 0.4.0 migration keeps."""
+    from pelagos.domain import zone_updates
+
+    old = tomllib.loads(tomli_w.dumps(raw))
+    stamps = old["replication"]["stamps"]
+    old["settings"]["dns"]["update_types_admin"] = list(zone_updates.PREVIOUS_ADMIN_UPDATE_TYPES)
+    old["settings"].setdefault("ipv6", {})["poll_seconds"] = 300
+    stamps["settings/ipv6/poll_seconds"] = stamps["settings/discovery/poll_seconds"]
+    return old
+
+
+def _as_035(node: LiveNode, older: dict, monkeypatch) -> None:
+    """`node` answers like a 0.3.5 node holding `older`: no `collections`, its unmigrated digest."""
+    real = node.service.app.status_payload
+
+    def status_payload(*_args):
+        data = real()
+        data.pop("collections")
+        data["config_digest"] = "sha256:035"
+        return data
+
+    monkeypatch.setattr(node.service.app, "status_payload", status_payload)
+    text = tomli_w.dumps(older)
+    monkeypatch.setattr(node.service.app, "config_payload", lambda: {"version": 0, "toml": text})
+
+
+def test_a_035_peer_holding_the_unmigrated_values_gets_its_own_digest_back(pair, monkeypatch):
+    """P1: a 0.3.5 node compares digests strictly; equal once migrated, it must see no difference."""
+    a, b = pair
+    older = _older_file(tomllib.loads(a.paths.cluster_toml.read_text()))
+    a.paths.cluster_toml.write_text(ClusterConfig.from_toml(tomllib.loads(tomli_w.dumps(older))).dumps())
+    real = a.ctx.config_store.digest()
+    _as_035(b, older, monkeypatch)
+    peer_b, peer_a = a.ctx.cluster().peer(b.id), b.ctx.cluster().peer(a.id)
+    assert ReplicationClient(peer_a, b.service.client_context).status().config_digest == real
+    assert a.service.replicator.sync_peer(peer_b).reachable
+    assert a.ctx.config_store.digest() == real
+    assert ReplicationClient(peer_a, b.service.client_context).status().config_digest == "sha256:035"
+    assert a.service.app.status_payload()["config_digest"] == real
+    assert a.service.app.status_payload(new_id())["config_digest"] == real
+    # Any later write here: the peer sees the real digest again until the next comparison.
+    _write(a, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 321))
+    assert a.service.app.status_payload(b.id)["config_digest"] == a.ctx.config_store.digest()
+
+
+def test_a_035_peer_with_a_real_difference_sees_the_real_digest(pair, monkeypatch):
+    a, b = pair
+    older = _older_file(tomllib.loads(a.paths.cluster_toml.read_text()))
+    a.paths.cluster_toml.write_text(ClusterConfig.from_toml(tomllib.loads(tomli_w.dumps(older))).dumps())
+    _write(a, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 321))  # the peer lacks it
+    _as_035(b, older, monkeypatch)
+    assert a.service.replicator.sync_peer(a.ctx.cluster().peer(b.id)).reachable
+    assert a.service.app.status_payload(b.id)["config_digest"] == a.ctx.config_store.digest()
+
+
+def test_the_migrated_digest_is_only_for_an_older_peer(pair, monkeypatch):
+    a, b = pair
+    older = _older_file(tomllib.loads(a.paths.cluster_toml.read_text()))
+    a.paths.cluster_toml.write_text(ClusterConfig.from_toml(tomllib.loads(tomli_w.dumps(older))).dumps())
+    _as_035(b, older, monkeypatch)
+    replicator, peer_b = a.service.replicator, a.ctx.cluster().peer(b.id)
+    replicator.sync_peer(peer_b)
+    mine = a.ctx.config_store.digest()
+    assert replicator.migrated_digest(b.id, mine) == "sha256:035"
+    # The peer upgraded: it lists collections, its next status drops the answer.
+    monkeypatch.undo()
+    replicator.sync_peer(peer_b)
+    assert replicator.migrated_digest(b.id, a.ctx.config_store.digest()) is None

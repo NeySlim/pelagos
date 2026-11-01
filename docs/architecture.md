@@ -2859,6 +2859,18 @@ when the digests still differ, and the peer merges it: one exchange makes both
 sides equal, and every merge that changes a file signals a push to the other
 peers, so three nodes converge too.
 
+A 0.3.x peer never converges by merge on the settings that 0.4.0 migrates
+(`settings_registry.migrate`: `dns.update_types_admin` widened,
+`ipv6.poll_seconds` renamed and tombstoned) because the migration keeps their
+stamps, and that peer refills a tombstoned former name from its own defaults.
+When an exchange finds that the file of a peer without `collections`, loaded on
+this release, gives our digest (`config_store.same_once_migrated`, without our
+non-empty collections), the replicator keeps `(its digest, ours)`
+(`Replicator.migrated_digest`) and `GET /repl/v1/status` answers that peer with
+its own digest while ours is unchanged and its last status still lacks
+`collections`: its strict rollout checks see no difference. Any other caller,
+any later write here, or any change on the peer gets the real digest.
+
 Client behavior (`core.replication.ReplicationClient`, run by the collector):
 
 - Push on write: `ConfigStore.update_cluster` and `AuditLog.append` signal
@@ -6820,7 +6832,10 @@ the screen (U6), daemon and lab tests (U7).
   this node's count when the check began: new entries keep arriving, equal counts rarely meet;
   a peer whose status does not list a non-empty local collection is compared with
   `digest(without=<those collections>)`, section 10, exact except for a field tombstone of a
-  deleted record that such a peer relayed: it reports a difference until that peer is upgraded),
+  deleted record that such a peer relayed: it reports a difference until that peer is upgraded;
+  a peer without `collections` (0.3.x) whose digest still differs has its file fetched
+  (`/repl/v1/config`) and counts as converged when `config_store.same_once_migrated` holds,
+  section 13),
   `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` and no
   sandbox refusal from the new processes), `permissions` (the permission
   guard of the collector, probed in its own unit sandbox), `ha` (Kea HA back to a normal state), `engine_checks`

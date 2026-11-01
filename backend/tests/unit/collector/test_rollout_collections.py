@@ -25,6 +25,7 @@ def store(node_paths, monkeypatch) -> ConfigStore:
 def _view(store: ConfigStore, status) -> LiveView:
     lv = LiveView.__new__(LiveView)
     lv.ctx = SimpleNamespace(config_store=store)
+    lv.client_for = None
     peer = SimpleNamespace(id="n2", name="ns2")
     lv._statuses = lambda: [(peer, status, None)]
     return lv

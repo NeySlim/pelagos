@@ -33,7 +33,7 @@ from pelagos.core import context as context_mod
 from pelagos.core import settings_registry as reg
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.collections import COLLECTIONS
-from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig, bases_payload
+from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig, bases_payload, same_once_migrated
 from pelagos.core.context import (
     REPL_ISOLATED,
     REPL_READY,
@@ -509,6 +509,8 @@ class ReplicationApp:
         self.on_peer_seen: Callable[[str], None] | None = None
         # Called after a peer pushed entries this node did not have (alert acks to replay, ...).
         self.on_audit_merged: Callable[[], None] | None = None
+        # (caller, our digest) -> the caller's own digest when its file equals ours once migrated.
+        self.migrated_digest: Callable[[str, str], str | None] | None = None
         # Called with (caller, checked messages) of POST /events: the collector shows them locally.
         self.on_peer_events: Callable[[str, list[dict[str, Any]]], None] | None = None
         # Called around a plan this node runs for a peer: (plan, origin node, verb, phase, result).
@@ -557,7 +559,7 @@ class ReplicationApp:
         if self.on_peer_seen is not None and caller != self.node.id:
             self.on_peer_seen(caller)
         if route == "/status" and method == "GET":
-            return 200, self.status_payload()
+            return 200, self.status_payload(caller)
         if route == "/config" and method == "GET":
             return 200, self.config_payload()
         if route == "/config" and method == "PUT":
@@ -741,8 +743,13 @@ class ReplicationApp:
             raise _Refused(403, "unknown_node", f"node {node_id} is not enrolled")
         return node_id
 
-    def status_payload(self) -> dict[str, Any]:
+    def status_payload(self, caller: str | None = None) -> dict[str, Any]:
         cfg = self.config_store.load_cluster()
+        digest = cfg.digest()
+        # A 0.3.x peer compares digests strictly and cannot run the migration: once its file is
+        # verified equal to ours migrated, it gets its own digest back, only while ours is unchanged.
+        if caller is not None and self.migrated_digest is not None:
+            digest = self.migrated_digest(caller, digest) or digest
         count, head = self.audit_log.head()
         ntp = clock.NTP.get()  # before the time stamp: a cache miss runs commands
         return {
@@ -752,7 +759,7 @@ class ReplicationApp:
             "config_version": cfg.version,
             "config_updated_at": to_rfc3339(cfg.updated_at),
             "config_updated_by": cfg.updated_by,
-            "config_digest": cfg.digest(),
+            "config_digest": digest,
             "audit_count": count,
             "audit_head": head,
             "time": to_rfc3339(utcnow()),
@@ -1414,7 +1421,18 @@ class Replicator:
         # B1-AUDIT: per peer, (its count, its head, our count) after an exchange that changed nothing.
         self._audit_idle: dict[str, tuple[int | None, str | None, int]] = {}
         self.failures: dict[str, int] = {}
+        # Older peers whose file equals ours once migrated: peer id -> (its digest, ours).
+        self._migrated_same: dict[str, tuple[str, str]] = {}
         self._lock = threading.Lock()
+
+    def migrated_digest(self, peer_id: str, mine: str) -> str | None:
+        """The digest an older peer reported, when its file was found equal to ours migrated and
+        neither our digest nor its release changed since; None otherwise."""
+        with self._lock:
+            status, seen = self.statuses.get(peer_id), self._migrated_same.get(peer_id)
+        if status is None or status.collections is not None or seen is None or seen[1] != mine:
+            return None
+        return seen[0]
 
     def _me(self, self_id: str | None) -> str:
         me = self_id or self.self_id
@@ -1507,15 +1525,33 @@ class Replicator:
             if (status.config_version or 0) > self.config_store.cluster_version()[0]:
                 return self._merge_from(client)
             return False
-        adopted = self._merge_from(client)
+        adopted = self._merge_from(client, status)
         if status.config_digest is None or self.config_store.digest() != status.config_digest:
             self._push_config_to(client)
         return adopted
 
-    def _merge_from(self, client: ReplicationClient) -> bool:
+    def _merge_from(self, client: ReplicationClient, status: PeerStatus | None = None) -> bool:
         body = client.fetch_config()
         reporter = ConflictReporter(self.audit_log, self.config_store)
-        return self.config_store.merge_remote(body["toml"], body.get("bases"), on_conflict=reporter)
+        adopted = self.config_store.merge_remote(body["toml"], body.get("bases"), on_conflict=reporter)
+        if status is not None:
+            self._note_migrated(client.peer.id, status, body["toml"])
+        return adopted
+
+    def _note_migrated(self, peer_id: str, status: PeerStatus, toml_text: str) -> None:
+        local = self.config_store.load_cluster()
+        same = None
+        if status.collections is None and status.config_digest:
+            try:
+                if same_once_migrated(local, toml_text):
+                    same = (status.config_digest, local.digest())
+            except Exception as exc:  # the merge just read the same text: only a defensive guard
+                log.info("config of %s not compared once migrated: %s", status.name or peer_id, exc)
+        with self._lock:
+            if same is None:
+                self._migrated_same.pop(peer_id, None)
+            else:
+                self._migrated_same[peer_id] = same
 
     def _push_config_to(self, client: ReplicationClient) -> bool:
         cfg = self.config_store.load_cluster()
@@ -1735,6 +1771,7 @@ class ReplicationService:
         self.replicator = Replicator(
             ctx.config_store, ctx.audit_log, self.client_context, ctx.node.id, timeout=timeout
         )
+        self.app.migrated_digest = self.replicator.migrated_digest
         self.peer_poll_seconds = float(
             peer_poll_seconds or reg.get(ctx.settings(), "collector.peer_poll_seconds")
         )

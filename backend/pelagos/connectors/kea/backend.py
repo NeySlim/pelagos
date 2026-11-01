@@ -1217,10 +1217,15 @@ class KeaBackend(DhcpBackend):
                     if not in_db:
                         current = kcfg.apply_change(current, change, self.family, version, explicit)
             else:
-                new_cfg = kcfg.apply_changes(before, changes, self.family, version, explicit)
-                # B1-KEACOMMENTS: the comments config-write drops ride on this config-set.
-                new_cfg = self.file.with_comments(doc, new_cfg)
+                plain = kcfg.apply_changes(before, changes, self.family, version, explicit)
+                # B1-KEACOMMENTS: file comments and earlier copies ride on this config-set, best effort.
+                new_cfg = self.file.with_comments(doc, plain, before)
                 validation = self.config_test(new_cfg)
+                if not validation.ok and new_cfg is not plain:
+                    retry = self.config_test(plain)
+                    if retry.ok:
+                        new_cfg, validation = plain, retry
+                        steps.append("comments not copied (config-test)")
                 if not validation.ok:
                     raise ValidationFailed(validation)
                 steps.append("config-test")

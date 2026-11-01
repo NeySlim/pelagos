@@ -384,12 +384,21 @@ def test_a_whole_configuration_replace_carries_the_comments_in_one_config_set(ke
     overlay["valid-lifetime"] = 2400
     for subnet in overlay["subnet4"]:
         subnet.pop("user-context", None)
-    result = backend.apply(backend.plan_config_replace(overlay))
+    plan = backend.plan_config_replace(overlay)
+    result = backend.apply(plan)
     assert result.ok, result.message
     assert "config-set" in result.message and "comments copied" not in result.message
     body = backend.config_get()
     assert body["valid-lifetime"] == 2400
     assert body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office LAN"}}
+    assert reads_as_running(backend) == []
+    # The rollback sets the configuration recorded before the copy: the copy stays.
+    assert backend.rollback(plan).ok
+    body = backend.config_get()
+    assert body["valid-lifetime"] == 3600
+    assert body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office LAN"}}
+    assert body["user-context"]["pelagos"]["comment"] == "Lab DHCPv4 server, written by hand"
+    assert '"comment": "office LAN"' in kea_dhcp4.config_path.read_text()
     assert reads_as_running(backend) == []
 
 
@@ -413,7 +422,7 @@ def test_reconciliation_keeps_the_target_file_comments(node_ctx, tmp_root):
         lab.start_kea2()
         target = commented(lab.daemons[1])
         pair.back(N2)
-        pair.reconcile(pair.n1, N2)
+        reconcile = pair.reconcile(pair.n1, N2)
         body = pair.k2.config_get()
         assert kea_shared.same_shared(pair.k1.config_get(), body)
         assert any(s["id"] == 40 for s in body["subnet4"])
@@ -422,6 +431,13 @@ def test_reconciliation_keeps_the_target_file_comments(node_ctx, tmp_root):
         assert office["user-context"]["pelagos"]["comment"] == "office LAN"
         assert '"comment": "office LAN"' in target.read_text()
         assert reads_as_running(pair.k2) == []
+        # Rolling the reconciliation back keeps the copies too.
+        pair.plans.rollback(reconcile, "admin")
+        body = pair.k2.config_get()
+        assert not any(s["id"] == 40 for s in body["subnet4"])
+        office = next(s for s in body["subnet4"] if s["id"] == 1)
+        assert office["user-context"]["pelagos"]["comment"] == "office LAN"
+        assert '"comment": "office LAN"' in target.read_text()
         wait_for(
             lambda: local_state(lab.daemons[0]) == local_state(lab.daemons[1]) == "hot-standby",
             timeout=60,

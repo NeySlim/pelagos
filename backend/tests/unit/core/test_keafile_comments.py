@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from pelagos.core.keadoc import KeaDocument, KeaEditError
-from pelagos.core.keafile import copy_comments
+from pelagos.core.keafile import copy_comments, keep_comments
 
 pytestmark = pytest.mark.unit
 
@@ -151,3 +151,37 @@ def test_copy_follows_identity_and_falls_back_to_the_parent():
     assert office["user-context"]["site"] == "hq"
     assert office["user-context"]["pelagos"]["comment"] == "office LAN\nprinter"
     assert added == 6
+
+
+def test_secrets_in_comments_are_masked():
+    text = CONF.replace(
+        "// one hour", '// one hour, old "password": "s3cret" and secret = abc, "secret-file": "/k"'
+    )
+    doc = KeaDocument.from_text(text, "/etc/kea/kea-dhcp4.conf")
+    body, _ = copy_comments(doc.value, doc.comment_notes("Dhcp4"), copy.deepcopy(doc.value["Dhcp4"]), "Dhcp4")
+    note = body["user-context"]["pelagos"]["comment"]
+    assert "s3cret" not in note and "abc" not in note
+    assert '"password": "***"' in note and 'secret = "***"' in note and '"secret-file": "/k"' in note
+
+
+def test_keep_comments_puts_back_what_an_older_configuration_lacks():
+    doc = KeaDocument.from_text(CONF, "/etc/kea/kea-dhcp4.conf")
+    plain = copy.deepcopy(doc.value["Dhcp4"])
+    copied, _ = copy_comments(doc.value, doc.comment_notes("Dhcp4"), plain, "Dhcp4")
+    # A rollback sets the configuration recorded before the copy; the copy survives it.
+    older = copy.deepcopy(plain)
+    older["valid-lifetime"] = 1800
+    older["subnet4"][0]["reservations"].insert(0, {"hw-address": "11:22:33:44:55:66"})
+    kept, count = keep_comments(copied, older)
+    assert count == 4 and kept["valid-lifetime"] == 1800
+    assert kept["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+    printer = kept["subnet4"][0]["reservations"][1]
+    assert printer["user-context"]["pelagos"]["comment"] == "printer"
+    assert "user-context" not in kept["subnet4"][0]["reservations"][0]
+    assert "user-context" not in older  # the input is not changed
+    # An object that sets the key itself keeps its value, an empty string included.
+    older["subnet4"][0]["user-context"] = {"pelagos": {"comment": ""}}
+    kept, _ = keep_comments(copied, older)
+    assert kept["subnet4"][0]["user-context"]["pelagos"]["comment"] == ""
+    again, more = keep_comments(copied, kept)
+    assert more == 0 and again == kept

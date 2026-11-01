@@ -84,3 +84,34 @@ def test_a_file_without_comments_goes_straight_to_config_write(tmp_path):
     assert file.with_comments(file.document(), RUNNING) is RUNNING
     file.persist(file.document(), RUNNING, "t")
     assert sock.calls == ["config-write"]
+
+
+def test_a_failed_copy_never_fails_the_write(tmp_path):
+    file, sock = make(tmp_path)
+    real = sock.call
+
+    def call(command, arguments=None):
+        if command == "config-set":
+            from pelagos.connectors.base import ConnectorError
+
+            raise ConnectorError("config-set refused")
+        return real(command, arguments)
+
+    sock.call = call
+    message = file.persist(file.document(), RUNNING, "t")
+    assert message.startswith("comments not copied (config-set refused); config-write")
+
+
+def test_copies_lost_by_a_rollback_come_back_before_config_write(tmp_path):
+    file, sock = make(tmp_path, MAIN.replace("// lab server\n", "").replace("    // office\n", ""))
+    before = copy.deepcopy(RUNNING)
+    before["subnet4"][0]["user-context"] = {"pelagos": {"comment": "office"}}
+    # The running configuration lost the copy (an older configuration was set back).
+    file.persist(file.document(), before, "t")
+    assert sock.calls == ["config-test", "config-set", "config-write"]
+    assert sock.body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office"}}
+
+
+def test_comment_count_leaves_rulers_out(tmp_path):
+    file, _ = make(tmp_path, MAIN.replace("// lab server", "// ------"))
+    assert file.comment_count(file.document()) == 1

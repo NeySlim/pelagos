@@ -26,6 +26,7 @@ from pelagos.core.keafile import (
     conform_root,
     copy_comments,
     kea_config_differences,
+    keep_comments,
     rebase_root,
     redact_kea_difference,
     restore_secrets,
@@ -290,30 +291,44 @@ class KeaConfigFile:
 
     # Comments of a file Kea rewrites ------------------------------------------------------------
 
-    def with_comments(self, doc: KeaDocument | None, body: dict[str, Any]) -> dict[str, Any]:
+    def with_comments(
+        self, doc: KeaDocument | None, body: dict[str, Any], before: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """`body` with the comments of a file without includes copied to `user-context.pelagos.comment`
-        (config-write drops them from the file); `body` itself when there is nothing to copy."""
-        if doc is None or doc.has_includes or not doc.comments:
+        (config-write drops them from the file), and the copies `before` already held kept (a
+        replace or a rollback built from an older configuration); `body` itself when nothing moves."""
+        if doc is not None and doc.has_includes:
             return body
-        out, added = copy_comments(doc.value, doc.comment_notes(self.root), body, self.root)
+        out, added = body, 0
+        if doc is not None and doc.comments:
+            out, added = copy_comments(doc.value, doc.comment_notes(self.root), out, self.root)
+        if before is not None:
+            out, kept = keep_comments(before, out)
+            added += kept
         return out if added else body
 
-    def _carry_comments(self, doc: KeaDocument | None, clear: list[Any]) -> str:
+    def comment_count(self, doc: KeaDocument | None) -> int:
+        """Comments a config-write would carry into user-context (rulers and blanks left out)."""
+        return len(doc.comment_notes(self.root)) if doc is not None else 0
+
+    def _carry_comments(self, doc: KeaDocument | None, clear: list[Any], before: dict[str, Any]) -> str:
         """Before the config-write that drops the comments of the file, the running configuration
-        takes them in user-context (one config-set, skipped when the change already carried them)."""
-        if doc is None or doc.has_includes or not doc.comments:
-            return ""
+        takes them in user-context (one config-set, skipped when the change already carried them).
+        Best effort: a refusal never undoes the change, the message says the copy was skipped."""
         running = self.socket.config_get()[self.root]
-        body = self.with_comments(doc, running)
+        body = self.with_comments(doc, running, before)
         if body is running:
             return ""
         target = {self.root: body}
-        if restore_secrets(target, clear, doc.value):
+        if restore_secrets(target, clear, doc.value if doc is not None else {}):
             return "comments not copied (a secret is only known masked); "
-        test = self.socket.send("config-test", target)
-        if int(test.get("result", 1)) != 0:
-            return f"comments not copied (config-test: {test.get('text', '')}); "
-        self.socket.call("config-set", target)
+        try:
+            test = self.socket.send("config-test", target)
+            if int(test.get("result", 1)) != 0:
+                return f"comments not copied (config-test: {test.get('text', '')}); "
+            self.socket.call("config-set", target)
+        except ConnectorError as exc:
+            return f"comments not copied ({exc}); "
         return "comments copied to user-context; "
 
     def persist(
@@ -322,7 +337,7 @@ class KeaConfigFile:
         """Makes the file say what the daemon now runs. config-write unless the file uses includes.
         `clear` holds the values just applied, which carry the secrets config-get masks."""
         if doc is None or not doc.has_includes:
-            carried = self._carry_comments(doc, list(clear or []))
+            carried = self._carry_comments(doc, list(clear or []), before_body)
             written = self.socket.call("config-write")
             return f"{carried}config-write {written.get('filename', '')}".strip()
         after_body = self.socket.config_get()[self.root]

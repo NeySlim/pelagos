@@ -758,6 +758,67 @@ def _running_path(file_config: Any, running: Any, path: list[Any]) -> list[Any]:
     return out
 
 
+# A secret written in a comment (`// "password": "s3cret"`, `# secret = abc`) is masked before the
+# copy: user-context leaves through config-get, peer snapshots and backups, masked by key name only.
+_COMMENT_SECRET = re.compile(r'("?[\w-]*(?:password|secret)"?\s*[:=]\s*)("[^"]*"|\S+)', re.I)
+
+
+def mask_comment(text: str) -> str:
+    return _COMMENT_SECRET.sub(r'\1"***"', text)
+
+
+def _comment_of(obj: Any) -> str | None:
+    context = obj.get("user-context") if isinstance(obj, dict) else None
+    meta = context.get(COMMENT_KEY) if isinstance(context, dict) else None
+    value = meta.get("comment") if isinstance(meta, dict) else None
+    return value if isinstance(value, str) else None
+
+
+def _set_comment(obj: dict[str, Any], text: str) -> None:
+    context = obj.get("user-context")
+    context = dict(context) if isinstance(context, dict) else {}
+    meta = context.get(COMMENT_KEY)
+    meta = dict(meta) if isinstance(meta, dict) else {}
+    meta["comment"] = text
+    context[COMMENT_KEY] = meta
+    obj["user-context"] = context
+
+
+def _has_comment_key(obj: dict[str, Any]) -> bool:
+    context = obj.get("user-context")
+    meta = context.get(COMMENT_KEY) if isinstance(context, dict) else None
+    return isinstance(meta, dict) and "comment" in meta
+
+
+def keep_comments(before_body: dict[str, Any], new_body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """`new_body` with the `user-context.pelagos.comment` of `before_body` put back on the objects
+    (matched by identity) that lost it: once config-write dropped the file's comments, a replace or
+    a rollback built from an older configuration must not erase the copy. An object that sets the
+    key itself (an empty string included) keeps its own value. Returns (body, objects restored)."""
+    out = _copy(new_body)
+    count = 0
+
+    def walk(old: Any, new: Any, key: str) -> None:
+        nonlocal count
+        if isinstance(old, dict) and isinstance(new, dict):
+            text = _comment_of(old)
+            noted = key == "" or key in NOTED_LISTS
+            if noted and text and not _has_comment_key(new):
+                _set_comment(new, text)
+                count += 1
+            for k, v in old.items():
+                if k != "user-context" and k in new:
+                    walk(v, new[k], k)
+        elif isinstance(old, list) and isinstance(new, list) and key in NOTED_LISTS:
+            if all(isinstance(x, dict) for x in [*old, *new]):
+                pairs, _, _ = pair_items(key, old, new)
+                for i, j in pairs:
+                    walk(old[i], new[j], key)
+
+    walk(before_body, out, "")
+    return out, count
+
+
 def copy_comments(
     file_config: dict[str, Any], notes: list[tuple[list[Any], str]], running_body: dict[str, Any], root: str
 ) -> tuple[dict[str, Any], int]:
@@ -777,7 +838,7 @@ def copy_comments(
         meta = dict(meta) if isinstance(meta, dict) else {}
         current = str(meta.get("comment") or "")
         have = current.splitlines()
-        new = [ln for ln in text.splitlines() if ln not in have]
+        new = [ln for ln in mask_comment(text).splitlines() if ln not in have]
         if not new:
             continue
         meta["comment"] = "\n".join([*have, *new])

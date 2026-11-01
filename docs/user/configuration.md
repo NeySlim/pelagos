@@ -479,7 +479,8 @@ Notifications; the settings API refuses them.
 | `send_timeout_seconds` | `15` | 1 to 120 s | one send, connection and answer |
 | `login_failures` | `5` | 2 to 1000 | failed sign-ins within the window that make one `auth.login_failed` event |
 | `login_failures_window_seconds` | `600` | 60 to 86400 s | window of `login_failures` |
-| `local_targets_enabled` | `false` | | on: HTTP channels may target loopback, link-local and the cluster's own nodes |
+| `login_failures_names_enabled` | `false` | | on: `auth.login_failed` events list the user names typed, as typed (a password typed in the name field included) |
+| `local_targets_enabled` | `false` | | on: HTTP channels may target loopback, link-local, this node and the cluster's nodes |
 
 **Change events.** Besides alerts, a channel can subscribe to changes:
 `plan.applied`, `plan.rolled_back`, `plan.failed`, `plan.expired` (the
@@ -497,9 +498,10 @@ most and counts the rest of a burst in `held_back`.
 
 **Outgoing targets.** Webhook, Home Assistant, ntfy, Gotify and Matrix
 channels refuse a server that is, or resolves to, a loopback, link-local,
-unspecified, multicast or reserved address, or an address of a node of the
-cluster, unless `local_targets_enabled` is on. Private LAN addresses stay
-allowed. The connection goes to the address that was checked. E-mail is not
+unspecified, multicast or reserved address, an address of this node, or an
+address of a node of the cluster, unless `local_targets_enabled` is on.
+Private LAN addresses (unique local IPv6 included) stay allowed and no port is
+restricted. The connection goes to the address that was checked. E-mail is not
 concerned (an SMTP relay on loopback is common).
 
 ### Archive destinations (`archives.destinations`)

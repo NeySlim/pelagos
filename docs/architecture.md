@@ -4855,7 +4855,10 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
   - `auth.login_failed`: `auth.login_failed` entries of the cluster, oldest first; when
     `notifications.login_failures` (5) of them fall within
     `notifications.login_failures_window_seconds` (600), one event (id = the entry that reached the
-    threshold) and the count starts again; a channel gets at most one per window.
+    threshold) and the count starts again; a channel gets at most one per window. `users` lists the
+    identifiers as typed at sign-in (a password typed in the name field included) only with
+    `notifications.login_failures_names_enabled` (false); otherwise it is empty and the event carries
+    the count and the client addresses.
   - `audit.conflict`: each `replication.conflict` entry; id = its entry id. Values never leave:
     the event names the path, the reason and both authors.
   - `node.offline` / `node.online`: a `peer_offline` alert of the cluster view opens / resolves
@@ -4870,7 +4873,10 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
     at most 20 lease events; the rest of a storm is counted in `held_back` and covered by
     `lease_until` in the entry (rows at or before it are handled). A peer unreachable for more than
     the hour loses its lease events.
-  Audit-derived kinds look back `LEDGER_DAYS` (7), bounded by `events_since`.
+  Audit-derived kinds look back `LEDGER_DAYS` (7), bounded by `events_since`. The audit is read
+  incrementally with one cursor per byte needle (`"entry":"summary"`, `"action":"auth.login_failed"`,
+  `"action":"replication.conflict"`), so only those lines are decoded; the first pass uses
+  `AuditLog.tail(since, needle)` when the log has it.
 - **Dispatch**: per channel, change events form their own batches (never mixed with alerts),
   leave `group_seconds` after the first one was seen, wait during a mute or quiet hours (no
   critical exception, no digest: they leave when it ends, inside their look-back), and count
@@ -4898,13 +4904,18 @@ once, and what was sent is read back from the `notify.*` audit entries like aler
   not email, whose `none` security stays loopback only): unless
   `notifications.local_targets_enabled` (false) is on, a send is refused when the target host is, or
   resolves to, a loopback, link-local, unspecified, multicast or reserved address (IPv4-mapped
-  forms included) or an address of a node of the cluster (hosts of `api_url` and `web_url`); the
+  forms included), an address of one of this host's interfaces (`getifaddrs`, every family) or an
+  address of a node of the cluster (hosts of `api_url` and `web_url`; a node name that does not
+  resolve refuses any target of that same name, since its addresses are unknown); the
   connection goes to the address that was checked, so a DNS answer cannot change between check
-  and connect. Private LAN ranges stay allowed (Home Assistant or Gotify at home). Refusal:
+  and connect. Private LAN ranges stay allowed (Home Assistant or Gotify at home), unique local
+  IPv6 included (so a cloud metadata address in `fd00::/8`, such as `fd00:ec2::254`, is not
+  refused), and no port is restricted. Refusal:
   `SendResult` error `target address refused: <reason>`, no retry; channel validation answers it
   as an error for a literal address or `localhost` and leaves names to the send.
 - **Settings** (`[settings.notifications]`): `login_failures` (5, 2 to 1000),
-  `login_failures_window_seconds` (600, 60 to 86400), `local_targets_enabled` (false).
+  `login_failures_window_seconds` (600, 60 to 86400), `login_failures_names_enabled` (false),
+  `local_targets_enabled` (false).
 - **Screen**: the channel dialog gains "Send alerts" and an "Events" group of check boxes, with the
   plan scope and user filters; the history shows change messages with their kinds.
 

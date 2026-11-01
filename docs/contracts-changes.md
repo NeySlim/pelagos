@@ -63,9 +63,10 @@ and `zone.transfer_failed` from the cluster alert view, `lease.new|release` from
 and sends them in their own batches: webhook payload `pelagos.notification.v1` with `"type": "event"`
 (alert payloads unchanged), `notify.sent` request with `type` and `changes`. New settings
 `notifications.login_failures`, `notifications.login_failures_window_seconds`,
+`notifications.login_failures_names_enabled` (false: no typed name leaves),
 `notifications.local_targets_enabled` (false): HTTP transports refuse loopback, link-local and other
-non-routable targets and the cluster's own node addresses unless it is on (behaviour change for a
-channel aimed at such an address). E3-APPROVAL adds its `plan.*` kinds to `EVENT_KINDS`.
+non-routable targets, this host's interface addresses and the cluster's node addresses unless it is
+on (behaviour change for a channel aimed at such an address). E3-APPROVAL adds its `plan.*` kinds to `EVENT_KINDS`.
 
 ## 2026-11-01, B1-ARCHIVES (WP-CORE, WP-COLLECTOR, WP-API-AUTH, WP-INSTALLER, WP-FRONTEND): archive key proof, restore check
 Section 23 "Key proof" and "Restore check". Additive: `archives.recipients` entries may carry

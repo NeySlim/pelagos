@@ -8,7 +8,9 @@ The pair runs the deb of this checkout (installed over what is there; a pair is 
 VMs have no Pelagos). Each channel is tested through the API, then a real outage (Kea stopped on ns2)
 reaches every channel once from ns1 and its end sends the resolution. The sender VM is then powered
 off: ns2 takes over after its missed peer polls (90 s with the default 30 s polls) and reports it;
-when ns1 is back the resolutions leave, and no event reached the webhook more than twice. The lab
+when ns1 is back the resolutions leave, and no event reached the webhook more than twice. Change
+events (0.4.0): a webhook subscribed to plans and nodes gets a plan applied on ns1 and the stop and
+return of ns2's services as signed `type: "event"` messages, each once. The lab
 VMs are not rolled back (they have no base snapshot): the channels and containers are removed at the
 end unless PELAGOS_LAB_KEEP=1.
 """
@@ -170,7 +172,19 @@ def texts(name: str) -> list[str]:
 
 
 def batches(after: int = 0) -> list[dict[str, Any]]:
-    return [w for w in webhook()[after:] if w["body"]["reason"] != "test"]
+    """Alert messages (change messages carry `type: "event"`)."""
+    return [
+        w for w in webhook()[after:] if w["body"]["reason"] != "test" and w["body"].get("type") != "event"
+    ]
+
+
+def changes(after: int = 0) -> list[tuple[str, str]]:
+    return [
+        (e["event"], e["id"])
+        for w in webhook()[after:]
+        if w["body"].get("type") == "event"
+        for e in w["body"]["events"]
+    ]
 
 
 def events(items: list[dict[str, Any]]) -> list[tuple[str, str, str | None]]:
@@ -425,6 +439,49 @@ class TestNotifyLab:
         history = api(A1).get(f"/admin/notifications/history?channel_id={STATE['channels']['webhook']}")
         assert {r["node_id"] for r in history["items"] if r["reason"] != "test"} == set(ids)
         print(json.dumps({k: STATE[k] for k in ("outage_s", "takeover_s", "first_from_ns2_s")}))
+
+    def test_05_change_events_once_each(self):
+        mark = len(webhook())
+        channel = api(A1).post(
+            "/admin/notifications/channels",
+            {
+                "type": "webhook",
+                "name": "lab changes",
+                "params": {"url": f"http://{DK}:8090/changes"},
+                "secrets": {"hmac_secret": HMAC_SECRET},
+                "alerts": False,
+                "events": ["plan.applied", "node.offline", "node.online"],
+            },
+        )
+        STATE["channels"]["changes"] = channel["id"]
+        change = {"op": "add", "target": "notify-lab/A", "after": {"ttl": 300, "rdata": ["192.0.2.77"]}}
+        plan = api(A1).post("/dns/zones/example.lan/records/plan", {"changes": [change]})
+        api(A1).apply(plan)
+        got = wait_for(
+            "the plan event", lambda: [c for c in changes(mark) if c[0] == "plan.applied"], timeout=180
+        )
+        assert len(got) == 1
+        sent = [w for w in webhook()[mark:] if w["body"].get("type") == "event"]
+        assert all(w["signed"] for w in sent)
+        assert sent[0]["body"]["events"][0]["data"]["plan_id"] == plan["id"]
+        ssh(A2, "sudo systemctl stop pelagos pelagos-collector")
+        try:
+            wait_for(
+                "node.offline",
+                lambda: "node.offline" in [c[0] for c in changes(mark)],
+                timeout=300,
+                interval=5,
+            )
+        finally:
+            ssh(A2, "sudo systemctl start pelagos pelagos-collector")
+        wait_for(
+            "node.online", lambda: "node.online" in [c[0] for c in changes(mark)], timeout=300, interval=5
+        )
+        time.sleep(60)
+        ids = [c[1] for c in changes(mark)]
+        assert len(ids) == len(set(ids)), changes(mark)
+        undo = {"op": "delete", "target": "notify-lab/A"}
+        api(A1).apply(api(A1).post("/dns/zones/example.lan/records/plan", {"changes": [undo]}))
 
     def test_99_cleanup(self):
         if keep():

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { parseDdnsValue, noteOf, ownerOf, withNote, userContextEntries, haTransitionRows, ipv4InPrefix, defaultReservationSubnet, sameValue, isUnchanged, firstBadPool, optionRowsOf, optionRowsToText, leasesHref } from './lib'
+import { parseDdnsValue, noteOf, ownerOf, withNote, userContextEntries, haTransitionRows, ipv4InPrefix, defaultReservationSubnet, sameValue, isUnchanged, firstBadPool, optionRowsOf, optionRowsToText, leasesHref, effectiveBounds, keepNull, poolErrorRow } from './lib'
 
 describe('haTransitionRows', () => {
   it('reads Unix seconds and ISO strings, newest first', () => {
@@ -103,5 +103,24 @@ describe('unchanged guard helpers', () => {
 
   it('links a pool to its declined leases', () => {
     expect(leasesHref('v4', 3, 'declined')).toBe('/dhcp/v4/leases?subnet_id=3&state=declined')
+  })
+})
+
+describe('subnet bounds and flags', () => {
+  const subnet = { valid_lifetime: 3600, min_valid_lifetime: 3600, max_valid_lifetime: 3600 }
+  it('drops bounds that mirror the old default once the default changes', () => {
+    expect(effectiveBounds(subnet, { min: 3600, def: 7200, max: 3600 })).toEqual({ min: null, def: 7200, max: null })
+    expect(effectiveBounds(subnet, { min: 900, def: 7200, max: 3600 })).toEqual({ min: 900, def: 7200, max: null })
+    expect(effectiveBounds(subnet, { min: 3600, def: 3600, max: 3600 })).toEqual({ min: 3600, def: 3600, max: 3600 })
+  })
+  it('keeps a null flag while the box sits at its default', () => {
+    expect(keepNull(null, false, false)).toBeNull()
+    expect(keepNull(null, true, false)).toBe(true)
+    expect(keepNull(true, true, true)).toBe(true)
+  })
+  it('finds the pool row of a server error', () => {
+    expect(poolErrorRow('after.pools.2.pool')).toBe(2)
+    expect(poolErrorRow('pools[1]')).toBe(1)
+    expect(poolErrorRow('subnet')).toBeNull()
   })
 })

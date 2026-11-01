@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { NotificationProvider } from '../../contexts/NotificationContext'
 import { SubnetForm } from './SubnetForm'
@@ -96,9 +96,38 @@ describe('SubnetForm', () => {
     expect(options.map((o) => [o.name, o.data])).toEqual([['routers', '192.0.2.1'], ['domain-name-servers', '192.0.2.53']])
   })
 
+  it('treats bounds that mirror the old default as not set', async () => {
+    const mirrored = { ...subnet, min_valid_lifetime: 3600, max_valid_lifetime: 3600 }
+    for (const value of ['7200', '1800']) {
+      mocks.api.dhcp.subnetPlan.mockClear()
+      const flow = renderForm({ subnet: mirrored, existing: [mirrored] })
+      fireEvent.change(screen.getAllByTestId('subnet-valid-lifetime').at(-1), { target: { value } })
+      fireEvent.click(screen.getAllByRole('button', { name: 'Preview the plan' }).at(-1))
+      await waitFor(() => expect(flow.build).toHaveBeenCalled())
+      await flow.build.mock.calls[0][0]()
+      const after = mocks.api.dhcp.subnetPlan.mock.calls[0][1].after
+      expect([after.valid_lifetime, after.min_valid_lifetime, after.max_valid_lifetime]).toEqual([Number(value), null, null])
+      cleanup()
+    }
+  })
+
   it('starts a new subnet with one empty pool row', () => {
     renderForm({ subnet: null, existing: [] })
     expect(screen.getAllByTestId('subnet-pools-row')).toHaveLength(1)
+  })
+
+  it('keeps the row errors on their row after a removal', async () => {
+    renderForm()
+    fireEvent.click(screen.getByTestId('subnet-pools-add'))
+    fireEvent.click(screen.getByTestId('subnet-pools-add'))
+    let rows = screen.getAllByTestId('subnet-pools-row')
+    fireEvent.change(rows[2].querySelector('input'), { target: { value: 'bad' } })
+    fireEvent.click(preview())
+    expect(await screen.findByText(/Not a pool/)).toBeInTheDocument()
+    const input = screen.getAllByTestId('subnet-pools-row')[2].querySelector('input')
+    fireEvent.click(screen.getAllByTestId('subnet-pools-remove')[1])
+    rows = screen.getAllByTestId('subnet-pools-row')
+    expect(rows[1].querySelector('input')).toBe(input)
   })
 
   it('explains the greyed ID field', () => {

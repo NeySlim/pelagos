@@ -8,6 +8,7 @@ import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { UtilizationBar } from '../../components/UtilizationBar'
 import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
+import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { ClassChips, OptionChips, SectionError, UserContextView } from './ui'
 import { formatDuration, leasesHref } from './lib'
@@ -19,8 +20,13 @@ export function SubnetDetail({ family, id, onClose }) {
   const navigate = useNavigate()
   const { hasPermission } = usePermission()
   const canWrite = hasPermission('write:dhcp.subnets')
-  const subnets = useApi(() => api.dhcp.subnets(family), [family])
+  const subnets = useApi(() => api.dhcp.subnet(family, id), [family, id])
   const pools = useApi(() => api.dhcp.utilization(family), [family])
+  // An applied plan may have changed this subnet: read it again.
+  useWsTopic('plans', () => {
+    subnets.refetch()
+    pools.refetch()
+  })
 
   if (subnets.loading && !subnets.data) {
     return (
@@ -30,9 +36,12 @@ export function SubnetDetail({ family, id, onClose }) {
     )
   }
   if (subnets.error) return <SectionError error={subnets.error} onRetry={subnets.refetch} />
-  const subnet = (subnets.data?.items || []).find((s) => String(s.id) === String(id))
+  const subnet = subnets.data
   if (!subnet) return <p className="p-3 text-xs text-text-tertiary">{t('subnets.notFound')}</p>
-  const usage = subnets.data?.utilization?.[subnet.id]
+  const own = (pools.data?.items || []).filter((p) => p.subnet_id === subnet.id)
+  const assigned = own.reduce((n, p) => n + (p.assigned || 0), 0)
+  const total = own.reduce((n, p) => n + (p.total || 0), 0)
+  const usage = own.length ? { assigned, total, percent: total ? Math.round((assigned / total) * 1000) / 10 : 0 } : null
   const poolUsage = (pool) => (pools.data?.items || []).find((p) => p.subnet_id === subnet.id && p.pool === pool)
   const edit = () => {
     onClose?.()

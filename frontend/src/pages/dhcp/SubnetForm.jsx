@@ -8,7 +8,7 @@ import { Input } from '../../components/Input'
 import { api } from '../../services/api'
 import { NativeSelect, OptionRows, PoolRows, TextArea } from './ui'
 import {
-  noteOf, fieldErrors, firstBadPool, isPrefix, isUnchanged, optionRowsOf, optionRowsToText, splitLines, splitList, subnetKey,
+  noteOf, effectiveBounds, fieldErrors, firstBadPool, poolErrorRow, isPrefix, isUnchanged, optionRowsOf, optionRowsToText, splitLines, splitList, subnetKey,
   textToOptions, withNote,
 } from './lib'
 
@@ -77,8 +77,7 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
     for (const key of ['valid_lifetime', 'min_valid_lifetime', 'max_valid_lifetime', 'preferred_lifetime']) {
       if (form[key] !== '' && !/^\d+$/.test(String(form[key]))) e[key] = t('form.positiveInteger')
     }
-    const num = (key) => (form[key] === '' ? null : Number(form[key]))
-    const [min, def, max] = [num('min_valid_lifetime'), num('valid_lifetime'), num('max_valid_lifetime')]
+    const { min, def, max } = bounds
     if (!e.min_valid_lifetime && min !== null && def !== null && min > def) e.min_valid_lifetime = t('form.lifetimeOrder')
     if (!e.max_valid_lifetime && max !== null && def !== null && max < def) e.max_valid_lifetime = t('form.lifetimeOrder')
     if (!e.max_valid_lifetime && max !== null && min !== null && max < min) e.max_valid_lifetime = t('form.lifetimeOrder')
@@ -86,6 +85,7 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
   }
 
   const num = (v) => (v === '' ? null : Number(v))
+  const bounds = effectiveBounds(subnet, { min: num(form.min_valid_lifetime), def: num(form.valid_lifetime), max: num(form.max_valid_lifetime) })
   const prevPools = subnet?.pools || []
   const after = {
     ...(subnet || { family, reservations: [], ddns: {}, raw: {}, user_context: {} }),
@@ -99,9 +99,9 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
       .map((pool) => prevPools.find((p) => p.pool === pool) || { pool, client_classes: [], options: [], user_context: {}, raw: {} }),
     pd_pools: family === 'v6' ? textToPdPools(form.pd_pools, subnet?.pd_pools) : [],
     options: textToOptions(optionRowsToText(form.options), family, subnet?.options),
-    valid_lifetime: num(form.valid_lifetime),
-    min_valid_lifetime: num(form.min_valid_lifetime),
-    max_valid_lifetime: num(form.max_valid_lifetime),
+    valid_lifetime: bounds.def,
+    min_valid_lifetime: bounds.min,
+    max_valid_lifetime: bounds.max,
     preferred_lifetime: family === 'v6' ? num(form.preferred_lifetime) : subnet?.preferred_lifetime ?? null,
     interface: form.interface.trim() || null,
     relay: splitList(form.relay),
@@ -119,7 +119,15 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
       const plan = await flow.build(() => api.dhcp.subnetPlan(family, change), { rethrow: true, unchanged })
       if (plan) onClose()
     } catch (err) {
-      setErrors({ ...fieldErrors(err), _form: err.message })
+      const mapped = fieldErrors(err)
+      // A pool error from the server lands on its row; the rest stays on the field.
+      const rowErr = {}
+      for (const e of err?.errors || []) {
+        const row = poolErrorRow(e.field)
+        if (row !== null) rowErr[row] = e.message
+      }
+      if (Object.keys(rowErr).length) mapped.pools = rowErr
+      setErrors({ ...mapped, _form: err.message })
     }
   }
 

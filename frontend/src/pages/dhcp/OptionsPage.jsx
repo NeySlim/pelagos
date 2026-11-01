@@ -13,7 +13,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, Checkbox, RowActions } from './ui'
 import { usePlanFlow } from './hooks'
-import { fieldErrors, isUnchanged, optionSpace } from './lib'
+import { fieldErrors, isUnchanged, keepNull, optionSpace } from './lib'
 
 const flag = (value) => (value === true ? '✓' : '')
 const optionId = (o) => o.name || String(o.code)
@@ -110,7 +110,7 @@ export default function OptionsPage({ family }) {
   )
 }
 
-function OptionForm({ family, option, existing, flow, onClose }) {
+export function OptionForm({ family, option, existing, flow, onClose }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const isNew = !option
   const [form, setForm] = useState({
@@ -118,9 +118,9 @@ function OptionForm({ family, option, existing, flow, onClose }) {
     code: option?.code ?? '',
     space: option?.space || optionSpace(family),
     data: option?.data || '',
-    csv_format: option?.csv_format ?? true,
-    always_send: option?.always_send ?? false,
-    never_send: option?.never_send ?? false,
+    csv_format: option ? option.csv_format ?? null : true,
+    always_send: option ? option.always_send ?? null : false,
+    never_send: option ? option.never_send ?? null : false,
   })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
@@ -131,9 +131,9 @@ function OptionForm({ family, option, existing, flow, onClose }) {
     code: form.code === '' ? null : Number(form.code),
     space: form.space,
     data: form.data,
-    csv_format: form.csv_format,
-    always_send: form.always_send,
-    never_send: form.never_send,
+    csv_format: option ? keepNull(option.csv_format, form.csv_format, true) : form.csv_format,
+    always_send: option ? keepNull(option.always_send, form.always_send, false) : form.always_send,
+    never_send: option ? keepNull(option.never_send, form.never_send, false) : form.never_send,
   }
   const unchanged = isUnchanged(option, after)
 
@@ -173,9 +173,9 @@ function OptionForm({ family, option, existing, flow, onClose }) {
       </div>
       <Input label={t('fields.data')} value={form.data} onChange={set('data')} placeholder={family === 'v6' ? '2001:db8::53' : '192.0.2.53, 192.0.2.54'} data-testid="option-data" />
       <div className="flex flex-wrap gap-4">
-        <Checkbox label={t('fields.csvFormat')} checked={form.csv_format} onChange={set('csv_format')} />
-        <Checkbox label={t('fields.alwaysSend')} checked={form.always_send} onChange={set('always_send')} />
-        <Checkbox label={t('fields.neverSend')} checked={form.never_send} onChange={set('never_send')} />
+        <Checkbox label={t('fields.csvFormat')} checked={form.csv_format ?? true} onChange={set('csv_format')} />
+        <Checkbox label={t('fields.alwaysSend')} checked={form.always_send ?? false} onChange={set('always_send')} />
+        <Checkbox label={t('fields.neverSend')} checked={form.never_send ?? false} onChange={set('never_send')} />
       </div>
       {errors._form && <p className="text-xs status-danger-text">{errors._form}</p>}
     </FormModal>

@@ -287,3 +287,21 @@ export const optionRowsToText = (rows) =>
 // Link to the leases of a subnet in one state (pool "declined" action).
 export const leasesHref = (family, subnetId, state) =>
   `/dhcp/${family}/leases?subnet_id=${encodeURIComponent(subnetId)}&state=${encodeURIComponent(state)}`
+
+// Kea prints min/max bounds equal to the default when it derived them. When the default changes,
+// an untouched bound that still mirrors the old default is "not set" (null), as the backend does.
+export function effectiveBounds(subnet, { min, def, max }) {
+  const oldDef = subnet?.valid_lifetime ?? null
+  const changed = Boolean(subnet) && def !== oldDef
+  const bound = (value, original) => (changed && value !== null && value === (original ?? null) && original === oldDef ? null : value)
+  return { min: bound(min, subnet?.min_valid_lifetime), def, max: bound(max, subnet?.max_valid_lifetime) }
+}
+
+// A checkbox left at its default keeps the server's null, so an untouched form reads unchanged.
+export const keepNull = (original, value, fallback) => (original == null && value === fallback ? original ?? null : value)
+
+// Server field errors name pools as "pools.<index>.pool" or "pools[<index>]": row index or null.
+export function poolErrorRow(field) {
+  const m = /pools?[.[](\d+)/.exec(String(field || ''))
+  return m ? Number(m[1]) : null
+}

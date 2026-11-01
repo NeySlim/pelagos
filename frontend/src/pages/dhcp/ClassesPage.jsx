@@ -13,7 +13,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, Checkbox, OptionChips, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
-import { noteOf, fieldErrors, isUnchanged, optionsToText, textToOptions, withNote } from './lib'
+import { noteOf, fieldErrors, isUnchanged, keepNull, optionsToText, textToOptions, withNote } from './lib'
 
 export default function ClassesPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -87,13 +87,13 @@ export default function ClassesPage({ family }) {
   )
 }
 
-function ClassForm({ family, cls, existing, flow, onClose }) {
+export function ClassForm({ family, cls, existing, flow, onClose }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const isNew = !cls
   const [form, setForm] = useState({
     name: cls?.name || '',
     test: cls?.test || '',
-    only_in_additional_list: Boolean(cls?.only_in_additional_list),
+    only_in_additional_list: cls?.only_in_additional_list ?? null,
     options: optionsToText(cls?.options),
     next_server: cls?.next_server || '',
     server_hostname: cls?.server_hostname || '',
@@ -107,7 +107,7 @@ function ClassForm({ family, cls, existing, flow, onClose }) {
     ...(cls || { option_def: [], raw: {}, user_context: {} }),
     name: form.name,
     test: form.test.trim() || null,
-    only_in_additional_list: form.only_in_additional_list,
+    only_in_additional_list: cls ? keepNull(cls.only_in_additional_list, form.only_in_additional_list, false) : form.only_in_additional_list,
     options: textToOptions(form.options, family, cls?.options),
     next_server: family === 'v4' ? form.next_server.trim() || null : null,
     server_hostname: family === 'v4' ? form.server_hostname.trim() || null : null,
@@ -147,7 +147,7 @@ function ClassForm({ family, cls, existing, flow, onClose }) {
     >
       <Input label={t('fields.name')} value={form.name} onChange={set('name')} disabled={!isNew} error={errors.name} required data-testid="class-name" />
       <TextArea label={t('fields.test')} hint={t('form.testHint')} value={form.test} onChange={set('test')} rows={2} placeholder="option[60].text == 'PXEClient'" testId="class-test" />
-      <Checkbox label={t('fields.additionalOnly')} checked={form.only_in_additional_list} onChange={set('only_in_additional_list')} />
+      <Checkbox label={t('fields.additionalOnly')} checked={form.only_in_additional_list ?? false} onChange={set('only_in_additional_list')} />
       <TextArea label={t('fields.options')} hint={t('form.optionHint')} value={form.options} onChange={set('options')} />
       {family === 'v4' && (
         <div className="grid gap-3 sm:grid-cols-3">

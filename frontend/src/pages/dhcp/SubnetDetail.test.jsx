@@ -4,19 +4,16 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SubnetDetail } from './SubnetDetail'
 
-const mocks = vi.hoisted(() => ({ api: { dhcp: { subnets: vi.fn(), utilization: vi.fn() } } }))
+const mocks = vi.hoisted(() => ({ api: { dhcp: { subnet: vi.fn(), utilization: vi.fn() } } }))
 vi.mock('../../services/api', () => ({ api: mocks.api, default: mocks.api }))
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: () => true }) }))
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.api.dhcp.subnets.mockResolvedValue({
-    items: [{
-      id: 3, subnet: '192.0.2.0/24', family: 'v4', options: [], client_classes: [], relay: [], ddns: {},
-      pools: [{ pool: '192.0.2.10 - 192.0.2.50', client_classes: [], options: [] }],
-      valid_lifetime: 3600, min_valid_lifetime: 600, max_valid_lifetime: 7200, user_context: { pelagos: { notes: 'lab' } },
-    }],
-    utilization: {},
+  mocks.api.dhcp.subnet.mockResolvedValue({
+    id: 3, subnet: '192.0.2.0/24', family: 'v4', options: [], client_classes: [], relay: [], ddns: {},
+    pools: [{ pool: '192.0.2.10 - 192.0.2.50', client_classes: [], options: [] }],
+    valid_lifetime: 3600, min_valid_lifetime: 600, max_valid_lifetime: 7200, user_context: { pelagos: { notes: 'lab' } },
   })
   mocks.api.dhcp.utilization.mockResolvedValue({
     items: [{ subnet_id: 3, pool: '192.0.2.10 - 192.0.2.50', assigned: 4, total: 41, percent: 10, declined: 2 }],

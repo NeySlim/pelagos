@@ -171,6 +171,16 @@ export default function SubnetsPage({ family }) {
           title: (s) => s.subnet,
           subtitle: (s) => t('subnets.idLabel', { id: s.id }),
           fields: ['pools', 'usage', 'valid_lifetime'],
+          primaryAction: canWrite
+            ? (s) => (
+                <RowActions
+                  editLabel={t('common:actions.edit')}
+                  deleteLabel={t('common:actions.delete')}
+                  onEdit={() => setEditing({ subnet: s })}
+                  onDelete={() => remove(s)}
+                />
+              )
+            : undefined,
         }}
         emptyTitle={t('subnets.empty')}
         emptyIcon={Network}

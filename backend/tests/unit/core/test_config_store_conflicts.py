@@ -291,3 +291,37 @@ def test_a_failing_reporter_never_reaches_the_merge_and_keeps_the_slot(monkeypat
     _conflict(a, b, audit, _roles("again"), _roles("bee"))
     [entry] = audit.read()  # the failed entry did not take the minute's slot
     assert entry.request["suppressed"] == 0
+
+
+def _block_bases(store: ConfigStore) -> None:
+    store.bases_path.unlink(missing_ok=True)
+    store.bases_path.mkdir()  # the atomic replace onto a directory fails with OSError
+
+
+def test_update_cluster_survives_unwritable_bases(two, caplog):
+    a, _ = two
+    _block_bases(a)
+    seen: list[object] = []
+    a.on_change(seen.append)
+    version = a.load_cluster().version
+    with caplog.at_level("WARNING", logger="pelagos.core.config_store"):
+        cfg = a.update_cluster(_roles("admin", "dns"), _alice(a))
+    assert cfg.version > version and a.load_cluster().version == cfg.version
+    assert len(seen) == 1
+    assert a.bases_path.is_dir() and a.read_bases() == {}
+    assert "conflict bases not updated" in caplog.text
+
+
+def test_merge_remote_survives_unwritable_bases(two, caplog):
+    a, b = two
+    a.update_cluster(_roles("admin", "dns"), _alice(a))
+    _bump(b, 2)
+    b.update_cluster(_roles("viewer"), "user:bob@node:NODEB")
+    _block_bases(a)
+    seen: list[object] = []
+    a.on_change(seen.append)
+    with caplog.at_level("WARNING", logger="pelagos.core.config_store"):
+        assert _send(b, a)
+    assert len(seen) == 1 and a.load_cluster().users[0].roles == ["viewer"]
+    assert a.bases_path.is_dir() and a.read_bases() == {}
+    assert "conflict bases not updated" in caplog.text

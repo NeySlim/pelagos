@@ -444,7 +444,13 @@ class ConfigStore:
     def _write_bases(self, bases: cm.Bases, previous: cm.Bases) -> None:
         if bases == previous:
             return
-        atomic_write(self.bases_path, json.dumps(bases_payload(bases), sort_keys=True).encode(), mode=0o640)
+        # Best effort (section 13): cluster.toml is already written, so a failure here must not
+        # reach the caller; a missing base only turns conflict detection off for that entry.
+        try:
+            data = json.dumps(bases_payload(bases), sort_keys=True).encode()
+            atomic_write(self.bases_path, data, mode=0o640)
+        except OSError as exc:
+            log.warning("cannot write %s, conflict bases not updated: %s", self.bases_path, exc)
 
     def update_cluster(self, mutate: Callable[[ClusterConfig], None], updated_by: str) -> ClusterConfig:
         """Lock, load, mutate, stamp what changed, bump version, write atomically, notify."""

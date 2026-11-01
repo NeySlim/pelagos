@@ -58,3 +58,25 @@ describe('CertificatesPage Kea HA certificates', () => {
     await waitFor(() => expect(api.install.haTlsPlan).toHaveBeenCalled())
   })
 })
+
+describe('CertificatesPage errors and unreachable nodes', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('never shows a raw exception: a 500 whose message is a TypeError gets the translated notice', async () => {
+    api.certs.overview.mockRejectedValue(Object.assign(new TypeError("Cannot read properties of undefined (reading 'current')"), { status: 500, code: 'internal_error' }))
+    render(<MemoryRouter><CertificatesPage /></MemoryRouter>)
+    const title = await screen.findByTestId('error-notice-title')
+    expect(title).toHaveTextContent("The data could not be loaded")
+    expect(title).not.toHaveTextContent('Cannot read properties')
+    expect(screen.getByTestId('error-retry')).toBeInTheDocument()
+  })
+
+  it('gives the reason on the buttons of an unreachable node', async () => {
+    api.certs.overview.mockResolvedValue({ ...OVERVIEW, nodes: [{ ...OVERVIEW.nodes[0], reachable: false, is_self: false, kea_ha: [] }] })
+    render(<MemoryRouter><CertificatesPage /></MemoryRouter>)
+    const button = await screen.findByTestId('cert-upload')
+    expect(button).toBeDisabled()
+    expect(button.getAttribute('title')).toMatch(/cannot be reached/)
+    expect(screen.getByTestId('cert-change-source').getAttribute('title')).toMatch(/cannot be reached/)
+  })
+})

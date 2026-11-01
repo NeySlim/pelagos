@@ -85,6 +85,7 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
   const cert = node.current
   const { level, days } = expiryLevel(cert, thresholds)
   const automatic = AUTOMATIC.includes(node.source?.source)
+  const why = node.reachable ? undefined : t('node.unreachableHint')
   return (
     <Card className="p-4 space-y-3" hover={false} data-testid="cert-node" data-node={node.node_id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -96,10 +97,10 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
         </Badge>
         <Badge variant="info" size="sm" data-testid="cert-source-badge">{node.inherited ? t('node.inherited', { source: sourceSummary(t, node.source) }) : sourceSummary(t, node.source)}</Badge>
         <div className="ml-auto flex flex-wrap gap-1.5">
-          <Button size="sm" variant="secondary" onClick={onSource} disabled={!node.reachable} data-testid="cert-change-source"><PencilSimple size={14} />{t('actions.source')}</Button>
-          <Button size="sm" variant="secondary" onClick={onUpload} disabled={!node.reachable} data-testid="cert-upload"><UploadSimple size={14} />{t('actions.upload')}</Button>
-          {automatic && <Button size="sm" onClick={onRenew} disabled={!node.reachable} data-testid="cert-renew"><ArrowsClockwise size={14} />{t('actions.renew')}</Button>}
-          <Button size="sm" variant="ghost" onClick={onSelfSigned} disabled={!node.reachable} data-testid="cert-self-signed"><Seal size={14} />{t('actions.selfSigned')}</Button>
+          <Button size="sm" variant="secondary" onClick={onSource} disabled={!node.reachable} title={why} data-testid="cert-change-source"><PencilSimple size={14} />{t('actions.source')}</Button>
+          <Button size="sm" variant="secondary" onClick={onUpload} disabled={!node.reachable} title={why} data-testid="cert-upload"><UploadSimple size={14} />{t('actions.upload')}</Button>
+          {automatic && <Button size="sm" onClick={onRenew} disabled={!node.reachable} title={why} data-testid="cert-renew"><ArrowsClockwise size={14} />{t('actions.renew')}</Button>}
+          <Button size="sm" variant="ghost" onClick={onSelfSigned} disabled={!node.reachable} title={why} data-testid="cert-self-signed"><Seal size={14} />{t('actions.selfSigned')}</Button>
         </div>
       </div>
       {node.error && <p className="text-xs status-warning-text">{node.error}</p>}

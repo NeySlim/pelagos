@@ -30,7 +30,8 @@
     "inherited": "{{source}} (cluster)",
     "failures": "{{count}} essais échoués, prochain essai {{next}}",
     "running": "Demande en cours : {{step}}",
-    "pendingRequest": "Une demande faite sur ce nœud attend son certificat signé."
+    "pendingRequest": "Une demande faite sur ce nœud attend son certificat signé.",
+    "unreachableHint": "Ce nœud est injoignable : l'action est indisponible tant qu'il ne répond pas."
   },
   "expiry": {
     "expired": "expiré",

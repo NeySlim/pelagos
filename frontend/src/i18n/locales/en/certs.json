@@ -30,7 +30,8 @@
     "inherited": "{{source}} (cluster)",
     "failures": "{{count}} failed attempts, next try {{next}}",
     "running": "Request in progress: {{step}}",
-    "pendingRequest": "A request made on this node waits for its signed certificate."
+    "pendingRequest": "A request made on this node waits for its signed certificate.",
+    "unreachableHint": "This node cannot be reached: the action is unavailable until it answers."
   },
   "expiry": {
     "expired": "expired",

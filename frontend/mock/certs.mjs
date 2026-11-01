@@ -50,9 +50,13 @@ export function certsHandlers(state, { Problem, invalid }) {
     warning_days: state.settings.checks?.cert_warning_days ?? 30,
     critical_days: state.settings.checks?.cert_critical_days ?? 7,
   })
-  state.certs ||= {}
-  state.certCluster ??= null
-  state.certClusterSecrets ||= {}
+  // A scenario switch empties the state object: the cert fields are made again on every call.
+  const ensure = () => {
+    state.certs ||= {}
+    state.certCluster ??= null
+    state.certClusterSecrets ||= {}
+  }
+  ensure()
   // A node's entry is made the first time it is seen (nodes enrolled later included).
   const nodeOf = (id) => {
     const node = state.nodes.find((n) => n.peer.id === id)
@@ -185,7 +189,7 @@ export function certsHandlers(state, { Problem, invalid }) {
     return rest
   }
 
-  return {
+  const handlers = {
     'GET /admin/certificates': () => ({
       nodes: state.nodes.map((n) => ({ ...status(n.peer.id), reachable: true, is_self: n.peer.id === state.selfId })),
       cluster: state.certCluster ? publicSource(state.certCluster, 'cluster') : null,
@@ -308,6 +312,7 @@ export function certsHandlers(state, { Problem, invalid }) {
       plan: null,
     }),
   }
+  return Object.fromEntries(Object.entries(handlers).map(([spec, fn]) => [spec, (...args) => (ensure(), fn(...args))]))
 }
 
 // Checks of the mock: the PEM must hold a certificate; "expired" or a missing key fail.

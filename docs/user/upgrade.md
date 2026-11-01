@@ -276,7 +276,8 @@ Limits while versions differ:
 - 0.4.0: a 0.3.x node does not accept the session cookies of a 0.4.0 node and
   the reverse, so each switch between them asks to sign in again.
 - 0.4.0: a Kea configuration plan applied in part needs `kea_partials` on
-  every reachable node; a 0.3.x node answers `409 collection_unavailable`.
+  every reachable node; while a reachable node runs 0.3.x, the 0.4.0 node
+  refuses it with `409 collection_unavailable`.
   The new replicated collections are ignored, never deleted, by a 0.3.x node.
 - 0.4.0: the purge of sealed audit segments waits until every node runs
   0.4.0 or later; a 0.3.x node reads only its live `audit.jsonl`.

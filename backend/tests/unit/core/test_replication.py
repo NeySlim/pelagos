@@ -691,6 +691,52 @@ def test_remote_plan_apply_rollback_and_snapshot(pair):
     assert client.apply_plan(kea_plan).ok is False
 
 
+def test_check_rollback_route_over_mtls(pair):
+    """POST /repl/v1/plans/check-rollback through the real handler: the guard's verdict, no write,
+    a client certificate required, a malformed body refused."""
+    from pelagos.connectors.base import PreconditionFailed
+    from pelagos.domain.plan import Precondition, PreconditionKind
+
+    a, b = pair
+    backend = FakeBindBackend()
+    refusal: list[Exception] = []
+
+    def check_rollback(plan: Plan) -> None:
+        if refusal:
+            raise refusal[0]
+
+    backend.check_rollback = check_rollback  # type: ignore[attr-defined]
+    b.service.registry.register(Engine.BIND, backend)
+    client = ReplicationClient(a.ctx.cluster().peer(b.id), a.service.client_context)
+    plan = _plan(a)
+    audited = len(b.ctx.audit_log.read())
+    assert client.check_rollback(plan) == (None, None)
+    pre = Precondition(PreconditionKind.FILE_SHA256, "named.conf", "a", b.id)
+    refusal.append(PreconditionFailed(pre, "b"))
+    problem, code = client.check_rollback(plan)
+    assert code == "precondition_failed" and "expected a, observed b" in str(problem)
+    refusal[0] = RuntimeError("rndc: connection refused")
+    assert client.check_rollback(plan) == ("rndc: connection refused", "engine_unavailable")
+    assert backend.rolled == [] and len(b.ctx.audit_log.read()) == audited
+    # An engine this node does not run: no verdict.
+    assert client.check_rollback(_plan(a).replace(engine=Engine.KEA4, scope=PlanScope.DHCP_SUBNET)) == (
+        None,
+        None,
+    )
+    with pytest.raises(ReplicationError) as err:
+        client._call("POST", "/plans/check-rollback", {"plan": "not a plan"})
+    assert err.value.status == 400 and err.value.code == "validation_error"
+    ca_pem = (a.paths.pki_dir / "ca.crt").read_bytes()
+    anonymous = request_json(
+        b.url,
+        "POST",
+        "/repl/v1/plans/check-rollback",
+        {"plan": plan.to_dict()},
+        ssl_context=pinned_context(ca_pem),
+    )
+    assert anonymous.status == 401 and anonymous.body["code"] == "client_certificate_required"
+
+
 # Certificates -----------------------------------------------------------------------
 
 

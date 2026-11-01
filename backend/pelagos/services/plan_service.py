@@ -762,17 +762,29 @@ class PlanService:
         peer_check = getattr(self.peers, "check_rollback", None)
         if not callable(peer_check):
             return
+        # The first problem raises: an unreachable peer costs one GUARD_TIMEOUT under the lock.
         for part in parts:
             for node_id in part.target_node_ids:
                 peer = self.peers.peer(node_id) if node_id != self.ctx.node.id else None
                 if peer is None:
                     continue
                 problem, code = peer_check(peer, part)
-                if problem:
+                if not problem:
+                    continue
+                if code == "node_unreachable":
                     raise PlanError(
-                        "precondition_failed" if code == "precondition_failed" else "engine_unavailable",
-                        problem,
+                        "node_unreachable",
+                        f"{problem}: roll back once it answers again",
+                        extra={
+                            "node_ids": [peer.id],
+                            "node_names": [peer.name],
+                            "nodes": [{"node_id": peer.id, "reason": "unreachable"}],
+                            "partial_allowed": False,
+                        },
                     )
+                raise PlanError(
+                    "precondition_failed" if code == "precondition_failed" else "engine_unavailable", problem
+                )
 
     def _partial_parts(self, plan: Plan) -> list[Plan]:
         return [p for p in self._parts_of(plan) if p.partial and p.engine is not None]
@@ -879,7 +891,10 @@ class PlanService:
             plan.error = f"rollback aborted: {type(exc).__name__}: {exc}"
             results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
-            part.state = plan.state
+            # After a stopped rollback each part keeps what it really is: rolled back, failed, or
+            # still applied when the rollback stopped before reaching it.
+            if plan.state is PlanState.ROLLED_BACK or part is plan or part.state is PlanState.APPLYING:
+                part.state = plan.state
             part.interrupted = False
         plan.interrupted = False
         key_sync.sync_quietly(self.ctx, self.registry, parts)

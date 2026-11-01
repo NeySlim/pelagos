@@ -100,12 +100,60 @@ def test_older_peer_without_the_route_refusing_inside_its_rollback_stops_the_rol
     assert all(r.message_message is not None for r in result.results if not r.ok)
 
 
-def test_unreachable_peer_gives_no_verdict_and_stops_before_this_node(pair):
+def test_unreachable_peer_refuses_before_anything_and_the_plan_stays_rollable(pair):
     plan = _applied(pair)
+    until = plan.rollback_until
     pair.gateway.offline.add(N2)
-    result = pair.plans.rollback(plan, "admin")
-    assert pair.gateway.calls("check_rollback", N2) == 1
-    assert result.state is PlanState.FAILED and pair.k1.rolled_back == []
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(plan, "admin")
+    assert exc.value.code == "node_unreachable" and exc.value.extra["node_ids"] == [N2]
+    assert exc.value.extra["partial_allowed"] is False
+    assert plan.state is PlanState.APPLIED and plan.rollback_until == until
+    assert pair.gateway.order == [] and pair.k1.rolled_back == []
+    pair.gateway.offline.discard(N2)
+    assert pair.plans.rollback(plan, "admin").state is PlanState.ROLLED_BACK
+
+
+def test_precheck_stops_at_the_first_silent_peer(pair, monkeypatch):
+    top, _ = _host(pair, parts=3)
+    monkeypatch.setattr(pair.k1, "check_rollback", lambda p: None)
+    pair.gateway.offline.add(N2)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(top, "admin")
+    assert exc.value.code == "node_unreachable"
+    assert pair.gateway.calls("check_rollback", N2) == 1  # not once per part
+
+
+def test_peer_gateway_verdicts_for_transport_and_server_errors(pair):
+    from pelagos.core.replication import UNREACHABLE, ReplicationError
+    from pelagos.services.peers import PeerGateway
+
+    plan, peer = pair.subnet_plan(), pair.gateway.peer(N2)
+    gateway = PeerGateway(pair.ctx)
+
+    class Client:
+        def __init__(self, exc: Exception | None) -> None:
+            self.exc = exc
+
+        def check_rollback(self, p: Plan) -> tuple[str | None, str | None]:
+            if self.exc is not None:
+                raise self.exc
+            return None, None
+
+    cases = [
+        (ReplicationError("connect refused", code=UNREACHABLE), "node_unreachable"),
+        (ReplicationError("timed out"), "node_unreachable"),
+        (TimeoutError("timed out"), "node_unreachable"),
+        (ReplicationError("POST /plans/check-rollback on ns2: 500", 500), "engine_unavailable"),
+    ]
+    for exc, code in cases:
+        gateway._client_with_timeout = lambda p, t, e=exc: Client(e)  # type: ignore[method-assign]
+        problem, got = gateway.check_rollback(peer, plan)
+        assert got == code and problem and problem.startswith("ns2: "), (exc, got)
+    gateway._client_with_timeout = lambda p, t: Client(None)  # type: ignore[method-assign]
+    assert gateway.check_rollback(peer, plan) == (None, None)
+    gateway._client_with_timeout = lambda p, t: None  # type: ignore[method-assign]
+    assert gateway.check_rollback(peer, plan)[1] == "node_unreachable"
 
 
 def test_undo_after_a_failed_apply_keeps_its_order_and_goes_on(pair, monkeypatch):
@@ -125,15 +173,41 @@ def test_undo_after_a_failed_apply_keeps_its_order_and_goes_on(pair, monkeypatch
     assert pair.gateway.calls("check_rollback", N2) == 0
 
 
-def _host(pair: Pair) -> tuple[Plan, list[Plan]]:
-    # One Kea part on both nodes: each subnet plan carries the configuration hash it was built on.
-    first = pair.subnet_plan(44)
+def _host(pair: Pair, parts: int = 1) -> tuple[Plan, list[Plan]]:
+    # Kea parts on both nodes; each subnet plan carries the configuration hash it was built on,
+    # so the parts after the first drop it (they apply on top of the first).
+    built = [pair.subnet_plan(40 + 4 * i) for i in range(parts)]
+    for later in built[1:]:
+        later.preconditions = []
     top = Plan(scope=PlanScope.HOST, node_id=pair.n1, summary="host", target_node_ids=[pair.n1, N2])
     top.state = PlanState.VALIDATED
     pair.ctx.plan_store.put(top)
-    pair.plans.register_composite(top, [first])
+    pair.plans.register_composite(top, built)
     assert pair.plans.apply(top, "admin", True).state is PlanState.APPLIED
     return top, pair.plans.parts(top)
+
+
+def test_stopped_rollback_marks_each_part_as_it_really_is(pair, monkeypatch):
+    top, parts = _host(pair, parts=3)
+    pair.gateway.old.add(N2)
+    # Kea guards each part against the hash right after it: parts of one engine only roll back in
+    # order, which this test does not exercise.
+    monkeypatch.setattr(pair.k1, "check_rollback", lambda p: None)
+    rollback = pair.k2.rollback
+
+    def refuse_the_middle(p: Plan) -> NodeApplyResult:
+        if p.id == parts[1].id:
+            return NodeApplyResult(node_id=N2, ok=False, message="rollback guard lost: build a new plan")
+        return rollback(p)
+
+    monkeypatch.setattr(pair.k2, "rollback", refuse_the_middle)
+    result = pair.plans.rollback(top, "admin")
+    assert result.state is PlanState.FAILED and top.rollback_until is None
+    assert [p.state for p in parts] == [PlanState.APPLIED, PlanState.FAILED, PlanState.ROLLED_BACK]
+    stored = pair.ctx.plan_store.parts(top.id) or []
+    assert [p.state for p in stored] == [PlanState.APPLIED, PlanState.FAILED, PlanState.ROLLED_BACK]
+    assert pair.gateway.order == [N2, pair.n1, N2]
+    assert pair.k1.rolled_back == [parts[2].id]
 
 
 def test_composite_parts_carry_the_plan_finished_at_and_rollback_until(pair):
@@ -332,3 +406,66 @@ def test_peer_without_the_route_gives_no_verdict(pair, tmp_path):
     _through_the_peer_app(pair, tmp_path, missing_route=True)
     assert pair.plans.rollback(plan, "admin").state is PlanState.ROLLED_BACK
     assert pair.gateway.order == [N2, pair.n1]
+
+
+N4 = "N4KEAPEER0000000000000000D"
+
+
+def _third_kea_node(pair: Pair) -> Any:
+    from pelagos.domain import NodeModules, Peer
+    from tests.unit.services.fakes import FakeDhcpBackend, fake_context
+    from tests.unit.services.kea_pair import ha_config
+
+    def add(cfg: Any) -> None:
+        cfg.nodes.append(
+            Peer(
+                id=N4,
+                name="ns4",
+                url="https://ns4.example.lan:8444",
+                cert_fingerprint="sha256:00",
+                modules=NodeModules(kea4=True),
+            )
+        )
+
+    pair.ctx.config_store.update_cluster(add, updated_by="test")
+    k4 = FakeDhcpBackend(fake_context(N4, "kea4", pair.ctx.paths.backups_dir / "k4"), node_id=N4)
+    ha_config(k4.config, "ns2")
+    pair.gateway.backends[N4] = k4
+    return k4
+
+
+def test_three_nodes_peers_first_in_reverse_order_and_a_guard_anywhere_refuses_all(pair):
+    k4 = _third_kea_node(pair)
+    plan = pair.subnet_plan()
+    assert set(plan.target_node_ids) == {pair.n1, N2, N4}
+    assert pair.plans.apply(plan, "admin", True).state is PlanState.APPLIED
+    k4.hash_override = "edited-by-hand-on-ns4"
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(plan, "admin")
+    assert exc.value.code == "precondition_failed" and exc.value.detail.startswith("ns4: ")
+    assert pair.gateway.order == [] and plan.state is PlanState.APPLIED
+    k4.hash_override = None
+    assert pair.plans.rollback(plan, "admin").state is PlanState.ROLLED_BACK
+    peers = [n for n in reversed(plan.target_node_ids) if n != pair.n1]
+    assert pair.gateway.order == [*peers, pair.n1]
+
+
+def test_three_nodes_without_the_precheck_a_late_refusal_stops_after_the_peers_before_it(pair, monkeypatch):
+    """Older peers: the peer asked first may already be undone when the next refuses (section 6,
+    three nodes or more); this node is never touched after a refusal."""
+    _third_kea_node(pair)
+    plan = pair.subnet_plan()
+    assert pair.plans.apply(plan, "admin", True).state is PlanState.APPLIED
+    pair.gateway.old.update({N2, N4})
+    peers = [n for n in reversed(plan.target_node_ids) if n != pair.n1]
+    first, second = peers
+    refuser = pair.gateway.backends[second]
+    monkeypatch.setattr(
+        refuser, "rollback", lambda p: NodeApplyResult(node_id=second, ok=False, message="guard lost")
+    )
+    result = pair.plans.rollback(plan, "admin")
+    assert result.state is PlanState.FAILED
+    assert pair.gateway.order == [first, second] and pair.k1.rolled_back == []
+    assert pair.gateway.backends[first].rolled_back == [plan.id]
+    by_node = {r.node_id: r for r in result.results}
+    assert by_node[first].ok and not by_node[second].ok and not by_node[pair.n1].ok

@@ -263,17 +263,17 @@ class PeerGateway:
 
     def check_rollback(self, peer: Peer, plan: Plan) -> tuple[str | None, str | None]:
         """(problem, code) of `peer`'s rollback guards for `plan`, asked before any node rolls back.
-        No verdict (None, None) from an older peer or one that cannot answer within GUARD_TIMEOUT:
-        its part is still guarded inside its rollback, which then runs first and stops the others."""
+        No verdict (None, None) only from an older peer (404): its part is guarded inside its
+        rollback, which then runs first. A peer that cannot answer within GUARD_TIMEOUT is a
+        problem, `node_unreachable`: nothing is written and the plan stays rollable."""
         try:
             client = self._client_with_timeout(peer, GUARD_TIMEOUT)
-            check = getattr(client, "check_rollback", None)
-            if not callable(check):
-                return None, None
-            problem, code = check(plan)
-        except Exception as exc:
-            log.warning("rollback guards of plan %s on %s not checked: %s", plan.id, peer.name, exc)
-            return None, None
+            if client is None:
+                return f"{peer.name}: node certificate not available", "node_unreachable"
+            problem, code = client.check_rollback(plan)
+        except (ReplicationError, OSError) as exc:
+            server = isinstance(exc, ReplicationError) and exc.status is not None
+            return f"{peer.name}: {exc}", "engine_unavailable" if server else "node_unreachable"
         return (f"{peer.name}: {problem}" if problem else None), code
 
     def permission_checks(self, peer: Peer, plan: Plan) -> list[dict[str, Any]] | None:

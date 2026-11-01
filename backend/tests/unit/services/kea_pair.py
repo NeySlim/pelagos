@@ -117,9 +117,12 @@ class Gateway:
         return self._registry(peer, plan).rollback(self._peer_plan(peer, plan))
 
     def check_rollback(self, peer: Peer, plan: Plan) -> tuple[str | None, str | None]:
-        """POST /repl/v1/plans/check-rollback; no verdict from an older or unreachable peer."""
+        """POST /repl/v1/plans/check-rollback through PeerGateway: an unreachable peer is a problem,
+        an older one (404) gives no verdict."""
         self.counts[("check_rollback", peer.id)] += 1
-        if peer.id in self.old or peer.id in self.offline:
+        if peer.id in self.offline:
+            return f"{peer.name}: connection refused", "node_unreachable"
+        if peer.id in self.old:
             return None, None
         problem, code = self._registry(peer, plan).check_rollback(self._peer_plan(peer, plan))
         return (f"{peer.name}: {problem}" if problem else None), code

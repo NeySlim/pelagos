@@ -16,10 +16,11 @@ What changed (file, symbol). Why. Which packages must react, and how.
 ## 2026-11-01, FIX-PEERROLLBACK (WP-CORE, WP-REPL): peer rollback pre-check, parts finished_at
 Additive. New replication route `POST /repl/v1/plans/check-rollback` (`{"plan"}` ->
 `{"problem", "code"?}`), served from `core.registry.ConnectorRegistry.check_rollback`; client
-`ReplicationClient.check_rollback`, `PeerGateway.check_rollback` (no verdict on `404` or a
-transport failure). `PlanService` asks every peer target before a user rollback writes anything
-(`409 precondition_failed` or `503 engine_unavailable`, plan `APPLIED`, no audit), then rolls
-back the peers first and stops at the first node that does not confirm. `PlanStore.finish` and
+`ReplicationClient.check_rollback`, `PeerGateway.check_rollback` (no verdict only on `404`).
+`PlanService` asks every peer target before a user rollback writes anything
+(`409 precondition_failed`, `409 node_unreachable` or `503 engine_unavailable`, plan `APPLIED`,
+no audit), then rolls back the peers first and stops at the first node that does not confirm;
+after a stopped rollback each part keeps its own state (`ROLLED_BACK`, `FAILED`, `APPLIED`). `PlanStore.finish` and
 the load of an interrupted plan copy `finished_at`, `expires_at`, `rollback_until` onto the parts
 of a composite plan. No API shape change; test gateways may add `check_rollback(peer, plan)`.
 

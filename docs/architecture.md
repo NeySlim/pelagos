@@ -1207,9 +1207,13 @@ two possible refusals when the state moved since the apply:
   every part to undo and every peer target, `POST /repl/v1/plans/check-rollback` runs the
   peer's own `check_rollback` in its collector (`GUARD_TIMEOUT`, 10 s). A refusal there answers
   the same `409 precondition_failed` ("<peer name>: <reason>"), any other error of the peer's
-  hook `503 engine_unavailable`; the plan stays `APPLIED`, nothing is audited. A peer without the
-  route (0.3.x and early 0.4.0 builds), or one that does not answer in time, gives no verdict:
-  its part is guarded inside its `rollback`, which the order below runs first.
+  hook (or a server error of the peer) `503 engine_unavailable`, a peer that does not answer
+  within the timeout (or this node without its certificate) `409 node_unreachable` ("roll back
+  once it answers again", `partial_allowed` false); the plan stays `APPLIED` with its
+  `rollback_until`, nothing is audited, and the user retries later. The first problem ends the
+  check, so a silent peer holds the service's lock for one timeout at most. Only a peer without
+  the route (`404`: 0.3.x and early 0.4.0 builds) gives no verdict: its part is guarded inside
+  its `rollback`, which the order below runs first.
 - Inside the connector's `rollback` (a peer without the pre-check, a state that moved since it,
   or a connector without the hook): `200 ApplyResult` with state `failed`, the plan `FAILED` and
   terminal. There the hash, digest and backup guards hold, and a missing Kea or D2 record refuses
@@ -1223,9 +1227,14 @@ two possible refusals when the state moved since the apply:
   target order), this node last. The first node that does not confirm its rollback (refusal,
   error or transport failure) stops the whole rollback: the nodes after it, and the parts before
   it, are not touched (`NodeApplyResult` "not rolled back: <name> did not roll back first" for
-  the nodes of that part), so the two servers of an HA pair never end with different
-  configurations because one of them refused. The undo after a failed apply keeps its reverse
-  order and goes on past a failure.
+  the nodes of that part). A part that every node undid stays `ROLLED_BACK`, the part that
+  stopped is `FAILED`, the parts never reached stay `APPLIED`; the plan is `FAILED` and terminal.
+  On a pair (this node and one peer) the peer goes first, so the two servers never end with
+  different configurations because one of them refused. With three nodes or more, the peers
+  run one after the other: when the pre-check could not run on them (older peers) or the state
+  moved since, a peer already undone stays undone when a later one refuses (A undone, B refused,
+  this node untouched); the results say which node did what. The undo after a failed apply keeps
+  its reverse order and goes on past a failure.
 
 Guards per scope today:
 
@@ -3939,7 +3948,7 @@ its engine (`dns...`: `read:dns`, `kea...`: `read:dhcp`). Answer time on a warm 
 | `GET /plans?state=&user=&scope=&page=&per_page=` | any session | | paginated `PlanSummary` (section 6) of this node, newest first, `meta.node_id`; with `read:audit` every plan, else only the caller's own (`user` naming someone else: `403`); `state`: comma-separated `PlanState` values (`expired` is accepted and always empty: an expired plan left the store); `scope`: a `PlanScope` value or a prefix at least one value starts with (`dhcp.`); `400 validation_error` on an unknown state or scope |
 | `GET /plans/{id}` | creator, admin, or `read:audit` (read only) | | `Plan` (`410 plan_expired` past its retention deadline) |
 | `POST /plans/{id}/apply` | permission of the plan scope, and creator or admin | `{"confirm": bool, "partial"?: bool}` | `ApplyResult` (with `rollback_until`, section 6) or `202 Job` for `install`/`import`/`security` scopes; `409 node_unreachable` (`node_ids`, `node_names`, `nodes[].reason`, `partial_allowed`) when only offline peers of a Kea configuration part stop it; `409 reconcile_required`, `409 collection_unavailable` (section 6); `partial: true` applies on the reachable targets (section 6, "Partial apply") and needs `confirm: true` |
-| `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult` (with `rollback_until`); `410 plan_expired` past `rollback_until`; `409 plan_state` when the plan does not roll back; when the state moved since the apply (section 6): `409 precondition_failed` from a connector's `check_rollback` on this node or a peer target (`503 engine_unavailable` when that hook fails otherwise), the plan still `APPLIED`, or, from a guard inside the connector's rollback, `200` with state `failed`, the plan `FAILED` and terminal |
+| `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult` (with `rollback_until`); `410 plan_expired` past `rollback_until`; `409 plan_state` when the plan does not roll back; when the state moved since the apply (section 6): `409 precondition_failed` from a connector's `check_rollback` on this node or a peer target (`503 engine_unavailable` when that hook fails otherwise, `409 node_unreachable` when a peer target does not answer), the plan still `APPLIED`, or, from a guard inside the connector's rollback, `200` with state `failed`, the plan `FAILED` and terminal |
 | `DELETE /plans/{id}` | creator or admin (`read:audit` is not enough) | | `204` |
 | `GET /jobs/{id}` | any | | `Job` |
 

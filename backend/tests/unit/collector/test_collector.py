@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
 import time
 from datetime import timedelta
@@ -736,3 +737,20 @@ def test_consistency_reads_skip_policy_and_catalog_zones(rig):
     read = [c.split(":", 1)[1] for c in dns.calls if c.startswith("read_zone:")]
     assert read and errors == []
     assert not {"block.example.", "catalog.example.", "feed.rpz.invalid."} & set(read)
+
+
+def test_backup_retention_spares_the_rollback_window(rig, monkeypatch):
+    collector, _, _ = rig
+    settings = {"retention": {"backups_days": 1}, "plans": {"rollback_window_seconds": 3 * 86400}}
+    monkeypatch.setattr(type(collector.ctx), "settings", lambda _self: settings)
+    now = collector.clock()
+    sets = {}
+    for age in (2, 4):
+        bdir = collector.ctx.paths.backups_dir / "bind" / f"stamp-plan{age}"
+        bdir.mkdir(parents=True)
+        (bdir / "manifest.json").write_text("{}")
+        stamp = now - age * 86400
+        os.utime(bdir, (stamp, stamp))
+        sets[age] = bdir
+    assert collector.retention()["backups_deleted"] == 1
+    assert sets[2].is_dir() and not sets[4].exists()

@@ -1256,9 +1256,11 @@ class Collector:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
         counts = self.store.apply_retention(now, retention)
-        counts["backups_deleted"] = series_mod.purge_backups(
-            self.ctx.paths.backups_dir, int(reg.get(self.ctx.settings(), "retention.backups_days")), now
-        )
+        settings = self.ctx.settings()
+        # A plan's backup set outlives its rollback window (section 6).
+        window_days = -(-int(reg.get(settings, "plans.rollback_window_seconds")) // 86400)
+        days = max(int(reg.get(settings, "retention.backups_days")), window_days)
+        counts["backups_deleted"] = series_mod.purge_backups(self.ctx.paths.backups_dir, days, now)
         return counts
 
     def cycle(self) -> CycleReport:

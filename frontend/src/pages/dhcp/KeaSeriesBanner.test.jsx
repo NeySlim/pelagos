@@ -80,7 +80,7 @@ describe('KeaSeriesBanner', () => {
     const { unmount } = show('/dhcp/v4/subnets')
     const banner = await screen.findByTestId('kea-reduced-banner')
     expect(banner).toHaveTextContent('Reduced mode on ns1 (Kea 2.6)')
-    expect(banner).toHaveTextContent('comments are lost')
+    expect(banner).toHaveTextContent('comments kept in user-context')
     unmount()
     show('/dhcp/v4/leases')
     await waitFor(() => expect(db.calls.length).toBeGreaterThan(0))

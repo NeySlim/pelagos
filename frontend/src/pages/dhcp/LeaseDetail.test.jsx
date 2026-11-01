@@ -17,8 +17,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../../components/PlanPreview', () => ({
-  PlanPreviewModal: ({ onApplied, onClose }) => {
+  PlanPreviewModal: ({ onApplied, onRolledBack, onClose }) => {
     applied.fire = onApplied
+    applied.rollback = onRolledBack
     return <button type="button" data-testid="plan-close" onClick={onClose}>close</button>
   },
 }))
@@ -91,6 +92,19 @@ describe('LeaseDetail after a delete', () => {
     fireEvent.click(screen.getByTestId('plan-close'))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
     expect(mocks.api.dhcp.lease.mock.calls.length).toBe(calls)
+  })
+
+  it('stays open when the delete is rolled back', async () => {
+    mocks.api.dhcp.lease.mockResolvedValue({ items: [copy(NS2)] })
+    const onClose = vi.fn()
+    renderDetail({ onClose })
+    fireEvent.click(await screen.findByTestId('lease-delete'))
+    await screen.findByTestId('plan-close')
+    act(() => applied.fire())
+    act(() => applied.rollback())
+    fireEvent.click(screen.getByTestId('plan-close'))
+    await waitFor(() => expect(mocks.api.dhcp.lease.mock.calls.length).toBeGreaterThan(1))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('refreshes the card when another node still holds the lease', async () => {

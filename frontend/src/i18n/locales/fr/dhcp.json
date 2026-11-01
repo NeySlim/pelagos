@@ -425,7 +425,7 @@
     "rowSince": "Kea {{series}} sur {{nodes}} : l'ISC ne maintient plus cette série depuis le {{date}}",
     "analyze": "Analyser la migration vers Kea 3.x",
     "dismiss": "Masquer",
-    "reduced": "Mode réduit sur {{nodes}} (Kea 2.6) : chaque changement remplace la configuration entière et les commentaires sont perdus. Migrez vers Kea 3."
+    "reduced": "Mode réduit sur {{nodes}} (Kea 2.6) : chaque changement remplace la configuration entière (réécrite au format de Kea, commentaires conservés dans user-context). Migrez vers Kea 3."
   },
   "keaFile": {
     "comments_one": "{{path}} sur {{node}} contient {{count}} commentaire et aucune inclusion : Pelagos le copie dans user-context (\"pelagos\": {\"comment\"}) avant que Kea réécrive le fichier.",

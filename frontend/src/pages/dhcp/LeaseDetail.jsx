@@ -37,6 +37,12 @@ export function LeaseDetail({ family, ip, onDeleted, onClose, compact = false })
       else lease.refetch()
       onDeleted?.()
     },
+    // The lease is back: keep the window open and reload it.
+    onRolledBack: () => {
+      gone.current = false
+      lease.refetch()
+      onDeleted?.()
+    },
   })
   const planOpen = Boolean(flow.plan)
   useEffect(() => {

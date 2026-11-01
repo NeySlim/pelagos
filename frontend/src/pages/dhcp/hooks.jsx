@@ -12,7 +12,7 @@ import { errorMessage } from '../../services/apiClient'
 // Builds plans and owns the PlanPreview modal. `build(fn)` returns the plan, or
 // throws when `rethrow` is set so a form can show the field errors itself. With
 // `unchanged` set no plan is built: the user is told there is no difference.
-export function usePlanFlow({ onApplied } = {}) {
+export function usePlanFlow({ onApplied, onRolledBack } = {}) {
   const { t } = useTranslation('dhcp')
   const { showError } = useNotification()
   const [plan, setPlan] = useState(null)
@@ -52,7 +52,7 @@ export function usePlanFlow({ onApplied } = {}) {
   }, [])
 
   const modal = plan ? (
-    <PlanPreviewModal open onClose={() => setPlan(null)} plan={plan} onApplied={onApplied} onRolledBack={onApplied} onRecompute={recompute} />
+    <PlanPreviewModal open onClose={() => setPlan(null)} plan={plan} onApplied={onApplied} onRolledBack={onRolledBack || onApplied} onRecompute={recompute} />
   ) : null
 
   return { build, building, modal, plan, close: () => setPlan(null) }

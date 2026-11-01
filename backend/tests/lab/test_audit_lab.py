@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-# ruff: noqa: E501
 """Sealed audit segments on the reference pair in mixed versions (section 11, "Sealed segments").
 
 lab-ns1 and lab-ns2 start on the previous release ($PELAGOS_LAB_PREVIOUS_DEB, default

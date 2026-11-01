@@ -130,7 +130,7 @@ def _add(state: _Chain, line: bytes) -> None:
     try:
         raw = json.loads(stripped)
         entry_id, ts = str(raw["id"]), from_rfc3339(raw["ts"])
-    except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+    except Exception:
         return
     state.entries += 1
     state.first_ts = ts if state.first_ts is None else min(state.first_ts, ts)

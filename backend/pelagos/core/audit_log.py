@@ -8,6 +8,7 @@ read works over their union, every write goes to the live file.
 from __future__ import annotations
 
 import bisect
+import hashlib
 import json
 import logging
 import os
@@ -101,12 +102,21 @@ def list_segments(directory: Path) -> list[Segment]:
     return out
 
 
+_warned: set[bytes] = set()  # digests of the undecodable lines already logged (bounded)
+
+
 def _decode(line: bytes) -> AuditEntry | None:
-    """One line, or None for a damaged one (a crash mid-write): never fatal to the whole log."""
+    """One line, or None for one that is not an AuditEntry (a crash mid-write, an unexpected shape
+    from any writer): never fatal to a read, whatever the exception; logged once per line."""
     try:
         return AuditEntry.from_dict(json.loads(line))
-    except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
-        log.warning("audit log: skipping a damaged line: %s", exc)
+    except Exception as exc:
+        digest = hashlib.sha256(line.strip()).digest()
+        if digest not in _warned:
+            if len(_warned) >= 10_000:
+                _warned.clear()
+            _warned.add(digest)
+            log.warning("audit log: skipping an undecodable line (%s: %s)", type(exc).__name__, exc)
         return None
 
 
@@ -250,7 +260,7 @@ class AuditLog:
                 if stripped:
                     try:
                         entry_id, ts = _id_ts(stripped)
-                    except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+                    except Exception as exc:
                         log.warning("audit log %s: damaged line at byte %d skipped: %s", part.path, pos, exc)
                         entry_id = ""
                     if entry_id:
@@ -602,11 +612,10 @@ class AuditLog:
                         break
                     stripped = line.strip()
                     if stripped:
-                        try:
-                            first = from_rfc3339(json.loads(stripped)["ts"])
+                        entry = _decode(stripped)
+                        if entry is not None:
+                            first = entry.ts
                             break
-                        except (ValueError, KeyError, TypeError, UnicodeDecodeError):
-                            continue
         except FileNotFoundError:
             pass
         return first, count

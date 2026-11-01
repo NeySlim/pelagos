@@ -689,3 +689,49 @@ def test_segment_listing_skips_other_files(alog):
     (alog.dir / "audit-notes.jsonl").write_text("")
     (alog.dir / "audit-2026.jsonl.bak").write_text("")
     assert [s.name for s in list_segments(alog.dir)] == ["audit-2026.jsonl"]
+
+
+# Undecodable entries (any exception) ----------------------------------------------------------
+
+
+def _odd_line(when: datetime) -> bytes:
+    """Valid JSON with an id and a ts, but not an AuditEntry: `request` is a list."""
+    raw = entry(when).to_dict()
+    raw["request"] = ["not", "a", "map"]
+    return (json.dumps(raw, separators=(",", ":")) + "\n").encode()
+
+
+def _check_reads(alog: AuditLog, good: list[AuditEntry]) -> None:
+    ids = {e.id for e in good}
+    assert ids <= {e.id for e in alog.read(limit=1000)}
+    assert ids <= {e.id for e in alog.query(per_page=1000)[0]}
+    assert ids <= {e.id for e in alog.query(user="alice", per_page=1000)[0]}
+    assert ids <= {e.id for e in alog.tail(ts(2000, 1, 1))[0]}
+    assert ids <= {e.id for e in alog.scan(0, None)[0]} | {e.id for e in alog.tail(ts(2000, 1, 1))[0]}
+    assert ids <= {json.loads(line)["id"] for line in alog.export_lines()}
+
+
+def test_an_undecodable_line_in_the_live_file_is_skipped(alog, caplog):
+    first = fill(alog, 2026, 2)
+    with alog.path.open("ab") as fh:
+        fh.write(_odd_line(ts(2026, 4, 1)))
+    last = fill(alog, 2026, 2)
+    _check_reads(alog, first + last)
+    assert [e.id for e in alog.scan(0, None)[0]] == [e.id for e in first + last]
+    late = entry(ts(2026, 5, 1), node=OTHER)
+    assert alog.merge([late]) == 1
+    _check_reads(alog, [late])
+    warnings = [r for r in caplog.records if "undecodable" in r.getMessage()]
+    assert len(warnings) == 1  # logged once for that line
+
+
+def test_an_undecodable_line_in_a_sealed_segment_is_skipped(alog):
+    first = fill(alog, 2026, 2)
+    with alog.path.open("ab") as fh:
+        fh.write(_odd_line(ts(2026, 4, 1)))
+    last = fill(alog, 2026, 1)
+    data = seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    assert data["lines"] == 4 and seg.verify(alog, NODE)[0].ok
+    fresh = AuditLog(alog.path, alog.dir.parent / "audit.lock")
+    _check_reads(fresh, first + last)
+    assert seg.due(fresh, NODE, ts(2027, 6, 1)) is False

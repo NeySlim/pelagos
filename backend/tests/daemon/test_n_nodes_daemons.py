@@ -773,10 +773,11 @@ def test_audit_purge_does_not_loop_and_waits_for_old_peers(repl_cluster, monkeyp
     log1 = ns1.ctx.audit_log
     audit_segments.rotate(log1, ns1.id, datetime(2021, 1, 1, tzinfo=UTC), on_demand=True)
     peers = [ns2.id, ns3.id]
-    versions = {s.node_id: s.version for s in ns1.service.replicator.peer_statuses()}
-    report = audit_segments.run_task(
-        log1, ns1.id, 1, peers, {**versions, ns3.id: "0.3.5"}, datetime(2030, 1, 1, tzinfo=UTC)
-    )
+    # The version each peer announced at its last status; ns3 shown as a 0.3.x node.
+    seen = {s.node_id for s in ns1.service.replicator.peer_statuses() if s.version}
+    assert seen == set(peers)
+    versions = {ns2.id: "0.4.0", ns3.id: "0.3.5"}
+    report = audit_segments.run_task(log1, ns1.id, 1, peers, versions, datetime(2030, 1, 1, tzinfo=UTC))
     assert report["purge_waiting"] == [ns3.id] and log1.horizon() is None
     report = audit_segments.run_task(
         log1, ns1.id, 1, peers, {ns2.id: "0.4.0", ns3.id: "0.4.0"}, datetime(2030, 1, 1, tzinfo=UTC)

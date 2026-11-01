@@ -2538,8 +2538,8 @@ to `purged-before`; N = 0 removes `purged-before`. Rules:
   later at its last successful status (`PeerStatus.version`; a peer never
   seen since the upgrade blocks it), and logs once why it waits.
 - `merge` drops entries whose `ts` is before the horizon, so replication or
-  an archive restore cannot bring them back (a restore reports them
-  dropped).
+  an archive restore cannot bring them back (a restore's "entries added"
+  leaves them out).
 - `_exchange_audit_ids` (section 13) drops from both directions the ids whose
   ULID time (first 48 bits) is before the horizon, before any fetch or push;
   when nothing is left to move it remembers the peer's `(audit_count,
@@ -5366,7 +5366,7 @@ command line, B6 API and screen, B7 lab.
   since the plan; `pelagos.audit` (`audit/merge`): the archived entries this node lacks, merged by
   id (from every `audit*.jsonl` of the archive: live file and sealed segments, section 11); its
   rollback keeps them. The archive's seals are not restored and do not make an archive
-  verifiable; entries under the purge horizon (`purged-before`) are dropped and counted. Whole files in changes are masked like diffs in the API and left
+  verifiable; entries under the purge horizon (`purged-before`) are dropped (not in its "entries added"). Whole files in changes are masked like diffs in the API and left
   out of the audit summary (`text_bytes`). Restoring onto another node (mode 2): `warnings` and
   `restore` validations name the parts that still carry the old node's name or address (from the
   archive's `cluster.toml`) until `substitute` maps them.

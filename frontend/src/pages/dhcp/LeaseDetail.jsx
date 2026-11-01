@@ -2,7 +2,7 @@
 // Lease card: the lease as each node's Kea holds it (GET /leases/{ip}, one item per
 // node) side by side, so an HA disagreement or a node missing the lease is visible,
 // plus the lease delete plan.
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle, Warning, Trash, Desktop } from '@phosphor-icons/react'
@@ -18,19 +18,28 @@ import { SectionError, UserContextView } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { leaseAgreement } from './lib'
 
-export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
+export function LeaseDetail({ family, ip, onDeleted, onClose, compact = false }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const navigate = useNavigate()
   const { hasPermission } = usePermission()
   const { nameOf } = useNodeNames()
   const lease = useApi(() => api.dhcp.lease(family, ip), [family, ip])
   const servers = useApi(() => api.dhcp.servers(family), [family])
+  // The last copy is gone: the card is closed once the plan result is dismissed, and never
+  // fetches GET /leases/<ip> again (it would answer 404).
+  const gone = useRef(false)
+  const lastCopy = useRef(false)
   const flow = usePlanFlow({
     onApplied: () => {
-      lease.refetch()
+      if (lastCopy.current) gone.current = true
+      else lease.refetch()
       onDeleted?.()
     },
   })
+  const planOpen = Boolean(flow.plan)
+  useEffect(() => {
+    if (!planOpen && gone.current) onClose?.()
+  }, [planOpen, onClose])
 
   const copies = useMemo(() => lease.data?.items || [], [lease.data])
   const expected = useMemo(() => (servers.data?.items || []).map((s) => s.node_id), [servers.data])
@@ -52,8 +61,8 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
     ...(family === 'v6' ? [['duid', t('fields.duid'), (l) => l.duid], ['lease_type', t('fields.leaseType'), (l) => (l.lease_type ? `${l.lease_type}${l.prefix_len ? ` /${l.prefix_len}` : ''}` : null)]] : [['client_id', t('fields.clientId'), (l) => l.client_id]]),
     ['hostname', t('fields.hostname'), (l) => l.hostname],
     ['subnet_id', t('fields.subnetId'), (l) => l.subnet_id],
-    ['cltt', t('fields.cltt'), (l) => formatDate(l.cltt)],
-    ['expires_at', t('fields.expiresAt'), (l) => formatDate(l.expires_at)],
+    ['cltt', t('fields.cltt'), (l) => <span className="whitespace-nowrap">{formatDate(l.cltt)}</span>],
+    ['expires_at', t('fields.expiresAt'), (l) => <span className="whitespace-nowrap">{formatDate(l.expires_at)}</span>],
     ['valid_lft', t('fields.validLifetime'), (l) => `${l.valid_lft} s`],
     ['fqdn', t('fields.ddnsFlags'), (l) => `${l.fqdn_fwd ? t('leases.fwd') : '-'} / ${l.fqdn_rev ? t('leases.rev') : '-'}`],
   ]
@@ -61,7 +70,11 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
   const canDelete = hasPermission('ops:dhcp.leases')
   // Each copy is deleted on the node that holds it, so a lease only a peer has is reachable too;
   // without a node the plan reaches every server holding it (HA partner and backups alike).
-  const deleteOn = (nodeId) => flow.build(() => api.dhcp.leaseDeletePlan(family, ip, nodeId))
+  const deleteOn = (nodeId) => {
+    // Deleting on the only node holding it (or on all of them) removes the lease for good.
+    lastCopy.current = nodeId === null || copies.length === 1
+    return flow.build(() => api.dhcp.leaseDeletePlan(family, ip, nodeId))
+  }
 
   return (
     <div className={cn('space-y-3 text-xs', compact && 'text-2xs')} data-testid="lease-detail">
@@ -162,8 +175,8 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
 }
 
 // Renderer for the floating window: entityId is "<family>:<ip>".
-export default function LeaseWindow({ entityId, data }) {
+export default function LeaseWindow({ entityId, data, close }) {
   const family = data?.family || String(entityId).split(':')[0]
   const ip = data?.ip || String(entityId).slice(family.length + 1)
-  return <LeaseDetail family={family} ip={ip} />
+  return <LeaseDetail family={family} ip={ip} onClose={close} />
 }

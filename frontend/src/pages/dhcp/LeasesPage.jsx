@@ -2,10 +2,10 @@
 // Leases: Kea lookups for a search term, filters (subnet, state, node), and pages that
 // follow Kea's own cursor (meta.next); a row opens the lease card that compares the
 // copies held by each HA partner.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { CaretLeft, CaretRight, Clock, Lightning } from '@phosphor-icons/react'
+import { ArrowFatLeft, ArrowFatRight, CaretLeft, CaretRight, Clock, Lightning } from '@phosphor-icons/react'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
 import { Modal } from '../../components/Modal'
@@ -24,6 +24,15 @@ import { LEASE_STATES, keaEngine, nextCursor, previousCursor, secondsFromNow } f
 import { LeaseDetail } from './LeaseDetail'
 
 const LIMITS = [25, 50, 100, 250, 500, 1000]
+
+// One direction of the DNS update (forward or reverse): lit when Kea sends it for this lease.
+function DnsFlag({ on, icon: Icon, title, testId }) {
+  return (
+    <span title={title} aria-label={title} role="img" className={on ? 'status-success-text' : 'text-text-tertiary opacity-50'} data-testid={testId} data-on={on ? 'true' : 'false'}>
+      <Icon size={14} weight={on ? 'fill' : 'regular'} />
+    </span>
+  )
+}
 
 export default function LeasesPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -64,8 +73,14 @@ export default function LeasesPage({ family }) {
 
   const open = (lease) => {
     if (isMobile) setMobileIp(lease.ip_address)
-    else openDetail('lease', `${family}:${lease.ip_address}`, { family, ip: lease.ip_address, title: lease.ip_address, subtitle: lease.hostname || undefined })
+    else {
+      // More than two nodes make the comparison table too wide for the default window.
+      const wide = (servers.data?.items || []).length > 2
+      openDetail('lease', `${family}:${lease.ip_address}`, { family, ip: lease.ip_address, title: lease.ip_address, subtitle: lease.hostname || undefined }, { wide })
+    }
   }
+
+  const cidrOf = useMemo(() => Object.fromEntries((subnets.data?.items || []).map((s) => [String(s.id), s.subnet])), [subnets.data])
 
   const columns = [
     {
@@ -81,7 +96,16 @@ export default function LeasesPage({ family }) {
     },
     { key: 'hw_address', label: family === 'v6' ? t('fields.duid') : t('fields.mac'), mono: true, truncate: true, render: (l) => (family === 'v6' ? l.duid : l.hw_address) || '-' },
     { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
-    { key: 'subnet_id', label: t('fields.subnetId'), mono: true, width: 70 },
+    {
+      key: 'subnet_id',
+      label: t('fields.subnet'),
+      mono: true,
+      render: (l) => (
+        <span title={cidrOf[l.subnet_id] ? `${l.subnet_id}: ${cidrOf[l.subnet_id]}` : undefined}>
+          {cidrOf[l.subnet_id] || l.subnet_id}
+        </span>
+      ),
+    },
     ...(family === 'v6' ? [{ key: 'lease_type', label: t('fields.leaseType'), mono: true }] : []),
     {
       key: 'state',
@@ -106,7 +130,16 @@ export default function LeasesPage({ family }) {
         )
       },
     },
-    { key: 'ddns', label: t('fields.ddnsFlags'), render: (l) => <span className="font-mono text-2xs">{`${l.fqdn_fwd ? 'F' : '-'}${l.fqdn_rev ? 'R' : '-'}`}</span> },
+    {
+      key: 'ddns',
+      label: t('leases.dns'),
+      render: (l) => (
+        <span className="inline-flex items-center gap-1.5" data-testid="lease-dns">
+          <DnsFlag on={l.fqdn_fwd} icon={ArrowFatRight} title={t(l.fqdn_fwd ? 'leases.dnsForwardOn' : 'leases.dnsForwardOff')} testId="lease-dns-fwd" />
+          <DnsFlag on={l.fqdn_rev} icon={ArrowFatLeft} title={t(l.fqdn_rev ? 'leases.dnsReverseOn' : 'leases.dnsReverseOff')} testId="lease-dns-rev" />
+        </span>
+      ),
+    },
   ]
 
   const subnetOptions = (subnets.data?.items || []).map((s) => ({ value: String(s.id), label: `${s.id}: ${s.subnet}` }))
@@ -144,6 +177,22 @@ export default function LeasesPage({ family }) {
             { key: 'node_id', label: t('fields.node'), value: nodeId, onChange: setNodeId, options: nodeOptions, placeholder: t('leases.localNode') },
           ]}
           onRowClick={open}
+          mobileCard={{
+            title: (l) => (
+              <span className="font-mono">
+                {l.ip_address}
+                {l.lease_type === 'IA_PD' && `/${l.prefix_len}`}
+              </span>
+            ),
+            subtitle: (l) => l.hostname || undefined,
+            status: (l) => <StatusBadge status={l.state} />,
+            fields: ['hw_address', 'expires_at'],
+            primaryAction: (l) => (
+              <Button variant="secondary" size="xs" onClick={() => open(l)} data-testid="lease-open">
+                {t('leases.detail')}
+              </Button>
+            ),
+          }}
           emptyTitle={t('leases.empty')}
           emptyIcon={Clock}
           dense
@@ -193,7 +242,7 @@ export default function LeasesPage({ family }) {
       {mobileIp && (
         <Modal open onClose={() => setMobileIp(null)} title={mobileIp}>
           <div className="p-3">
-            <LeaseDetail family={family} ip={mobileIp} onDeleted={leases.refetch} />
+            <LeaseDetail family={family} ip={mobileIp} onDeleted={leases.refetch} onClose={() => setMobileIp(null)} />
           </div>
         </Modal>
       )}

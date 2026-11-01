@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { NotificationProvider } from '../../contexts/NotificationContext'
 import { LeaseDetail } from './LeaseDetail'
 import { resetNodeNameCache } from './hooks'
 
+const applied = vi.hoisted(() => ({ fire: null }))
 const mocks = vi.hoisted(() => ({
   api: {
     dhcp: { lease: vi.fn(), servers: vi.fn(), leaseDeletePlan: vi.fn() },
@@ -15,6 +16,12 @@ const mocks = vi.hoisted(() => ({
   },
 }))
 
+vi.mock('../../components/PlanPreview', () => ({
+  PlanPreviewModal: ({ onApplied, onClose }) => {
+    applied.fire = onApplied
+    return <button type="button" data-testid="plan-close" onClick={onClose}>close</button>
+  },
+}))
 vi.mock('../../services/api', () => ({ api: mocks.api, default: mocks.api }))
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: () => true }) }))
 
@@ -34,11 +41,11 @@ const plan = {
   expires_at: new Date(Date.now() + 600000).toISOString(), error: null,
 }
 
-function renderDetail() {
+function renderDetail(props = {}) {
   return render(
     <MemoryRouter>
       <NotificationProvider>
-        <LeaseDetail family="v4" ip={IP} />
+        <LeaseDetail family="v4" ip={IP} {...props} />
       </NotificationProvider>
     </MemoryRouter>,
   )
@@ -68,5 +75,34 @@ describe('LeaseDetail delete', () => {
     expect(screen.getByTestId('lease-delete-all')).toHaveTextContent('Delete on the 2 servers')
     fireEvent.click(screen.getByTestId(`lease-delete-${NS2}`))
     await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v4', IP, NS2))
+  })
+})
+
+describe('LeaseDetail after a delete', () => {
+  it('closes without fetching the lease again once its last copy is gone', async () => {
+    mocks.api.dhcp.lease.mockResolvedValue({ items: [copy(NS2)] })
+    const onClose = vi.fn()
+    renderDetail({ onClose })
+    fireEvent.click(await screen.findByTestId('lease-delete'))
+    await screen.findByTestId('plan-close')
+    const calls = mocks.api.dhcp.lease.mock.calls.length
+    act(() => applied.fire())
+    expect(onClose).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId('plan-close'))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(mocks.api.dhcp.lease.mock.calls.length).toBe(calls)
+  })
+
+  it('refreshes the card when another node still holds the lease', async () => {
+    mocks.api.dhcp.lease.mockResolvedValue({ items: [copy(NS1), copy(NS2)] })
+    const onClose = vi.fn()
+    renderDetail({ onClose })
+    fireEvent.click(await screen.findByTestId(`lease-delete-${NS2}`))
+    await screen.findByTestId('plan-close')
+    const calls = mocks.api.dhcp.lease.mock.calls.length
+    act(() => applied.fire())
+    await waitFor(() => expect(mocks.api.dhcp.lease.mock.calls.length).toBeGreaterThan(calls))
+    fireEvent.click(screen.getByTestId('plan-close'))
+    expect(onClose).not.toHaveBeenCalled()
   })
 })

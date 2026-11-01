@@ -1059,3 +1059,17 @@ def test_probe_noise_is_one_short_line_each(pair, caplog):
     assert errors, "the garbage request must reach the error log"
     assert all("socket" not in r.getMessage() and "0x" not in r.getMessage() for r in errors)
     assert all(r.levelno < logging.ERROR and not r.exc_info for r in errors)
+
+
+def test_housekeeping_keeps_backups_for_the_rollback_window(cluster, monkeypatch):
+    a = cluster.first()
+    settings = {"retention": {"backups_days": 1}, "plans": {"rollback_window_seconds": 3 * 86400}}
+    monkeypatch.setattr(type(a.ctx), "settings", lambda _self: settings)
+    sets = {}
+    for age in (2, 4):
+        stamp = (utcnow() - timedelta(days=age)).strftime("%Y%m%dT%H%M%S%fZ")
+        sets[age] = a.paths.backups_dir / "bind" / f"{stamp}-01JBAGE{age}"
+        sets[age].mkdir(parents=True)
+        (sets[age] / "manifest.json").write_text("{}")
+    assert a.service.housekeeping() == [sets[4]]
+    assert sets[2].is_dir()

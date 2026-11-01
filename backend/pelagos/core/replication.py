@@ -1876,7 +1876,10 @@ class ReplicationService:
 
     def housekeeping(self) -> list[Path]:
         """Backup retention (`settings.retention.backups_days`) and expired enrollment tokens."""
-        days = int(reg.get(self.ctx.settings(), "retention.backups_days"))
+        settings = self.ctx.settings()
+        # A plan's backup set outlives its rollback window (section 6), as in the collector.
+        window_days = -(-int(reg.get(settings, "plans.rollback_window_seconds")) // 86400)
+        days = max(int(reg.get(settings, "retention.backups_days")), window_days)
         try:
             removed = purge_backups(self.paths.backups_dir, days)
             self.enrollment.tokens.purge()

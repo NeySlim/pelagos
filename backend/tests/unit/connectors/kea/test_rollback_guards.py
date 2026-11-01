@@ -148,7 +148,7 @@ def test_d2_private_state_leaves_with_the_window(tmp_root, monkeypatch):
     backend, fake = d2(tmp_root, window=3600)
     plan = timeout_plan(backend, 700)
     assert backend.apply(plan).ok
-    later = utcnow() + timedelta(seconds=3601)
+    later = utcnow() + timedelta(seconds=3600 + 300 + 1)  # window plus peers.plan_timeout_seconds
     monkeypatch.setattr(d2_mod, "utcnow", lambda: later)
     fake.sent.clear()
     with pytest.raises(PreconditionFailed, match="no longer held"):
@@ -178,3 +178,51 @@ def test_d2_hand_edit_refuses_before_any_write(tmp_root):
         backend.check_rollback(plan)
     assert writes(fake) == [] and fake.cfg["dns-server-timeout"] == 900
     assert plan.id in backend._private  # a refusal spends nothing
+
+
+def test_kea_user_rollback_without_record_is_refused_even_on_a_peer(tmp_root):
+    """A peer never runs check_rollback: its rollback() refuses a finished plan without a record."""
+    backend, fake = kea(tmp_root)
+    plan = reservation_plan(backend)
+    assert backend.apply(plan).ok
+    plan.finished_at = utcnow()
+    backend._forget(plan.id)  # lost record (or a 0.4.0 peer that never kept it)
+    fake.sent.clear()
+    with pytest.raises(PreconditionFailed, match="rollback guard lost"):
+        backend.rollback(plan)
+    assert writes(fake) == []
+
+
+def test_kea_undo_after_a_failed_apply_runs_without_record(tmp_root):
+    """The automatic undo of an apply whose outcome was unknown has no finished_at: it still runs."""
+    backend, fake = kea(tmp_root)
+    plan = reservation_plan(backend)
+    assert backend.apply(plan).ok
+    backend._forget(plan.id)
+    assert plan.finished_at is None
+    assert backend.rollback(plan).ok
+    reservations = fake.cfg["subnet4"][0].get("reservations", [])
+    assert all(r.get("hw-address") != "aa:00:00:00:00:09" for r in reservations)
+
+
+def test_d2_user_rollback_after_a_restart_is_refused_even_on_a_peer(tmp_root):
+    backend, fake = d2(tmp_root)
+    plan = timeout_plan(backend, 700)
+    assert backend.apply(plan).ok
+    plan.finished_at = utcnow()
+    backend._private.clear()  # the collector of the peer restarted
+    fake.cfg["dns-server-timeout"] = 900  # then a hand edit
+    fake.sent.clear()
+    with pytest.raises(PreconditionFailed, match="no longer held"):
+        backend.rollback(plan)
+    assert writes(fake) == [] and fake.cfg["dns-server-timeout"] == 900
+
+
+def test_d2_undo_after_a_failed_apply_runs_without_state(tmp_root):
+    backend, fake = d2(tmp_root)
+    before = fake.cfg["dns-server-timeout"]
+    plan = timeout_plan(backend, 700)
+    assert backend.apply(plan).ok
+    backend._private.clear()
+    assert plan.finished_at is None
+    assert backend.rollback(plan).ok and fake.cfg["dns-server-timeout"] == before

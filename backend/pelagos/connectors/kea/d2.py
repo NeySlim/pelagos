@@ -217,9 +217,11 @@ class D2Backend(DdnsBackend):
 
     @property
     def rollback_window(self) -> int:
-        """How long an applied plan's private state stays: as long as the plan can be rolled back."""
+        """How long an applied plan's private state stays: as long as the plan can be rolled back,
+        plus the peer timeout (the window runs from the end of the whole plan, after this apply)."""
         settings = self.ctx.current_settings()
-        return max(int(reg.get(settings, "plans.rollback_window_seconds")), self.plan_ttl)
+        window = max(int(reg.get(settings, "plans.rollback_window_seconds")), self.plan_ttl)
+        return window + int(reg.get(settings, "peers.plan_timeout_seconds"))
 
     # Observation ----------------------------------------------------------------------
 
@@ -588,6 +590,13 @@ class D2Backend(DdnsBackend):
                 private.after_hash = None
         return result
 
+    def _state_lost(self, plan: Plan) -> PreconditionFailed:
+        return guard_refused(
+            Precondition(PreconditionKind.CONFIG_HASH, "d2:config", "recorded at apply", self.ctx.node_id),
+            f"the rollback state of plan {plan.id} is no longer held (kept in memory: a restart drops it);"
+            " restore from the backup directory or build a new plan",
+        )
+
     def check_rollback(self, plan: Plan) -> None:
         """Refuse, writing nothing, a rollback this process can no longer guard or carry out: private
         state gone (a restart, past the window), or the running hash moved since the apply (another
@@ -597,10 +606,7 @@ class D2Backend(DdnsBackend):
         subject = "d2:config"
         lost = f"the rollback state of plan {plan.id} is no longer held (kept in memory: a restart drops it)"
         if private is None or not private.applied or private.after_hash is None:
-            raise guard_refused(
-                Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
-                f"{lost}; restore from the backup directory or build a new plan",
-            )
+            raise self._state_lost(plan)
         observed = self.config_hash()
         if observed != private.after_hash:
             raise PreconditionFailed(
@@ -622,9 +628,12 @@ class D2Backend(DdnsBackend):
             )
 
     def _check_stale(self, plan: Plan) -> None:
-        """The hash guard of an applied plan; a failed apply (rolled back right away) has none."""
+        """The hash guard of an applied plan. Without one, a user rollback (`finished_at` set, also
+        on a peer) is refused; the undo right after a failed apply runs."""
         private = self._private.get(plan.id)
         if private is None or not private.applied or private.after_hash is None:
+            if plan.finished_at is not None:
+                raise self._state_lost(plan)
             return
         observed = self.config_hash()
         if observed != private.after_hash:

@@ -985,11 +985,7 @@ class KeaBackend(DhcpBackend):
         subject = f"{self.engine_name}:config"
         recorded = self._recorded(plan.id)
         if recorded is None:
-            raise guard_refused(
-                Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
-                f"rollback guard lost: no configuration hash recorded for plan {plan.id} on this node;"
-                " build a new plan",
-            )
+            raise self._guard_lost(plan)
         observed = self.config_hash()
         if observed != recorded[0]:
             raise PreconditionFailed(
@@ -1002,12 +998,23 @@ class KeaBackend(DhcpBackend):
                 f"no backup left for plan {plan.id}; restore {self.conf_path} from {self.backup_root}",
             )
 
+    def _guard_lost(self, plan: Plan) -> PreconditionFailed:
+        subject = f"{self.engine_name}:config"
+        return guard_refused(
+            Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
+            f"rollback guard lost: no configuration hash recorded for plan {plan.id} on this node;"
+            " build a new plan",
+        )
+
     def rollback(self, plan: Plan) -> NodeApplyResult:
         """Apply the inverse changes through the same path; a config replace restores the exact JSON.
-        The hash guard holds whenever a record exists; without one (an apply whose outcome was
-        unknown may have failed before recording) only `check_rollback` refuses."""
+        The hash guard holds whenever a record exists. Without one, a user rollback (the plan has
+        `finished_at`, also on a peer) is refused; the undo right after a failed apply runs."""
         recorded = self._recorded(plan.id)
-        if recorded is not None and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+        guarded = plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA)
+        if recorded is None and guarded and plan.finished_at is not None:
+            raise self._guard_lost(plan)
+        if recorded is not None and guarded:
             observed = self.config_hash()
             if observed != recorded[0]:
                 guard = Precondition(

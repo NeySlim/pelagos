@@ -54,6 +54,23 @@ renamed from `ipv6.poll_seconds` (`RENAMED`); `retention.neighbor_observation_da
 `GET /admin/ipv6` keeps `settings.poll_seconds`. WP-FRONTEND (U2-HOSTS-UI) builds the "Seen" and
 "Vendor" columns and the unknown filter on this contract and `frontend/mock/discovery.mjs`.
 
+## 2026-11-01, B1-ARCHIVES (WP-CORE, WP-COLLECTOR, WP-API-AUTH, WP-INSTALLER, WP-FRONTEND): archive key proof, restore check
+Section 23 "Key proof" and "Restore check". Additive: `archives.recipients` entries may carry
+`verified_at` and `verified_by` (older nodes copy them unchanged); new setting
+`archives.key_reminder_days` (90); new alert kind `archive_key_unverified` (`domain.alerts`,
+warning, raised by the first node of `[[nodes]]`); new error code `archive_key_unverified` (409,
+`api/errors.py`); new route `POST /admin/archives/keys/{recipient}/verify` (the pasted identity is
+never stored, logged or audited). Behaviour change: turning `archives.schedule_enabled` on is
+refused with `409 archive_key_unverified` until a recipient is proven; a cluster already scheduled
+keeps running and gets the alert. `services.archive_service.refuse_schedule_without_recipient`
+takes the current settings as a third argument (`admin_service.update_settings` passes them).
+`pelagos restore --verify` checks an archive on copies (no root, nothing written outside its work
+folder, report with exit 0 or 1); the scheduled test restore uses the same checks
+(`kea-dhcp4|6 -T` instead of `-t` when the daemon does not answer, plus `cluster.toml`).
+Audit segments (B1-AUDIT): the online `pelagos.audit` part already merges every `audit*.jsonl`
+member and never restores a seal; the offline rebuild puts the node's own audit directory back
+byte for byte (its seals still verify). WP-FRONTEND: Backups screen "Test my key" per recipient
+and the refusal message; the mock keeps its archive state across scenario switches.
 ## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
 Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created
 in place in a version 1 cache, purged after `retention.lease_history_days` (90) in chunks; unlike

@@ -76,7 +76,7 @@
     "subnetPick": "Choisir un sous-réseau",
     "title": "Nouvel hôte",
     "withReservation": "Créer aussi une réservation DHCP",
-    "subtitle": "enregistrement A/PTR + réservation"
+    "subtitle": "Enregistrement A/PTR + réservation"
   },
   "tabs": {
     "hosts": "Hôtes",

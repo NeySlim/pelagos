@@ -39,17 +39,20 @@ export function hostFacts(host) {
   }
 }
 
-// Chips of the "Found in" column: one per part the host has. A forward or PTR record that a
-// named, addressed host lacks is listed as an expected absence (drawn struck through).
+// Chips of the "Found in" column: one per part the host has. A missing record is drawn struck
+// through only when the host's own inconsistency alerts expect it (an unmanaged zone or a client
+// without DDNS raises none), and named AAAA for an IPv6 host.
 export function presenceChips(host) {
   const f = hostFacts(host)
-  const expected = Boolean(host.hostname) && (f.hasLease || f.hasReservation)
+  const alerts = host.alerts || []
+  const v6 = (host.ips || []).some((ip) => ip.includes(':')) && !(host.ips || []).some((ip) => !ip.includes(':'))
+  const missingForward = alerts.find((a) => a.kind === 'lease_without_record' || a.kind === 'ipv6_missing_aaaa')
   const chips = []
   if (f.hasLease) chips.push({ key: 'lease', variant: 'purple' })
   if (f.hasReservation) chips.push({ key: 'reservation', variant: 'purple' })
   if (f.hasForward) chips.push({ key: 'forward', variant: 'primary', label: f.forwardTypes.join('/') })
-  else if (expected) chips.push({ key: 'forward', absent: true, label: 'A' })
+  else if (missingForward) chips.push({ key: 'forward', absent: true, label: missingForward.details?.rtype || (v6 ? 'AAAA' : 'A') })
   if (f.hasPtr) chips.push({ key: 'ptr', variant: 'teal', label: 'PTR' })
-  else if (expected) chips.push({ key: 'ptr', absent: true, label: 'PTR' })
+  else if (alerts.some((a) => a.kind === 'ptr_mismatch')) chips.push({ key: 'ptr', absent: true, label: 'PTR' })
   return chips
 }

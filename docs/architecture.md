@@ -3807,15 +3807,18 @@ to the new default; any other list is kept. Zone grants written by the installer
 tuple, and `update_types_narrow` reports an older grant (`zonesub ANY` already covers every type).
 `records/plan` (and the desired state verbs, which build through it) checks before any plan:
 each `after.rdata[j]` parses as its type with dnspython (`400 validation_error`, field
-`changes[i].after.rdata[j]`, message `invalid <TYPE> value: expected <form>`; until 0.3.x a bad
-value gave a failed plan, `422 engine_validation_failed`), and a DS add or replace at the zone apex
-(`400`, field `changes[i].target`, message `DS at apex`). `rrset.resolve_changes` adds rules that
-read the zone as it will be after the plan: DS only where the owner has NS (a delegation), an NS
-delete leaving a DS at that owner refused, DNAME holds one target, a DNAME is refused above
-existing names and any record is refused below a DNAME (RFC 6672 2.3); a DNAME and other data
-except CNAME may share an owner. These fail the plan (`422`, keys `rrset.ds_apex`,
-`rrset.ds_no_delegation`, `rrset.ns_keeps_ds`, `rrset.singleton`, `rrset.dname_below`,
-`rrset.under_dname`). rdata is stored and compared in dnspython's presentation form (hex in
+`changes[i].after.rdata[j]`, message `invalid <TYPE> value: expected <form> (<dnspython reason>)`;
+until 0.3.x a bad value gave a failed plan, `422 engine_validation_failed`), what named refuses and
+dnspython accepts (an SVCB at `_dns.<name>` or `_<port>._dns.<name>` without `alpn`, or with `h2` or
+`h3` but no `dohpath`, as `dns_rdata_checksvcb` of BIND 9.20), and a DS add or replace at the zone
+apex (`400`, field `changes[i].target`, message `DS at apex`). `rrset.resolve_changes` adds rules that
+read the zone as it will be after the plan: DS only where the owner has NS (a delegation) and no
+ancestor below the apex has NS (a DS under another cut belongs to the child zone), an NS delete
+leaving a DS at that owner refused, DNAME holds one target, a DNAME is refused above existing
+names and any record is refused below a DNAME, DNAME and NS share an owner only at the apex
+(RFC 6672 2.3); a DNAME and other data except CNAME and NS may share an owner. These fail the plan
+(`422`, keys `rrset.ds_apex`, `rrset.ds_no_delegation`, `rrset.ds_below_cut`, `rrset.ns_keeps_ds`,
+`rrset.singleton`, `rrset.dname_below`, `rrset.under_dname`, `rrset.dname_ns`). rdata is stored and compared in dnspython's presentation form (hex in
 lowercase, SVCB parameters quoted). Static zone files take the same types; the zone file reader
 reads `key="value"` (SVCB, HTTPS) as one word.
 

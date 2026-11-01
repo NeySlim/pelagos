@@ -92,11 +92,11 @@ Click a zone to open it. Tabs:
   | DHCID | base64 | written by Kea DDNS |
   | SSHFP | `algorithm type fingerprint` (hex) | fingerprint of 40 hex digits for SHA-1, 64 for SHA-256 |
   | TLSA | `usage selector matching data` (hex) | owner `_443._tcp.www` |
-  | HTTPS, SVCB | `priority target [key=value ...]` | priority 0 (alias) takes no parameters; an SVCB under `_dns` needs `alpn` |
+  | HTTPS, SVCB | `priority target [key=value ...]` | priority 0 (alias) takes no parameters; an SVCB under `_dns` needs `alpn`, and `dohpath` with `alpn` h2 or h3 |
   | NAPTR | `order preference "flags" "services" "regexp" replacement` | |
   | LOC | `d m s N\|S d m s E\|W altitude [size hp vp]` | the assisted fields take decimal degrees |
-  | DNAME | a domain name | one target; no names below it |
-  | DS | `key-tag algorithm digest-type digest` (hex) | only at a delegated name (with NS), never at the apex |
+  | DNAME | a domain name | one target; no names below it; no NS at the same name except at the apex |
+  | DS | `key-tag algorithm digest-type digest` (hex) | only at a delegated name (with NS), never at the apex nor below another delegation |
   | URI | `priority weight "uri"` | owner `_service._proto` |
 
   The admin key must be granted these types in the zone's `update-policy`

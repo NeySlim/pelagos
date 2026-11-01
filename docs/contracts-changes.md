@@ -148,7 +148,9 @@ after U1-HOSTS: the Alerts page action "Reconcile from <node>" when `details.rec
 `records/plan` refuses a value that does not parse as its type, and a DS at the apex, with
 `400 validation_error` per field (was a failed plan, `422`): the desired state RRset verbs follow,
 their daemon test now expects `400`. New message keys `rrset.ds_apex`, `rrset.ds_no_delegation`,
-`rrset.ns_keeps_ds`, `rrset.singleton`, `rrset.dname_below`, `rrset.under_dname`.
+`rrset.ns_keeps_ds`, `rrset.singleton`, `rrset.dname_below`, `rrset.under_dname`, `rrset.dname_ns`,
+`rrset.ds_below_cut`. An SVCB for DNS (`_dns` owner) without `alpn`, or `h2`/`h3` without
+`dohpath`, is a `400` too, as named refuses it.
 `finding.update_types_narrow.risk` no longer names NS and CAA. Installer grants and the editor's
 `EDITABLE_TYPES` follow the tuple; the test fixture `named.py` keeps its 0.3 grant (tests widen it).
 

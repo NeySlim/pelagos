@@ -252,3 +252,51 @@ def test_settled_and_departed_records_are_pruned_at_the_next_write(pair):
     assert kea_files.stale(pair.ctx.cluster()) == {f"kea4:{pair.n1}:{N2}"}
     pair.subnet_plan(44)
     assert pair.records() == []
+
+
+def test_kea_partials_survive_an_older_node(pair):
+    """Mixed versions (section 10): an older node reads cluster.toml through its TOML text, drops
+    `kea_partials`, never tombstones it, hashes like `digest(without=["kea_partials"])`, and a
+    merge back gives the record of the real shape (plans list, settled_by table) unchanged."""
+    import tomllib
+
+    from pelagos.core.config_store import ClusterConfig, merge_configs
+    from tests.unit.core.test_cluster_merge import _base, _write
+    from tests.unit.core.test_cluster_merge_collections import _seen_by_older, older_node
+
+    _partial(pair)
+    kea_files.settle(pair.ctx.config_store, Engine.KEA4, pair.n1, N2, "R1", "test")
+    (record,) = pair.records()
+    assert isinstance(record["plans"], list) and isinstance(record["settled_by"], dict)
+    new = _write(_base(), "A", lambda c: c.collection(kea_files.COLLECTION).append(copy.deepcopy(record)))
+    old = _seen_by_older(new, kea_files.COLLECTION)
+    assert old.digest() == new.digest(without=[kea_files.COLLECTION])
+    with older_node(kea_files.COLLECTION):
+        old = _write(old, "B", lambda c: c.secrets.__setitem__("tsig/other", "enc:v1:b"))
+        text = old.dumps()
+    raw = tomllib.loads(text)
+    assert kea_files.COLLECTION not in raw
+    assert not [p for p in raw["replication"]["tombstones"] if p.startswith(f"{kea_files.COLLECTION}/")]
+    back = merge_configs(new, ClusterConfig.from_toml(tomllib.loads(text)))
+    assert back.collection(kea_files.COLLECTION) == [record]
+    assert ClusterConfig.from_toml(tomllib.loads(back.dumps())).collection(kea_files.COLLECTION) == [record]
+
+
+@pytest.mark.parametrize(
+    ("after", "narrows"),
+    [
+        ({"id": 2, "subnet": "192.0.4.0/24"}, True),
+        ({"id": 2, "subnet": "192.0.4.0/24", "ddns": {}}, True),
+        ({"id": 2, "subnet": "192.0.4.0/24", "ddns": {"ddns-send-updates": False}}, False),
+        ({"id": 2, "subnet": "192.0.4.0/24", "ddns-generated-prefix": "host"}, False),
+    ],
+)
+def test_narrowable_looks_at_ddns_keys_of_subnets(after, narrows):
+    plan = Plan(
+        scope=PlanScope.DHCP_SUBNET,
+        node_id="n1",
+        summary="s",
+        engine=Engine.KEA4,
+        changes=[Change(ChangeOp.ADD, "subnet4/2", after=after)],
+    )
+    assert kea_files.narrowable(plan) is narrows

@@ -305,3 +305,271 @@ def test_without_partial_every_node_answers_as_before(pair):
 
 def test_job_scopes_are_the_store_no_rollback_scopes():
     assert plan_service.JOB_SCOPES is NO_ROLLBACK_SCOPES
+
+
+# Merge review fixes -------------------------------------------------------------------------------
+
+
+def _peer_app(pair: Pair, tmp_path, record_for_n2: bool = True):
+    """The /repl/v1 app of node 2 with its own cluster.toml (which already holds a record this node
+    has not received), behind a real ReplicationClient and the real PeerGateway verdict."""
+    import dataclasses
+    import shutil
+
+    from pelagos.core.audit_log import AuditLog
+    from pelagos.core.config_store import ConfigStore
+    from pelagos.core.registry import ConnectorRegistry as CoreRegistry
+    from pelagos.core.replication import ReplicationApp, ReplicationClient
+    from pelagos.services import kea_files
+    from pelagos.services.peers import PeerGateway
+
+    root = tmp_path / "peer"
+    root.mkdir()
+    cluster = root / "cluster.toml"
+    shutil.copy(pair.ctx.paths.cluster_toml, cluster)
+    store = ConfigStore(pair.ctx.paths.node_toml, cluster, root / "cluster.lock")
+    if record_for_n2:
+        row = {
+            "id": kea_files.record_id(Engine.KEA4, "N9", N2),
+            "engine": "kea4",
+            "source_node_id": pair.n1,
+            "target_node_id": N2,
+            "since": "2026-11-01T10:00:00Z",
+            "last_applied_at": "2026-11-01T10:00:00Z",
+            "plans": [
+                {"plan_id": "P0", "applied_at": "2026-11-01T10:00:00Z", "created_by": "a", "summary": "s"}
+            ],
+            "plan_count": 1,
+        }
+        row["id"] = kea_files.record_id(Engine.KEA4, pair.n1, N2)
+        store.update_collection(kea_files.COLLECTION, lambda rows: rows.append(row), "test")
+    registry = CoreRegistry(N2)
+    registry.register(Engine.KEA4, pair.k2)
+    node = dataclasses.replace(pair.ctx.node, id=N2, name="ns2")
+    app = ReplicationApp(node, store, AuditLog(root / "audit.jsonl"), registry=registry)
+    peer = pair.gateway.peer(N2)
+    client = ReplicationClient(peer, None)  # type: ignore[arg-type]
+
+    def call(method: str, path: str, body=None, *args, **kwargs):
+        assert (method, path) == ("POST", "/plans/preflight")
+        return app._preflight(body)[1]
+
+    client._call = call  # type: ignore[method-assign]
+    gateway = PeerGateway(pair.ctx)
+    gateway._client_with_timeout = lambda peer, timeout: client  # type: ignore[method-assign]
+    pair.gateway.preflight_verdict = gateway.preflight_verdict  # type: ignore[method-assign]
+    return app
+
+
+def test_peer_reconcile_required_code_is_reconcile_required_here(pair, tmp_path):
+    """A plan built while ns2 was away, applied after its return, when only ns2 already holds the
+    record: the peer's preflight code, through ReplicationApp and the real gateway verdict."""
+    plan = pair.subnet_plan()
+    _peer_app(pair, tmp_path)
+    assert pair.records() == []
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(plan, "admin", True)
+    assert exc.value.code == "reconcile_required"
+    assert exc.value.extra["divergences"][0]["node_id"] == N2
+    assert plan.state is PlanState.VALIDATED and pair.k1.applied == []
+
+
+def test_peer_reconcile_required_uses_the_local_record_when_there_is_one(pair, tmp_path):
+    plan = pair.subnet_plan()
+    _peer_app(pair, tmp_path)
+    # The local copy arrives between the build and the apply's own check: it still names the plans.
+    pair.plans.kea = {}  # no local check: only the peer's code can stop it
+    from pelagos.services import kea_files
+
+    row = {
+        "id": kea_files.record_id(Engine.KEA4, pair.n1, N2),
+        "engine": "kea4",
+        "source_node_id": pair.n1,
+        "target_node_id": N2,
+        "since": "2026-11-01T10:00:00Z",
+        "last_applied_at": "2026-11-01T10:00:00Z",
+        "plans": [{"plan_id": "P7", "applied_at": "2026-11-01T10:00:00Z", "created_by": "a", "summary": "s"}],
+        "plan_count": 1,
+    }
+    pair.ctx.config_store.update_collection(kea_files.COLLECTION, lambda rows: rows.append(row), "test")
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(plan, "admin", True)
+    assert exc.value.code == "reconcile_required"
+    assert exc.value.extra["divergences"][0]["plan_ids"] == ["P7"]
+
+
+def test_a_peer_without_a_record_lets_the_plan_through_the_real_verdict(pair, tmp_path):
+    plan = pair.subnet_plan()
+    _peer_app(pair, tmp_path, record_for_n2=False)
+    assert pair.plans.apply(plan, "admin", True).state is PlanState.APPLIED
+
+
+def _subnet_change_plan(pair: Pair, after: dict, before: dict | None = None) -> Plan:
+    op = ChangeOp.REPLACE if before is not None else ChangeOp.ADD
+    plan = Plan(
+        scope=PlanScope.DHCP_SUBNET,
+        node_id=pair.n1,
+        summary="subnet",
+        engine=Engine.KEA4,
+        changes=[Change(op, "subnet4/2", before=before, after=after)],
+        target_node_ids=[pair.n1, N2],
+    )
+    plan.state = PlanState.VALIDATED
+    return pair.ctx.plan_store.put(plan)
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        (None, {"id": 2, "subnet": "192.0.4.0/24", "ddns": {"ddns-send-updates": False}}),
+        (None, {"id": 2, "subnet": "192.0.4.0/24", "ddns-qualifying-suffix": "x.example.lan."}),
+        (
+            {"id": 2, "subnet": "192.0.4.0/24", "ddns": {"ddns-send-updates": True}},
+            {"id": 2, "subnet": "192.0.4.0/24", "ddns": {"ddns-send-updates": False}},
+        ),
+        (
+            {"name": "office", "subnet4": [{"id": 3, "ddns-override-client-update": True}]},
+            {"name": "office", "subnet4": [{"id": 3}]},
+        ),
+    ],
+)
+def test_subnet_plans_that_change_ddns_keys_do_not_narrow(pair, before, after):
+    plan = _subnet_change_plan(pair, after, before)
+    pair.away(N2)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(plan, "admin", True, partial=True)
+    assert exc.value.code == "preflight_failed"
+    assert not plan.partial and pair.k1.applied == []
+
+
+def test_subnet_plan_keeping_its_ddns_keys_still_narrows(pair):
+    keep = {"id": 2, "subnet": "192.0.4.0/24", "ddns": {"ddns-send-updates": True}}
+    plan = _subnet_change_plan(pair, {**keep, "valid-lifetime": 900}, keep)
+    pair.away(N2)
+    assert pair.plans.apply(plan, "admin", True, partial=True).state is PlanState.APPLIED
+    assert plan.skipped_node_ids == [N2]
+
+
+ENGINE_OF = {"dhcp": Engine.KEA4, "dns": Engine.BIND, "d2": Engine.D2}
+
+
+def _plan_of(pair: Pair, scope: PlanScope, confirm_needed: bool) -> Plan:
+    engine = ENGINE_OF.get(scope.value.split(".")[0])
+    plan = Plan(
+        scope=scope,
+        node_id=pair.n1,
+        summary=scope.value,
+        engine=engine,
+        changes=[
+            Change(ChangeOp.REPLACE, "subnet4/2" if engine is Engine.KEA4 else "x", before={}, after={})
+        ],
+        target_node_ids=[pair.n1, N2],
+        requires_confirmation=confirm_needed,
+    )
+    plan.state = PlanState.VALIDATED
+    return pair.ctx.plan_store.put(plan)
+
+
+@pytest.mark.parametrize("scope", list(PlanScope))
+def test_every_scope_keeps_its_non_partial_apply(pair, scope):
+    """PLAN.md section 9 non-regression: without `partial`, every scope keeps its confirmation and
+    its preflight; only the narrowable Kea configuration scopes say node_unreachable, and no plan
+    is ever marked partial."""
+    from pelagos.services import kea_files
+
+    plan = _plan_of(pair, scope, confirm_needed=True)
+    with pytest.raises(PlanError) as needs:
+        pair.plans.apply(plan, "admin", False)
+    assert needs.value.code == "confirmation_required"
+
+    pair.away(N2)
+    plan = _plan_of(pair, scope, confirm_needed=False)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(plan, "admin", True)
+    narrowable = kea_files.narrowable(plan)
+    assert narrowable == (scope in kea_files.NARROWABLE_SCOPES)
+    assert (exc.value.code == "node_unreachable") is narrowable, (scope, exc.value.code)
+    stored = pair.ctx.plan_store.get(plan.id)
+    assert not stored.partial and stored.skipped == [] and stored.skipped_node_ids == []
+    assert stored.target_node_ids == [pair.n1, N2] and stored.state is PlanState.VALIDATED
+    assert pair.k1.applied == [] and pair.records() == []
+
+
+def test_refusals_leave_the_stored_plan_as_built(pair):
+    pair.add_old_bind_node()
+    plan = pair.subnet_plan()
+    pair.away(N2)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(plan, "admin", True, partial=True)
+    assert exc.value.code == "collection_unavailable"
+    stored = pair.ctx.plan_store.get(plan.id)
+    assert stored.target_node_ids == [pair.n1, N2] and not stored.partial and stored.impact == []
+    assert ConfirmationReason.PARTIAL_APPLY.value not in stored.requires_confirmation_reasons
+
+
+def _kea6_partner(pair: Pair, in_touch: bool):
+    from pelagos.domain import Family
+    from pelagos.services.dhcp_service import DhcpService
+    from tests.unit.services.fakes import FakeDhcpBackend, fake_context
+
+    k6 = FakeDhcpBackend(fake_context(pair.n1, "kea6"), family=Family.V6, node_id=pair.n1)
+    k6.ha.partner.communication_interrupted = not in_touch  # type: ignore[union-attr]
+    k6.config["hooks-libraries"] = pair.k1.config["hooks-libraries"]
+    dhcp6 = DhcpService(pair.ctx, Family.V6, k6, pair.gateway)
+    pair.plans.kea[Engine.KEA6] = dhcp6
+    pair.plans.registry.kea6 = k6  # type: ignore[attr-defined]
+    return k6
+
+
+@pytest.mark.parametrize("kea6_first", [False, True])
+def test_kea4_and_kea6_parts_need_the_partner_lost_on_both_engines(pair, kea6_first):
+    _kea6_partner(pair, in_touch=True)
+    v4 = pair.subnet_plan()
+    v6 = Plan(
+        scope=PlanScope.DHCP_SUBNET,
+        node_id=pair.n1,
+        summary="v6",
+        engine=Engine.KEA6,
+        changes=[Change(ChangeOp.ADD, "subnet6/9", after={"id": 9, "subnet": "2001:db8:9::/64"})],
+        target_node_ids=[pair.n1, N2],
+    )
+    top = Plan(scope=PlanScope.HOST, node_id=pair.n1, summary="host", target_node_ids=[pair.n1, N2])
+    top.state = PlanState.VALIDATED
+    pair.ctx.plan_store.put(top)
+    pair.plans.register_composite(top, [v6, v4] if kea6_first else [v4, v6])
+    pair.away(N2)  # the kea4 partner is lost, the kea6 one still in touch
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(top, "admin", True, partial=True)
+    assert exc.value.code == "node_unreachable" and exc.value.extra["partial_allowed"] is False
+    assert exc.value.extra["nodes"] == [{"node_id": N2, "reason": "ha_partner_in_touch"}]
+
+
+def test_a_part_that_does_not_narrow_after_a_narrowable_one_is_preflight_failed(pair):
+    reservation = pair.subnet_plan()
+    lease = _manual(pair, PlanScope.DHCP_LEASE)
+    top = Plan(scope=PlanScope.HOST, node_id=pair.n1, summary="host", target_node_ids=[pair.n1, N2])
+    top.state = PlanState.VALIDATED
+    pair.ctx.plan_store.put(top)
+    pair.plans.register_composite(top, [reservation, lease])
+    pair.away(N2)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.apply(top, "admin", True, partial=True)
+    assert exc.value.code == "preflight_failed" and "ns2" in exc.value.detail
+
+
+def test_no_local_kea_never_skips_a_node(pair):
+    from pelagos.domain import Family
+    from pelagos.services.dhcp_service import DhcpService
+
+    assert DhcpService(pair.ctx, Family.V4, None, pair.gateway).partner_state(N2) == "in_touch"
+
+
+def test_rollback_of_a_plan_evicted_from_its_record_says_so(pair):
+    pair.away(N2)
+    first = pair.subnet_plan(100)
+    pair.plans.apply(first, "admin", True, partial=True)
+    for i in range(50):
+        pair.plans.apply(pair.subnet_plan(101 + i), "admin", True, partial=True)
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(first, "admin")
+    assert exc.value.code == "plan_state" and "50 newer partial plans" in exc.value.detail

@@ -1965,6 +1965,12 @@ ha_transition_days = 365
 alerts_resolved_days = 90
 backups_days = 90
 lease_history_days = 90
+neighbor_observation_days = 30          # IPv4 neighbors (section 27)
+
+[settings.discovery]                     # section 27, IPv4 neighbors; module discovery
+ipv4_enabled = true
+poll_seconds = 300                       # also the DHCPv6 lease walk (was ipv6.poll_seconds)
+unknown_after_minutes = 60
 
 [settings.rpz]                           # section 21
 check_seconds = 300

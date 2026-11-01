@@ -108,8 +108,9 @@ a stopped Kea. `plan_service.JOB_SCOPES` is now `core.plans.NO_ROLLBACK_SCOPES`.
 handles `409 node_unreachable` itself (its own "apply only on the reachable nodes" box when the
 caller passes no `partialOption`, only when `partial_allowed`) and sends `{partial: true}` through
 `applyFn(id, confirm, extra)`. Desired state verbs never apply in part. Debt closed: `409 collection_unavailable`, promised by
-F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table (`problem.collection_unavailable`). WP-FRONTEND: the Alerts page
-offers "Reconcile from <node>" when `details.reconcile` is present.
+F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table (`problem.collection_unavailable`). Pending, WP-FRONTEND
+after U1-HOSTS: the Alerts page action "Reconcile from <node>" when `details.reconcile` is present
+(the route, `api.dhcp.reconcilePlan` and the mock exist; the action itself is not built yet).
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains

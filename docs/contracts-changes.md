@@ -79,6 +79,26 @@ node; a `401` already leads to the login page). Optional hardening: on `403 csrf
 E2-SSO-OIDC: opens its sessions through `_open_session`; with `SameSite=Strict` the cookie is not
 sent on the cross-site redirect to the callback, so the OIDC state and PKCE verifier cannot depend
 on it. E3-KEYROT: re-seals the secret and adds `pelagos secrets rotate auth/session_signing`.
+
+## 2026-11-01, B1-KEAOFFLINE (WP-API-AUTH, WP-COLLECTOR, WP-FRONTEND): partial apply of Kea plans
+Additive. `domain.plan.Plan` gains `partial` (`false`) and `skipped_node_ids` (`[]`), also in
+`PlanSummary`; `ConfirmationReason` gains `partial_apply` and `reconcile`. `POST /plans/{id}/apply`
+accepts `"partial": true` (with `"confirm": true`): unreachable peers of a Kea configuration part
+are dropped from its targets at the preflight, the rest applies (section 6, "Partial apply"). New
+code `409 node_unreachable` (`node_ids`, `node_names`, `partial_allowed`) where such a plan answered
+`409 preflight_failed` before; every other preflight refusal is unchanged. The expected divergence
+lives in `/var/lib/pelagos/kea_partial.json` (`services.kea_files`), the `<engine>:config-hash`
+`config_divergence` alert opens at once with details `expected_from_plan` and `reconcile`, merged
+across copies by `core.cluster_alerts.merge_copies`; Kea plans to a reachable node still waiting for
+reconciliation answer `409 config_divergence` with `reconcile`. New route `POST
+/dhcp/{family}/config/reconcile/plan` (`write:dhcp.config`), a whole-configuration replace of the
+target built with `collector.kea_shared.shared_overlay` (section 9). `plan_service.JOB_SCOPES` is now
+`core.plans.NO_ROLLBACK_SCOPES`. `PlanPreview` handles `409 node_unreachable` itself (its own
+"apply only on the reachable nodes" box when the caller passes no `partialOption`) and sends
+`{partial: true}` through `applyFn(id, confirm, extra)`. Older peers drop the new plan fields; an
+older UI shows `node_unreachable` as a generic refusal. WP-FRONTEND: the Alerts page offers
+"Reconcile from <node>" when `details.reconcile` is present.
+
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains
 `rollback_until` (optional, `null` by default; a 0.3.x peer drops unknown keys in

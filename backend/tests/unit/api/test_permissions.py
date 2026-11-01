@@ -34,6 +34,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/nodes/replication", "/nodes/replication", None, "read:nodes"),
     ("GET", "/nodes/<string:node_id>", "/nodes/unknown", None, "read:nodes"),
     ("POST", "/nodes/enroll-token", "/nodes/enroll-token", {}, "admin:nodes"),
+    ("PATCH", "/nodes/<string:node_id>", "/nodes/unknown", {"site": "a"}, "admin:nodes"),
     ("DELETE", "/nodes/<string:node_id>", "/nodes/unknown", None, "admin:nodes"),
     ("POST", "/nodes/<string:node_id>/sync", "/nodes/unknown/sync", None, "admin:nodes"),
     ("GET", "/dashboard/summary", "/dashboard/summary", None, ANY),

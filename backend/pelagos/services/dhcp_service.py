@@ -1587,7 +1587,10 @@ class DhcpService:
                 else:
                     snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine) or {}
                     caps = DhcpCapabilities.from_dict(snap["capabilities"])
-                if not caps.ha or (changes and command_path_available(changes, caps)):
+                if not caps.ha:
+                    continue
+                # B1-KEACOMMENTS: the command path adds a config-set when the file has comments to copy.
+                if changes and command_path_available(changes, caps) and not self._copies_comments(node_id):
                     continue
                 timers = _ha_timers(self.live_config(node_id))
             except Exception as exc:
@@ -1603,6 +1606,16 @@ class DhcpService:
             )
             out.append(kea_files.impact_item("ha_restart", message))
         return out
+
+    def _copies_comments(self, node_id: str) -> bool:
+        """The node's Kea file has comments and no include: its next config-write copies them."""
+        if node_id == self.ctx.node.id:
+            items = kea_files.status(None, self.engine, node_id, self._local())
+            item = items[0] if items else None
+        else:
+            snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine, "file") or {}
+            item = snap.get("file")
+        return isinstance(item, dict) and not item.get("includes") and bool(item.get("comments"))
 
     def plan_reconcile(self, body: dict[str, Any], created_by: str) -> Plan:
         """Copy the shared view of `source_node_id` onto `target_node_id` (section 9)."""

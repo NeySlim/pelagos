@@ -29,6 +29,7 @@ import { leaseHistoryHandlers } from './leaseHistory.mjs'
 import { desiredHandlers } from './desired.mjs'
 import { updatesHandlers } from './updates.mjs'
 import { searchHandlers } from './search.mjs'
+import { keaOfflineHandlers, partialApply } from './keaOffline.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
 import { tokenHandlers } from './tokens.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
@@ -74,6 +75,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/ddns/plan': 'write:dhcp.options', 'POST /dhcp/{family}/hooks/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/adopt/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/adopt/plan': 'write:dhcp.config',
+  'POST /dhcp/{family}/config/reconcile/plan': 'write:dhcp.config',
   'GET /hosts': 'read:hosts', 'GET /hosts/{key}': 'read:hosts', 'POST /hosts/plan': 'write:hosts',
   'GET /hosts/{key}/timeline': 'read:hosts',
   'GET /alerts': 'read:alerts', 'GET /alerts/summary': 'read:alerts', 'POST /alerts/{id}/ack': 'write:alerts',
@@ -287,6 +289,7 @@ const TITLES = {
   conflict: 'Conflict', precondition_failed: 'Precondition failed', plan_expired: 'Plan expired', plan_state: 'Plan state',
   confirmation_required: 'Confirmation required', rate_limited: 'Too many requests', not_supported: 'Not supported',
   engine_validation_failed: 'Engine validation failed', internal_error: 'Internal error',
+  node_unreachable: 'A target node is offline', reconcile_required: 'A target node waits for reconciliation',
 }
 
 // ------------------------------------------------------------------ helpers
@@ -2419,6 +2422,8 @@ function buildHandlers(state, emit) {
         if (!body.password) throw invalid('password', 'the password of the user is required')
         if (state.users.find((u) => u.id === user.id)?.password !== body.password) throw new Problem(401, 'invalid_credentials', 'password is wrong')
       }
+      // B1-KEAOFFLINE: an offline target answers node_unreachable, or the plan narrows with partial.
+      partialApply(state, state.plans.get(params.id)?.plan, body, Problem)
       const pace = state.applyNodeMs || 0
       const job = Boolean(state.plans.get(params.id)?.job)
       const queued = []
@@ -2845,6 +2850,8 @@ function buildHandlers(state, emit) {
     ...desiredHandlers(state, { Problem, invalid, notFound, findZone, absName, applyPlan, configHash, emit, hasPermission, call: (spec, args) => handlers[spec](args) }),
     // F0-PLANS
     ...plansHandlers(state, { Problem, invalid, hasPermission, emit }),
+    // B1-KEAOFFLINE
+    ...keaOfflineHandlers(state, { invalid, createPlan, Problem }),
   }
   return handlers
 }

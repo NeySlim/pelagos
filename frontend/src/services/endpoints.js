@@ -141,6 +141,7 @@ export const ENDPOINTS = [
   'POST /dhcp/{family}/config/plan',
   'GET /dhcp/{family}/config/file',
   'POST /dhcp/{family}/config/adopt/plan',
+  'POST /dhcp/{family}/config/reconcile/plan',
   'GET /dhcp/d2/servers',
   'GET /dhcp/d2/stats',
   'GET /dhcp/d2/config',

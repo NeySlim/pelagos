@@ -149,6 +149,7 @@ const BODIES = {
   'POST /dhcp/{family}/ops': { command: 'status-get' },
   'POST /dhcp/d2/ops': { command: 'status-get' },
   'POST /dhcp/{family}/config/adopt/plan': { source: 'running' },
+  'POST /dhcp/{family}/config/reconcile/plan': { source_node_id: '01JB0000000000000000NS1AAA', target_node_id: '01JB0000000000000000NS2BBB' },
   'POST /dhcp/d2/config/adopt/plan': { source: 'file' },
   'POST /hosts/plan': { hostname: 'printer2', ip: '192.0.2.43', mac: '02:00:5e:00:aa:01', zone: 'example.lan', reservation: true, subnet_id: 1 },
   'POST /plans/{id}/apply': { confirm: true },

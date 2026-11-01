@@ -165,6 +165,8 @@ export const dhcp = {
   configFile: (family) => apiClient.get(`/dhcp/${family}/config/file`),
   // node_id: the node that holds the file (default this node); a peer builds its own plan.
   adoptPlan: (family, source, node_id) => apiClient.post(`/dhcp/${family}/config/adopt/plan`, { source, ...(node_id ? { node_id } : {}) }),
+  // B1-KEAOFFLINE: copy the shared view of one HA server onto another (section 9).
+  reconcilePlan: (family, source_node_id, target_node_id) => apiClient.post(`/dhcp/${family}/config/reconcile/plan`, { source_node_id, target_node_id }),
 }
 
 export const d2 = {

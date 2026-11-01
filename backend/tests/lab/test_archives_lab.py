@@ -6,7 +6,8 @@ share mounted on both nodes, and a webhook receiver for the notifications.
 Everything goes through the API of the deb built from this checkout (installed with dpkg): the cluster
 identity shown once, an operator key, the four destinations (peer, NFS, SMB, SFTP pinned by its host
 key fingerprint), runs, the merged list, the test restore, retention over backdated copies, damaged
-copies, an online restore of a zone and of the Kea configuration by plan with its rollback, the
+copies, the key test that scheduling waits for, `pelagos restore --verify` on a copy (no root, the node
+untouched), an online restore of a zone and of the Kea configuration by plan with its rollback, the
 archive_failed and archive_stale alerts reaching a webhook channel, and a short Playwright pass on the
 Backups screen. Last, ns2 is lost (packages purged, every engine and Pelagos file removed) and rebuilt
 with `pelagos restore` from the copy ns1 holds: it comes back with its identity, Kea HA and zone
@@ -417,6 +418,26 @@ class TestArchivesLab:
         kinds = sorted(r["kind"] for r in overview()["recipients"])
         assert kinds == ["cluster", "operator"]
 
+    def test_03b_schedule_waits_for_a_tested_key(self):
+        # 0.4.0: no schedule before an operator proves a private key opens the archives.
+        with pytest.raises(ApiError) as exc:
+            api().call("PUT", "/admin/archives/settings", {"schedule_enabled": True})
+        assert exc.value.status == 409 and exc.value.body["code"] == "archive_key_unverified", exc.value.body
+        cluster = next(r for r in overview()["recipients"] if r["kind"] == "cluster")
+        url = f"/admin/archives/keys/{cluster['recipient']}/verify"
+        with pytest.raises(ApiError) as exc:
+            api().post(url, {"identity": STATE["operator_identity"]})
+        assert exc.value.status == 400, exc.value.body
+        out = api().post(url, {"identity": STATE["cluster_identity"]})
+        assert out["recipient"]["verified_at"] and out["checks"][0]["ok"] is True, out
+        seen = json.dumps(api().get("/audit?action=admin.archive.op&per_page=50"))
+        assert STATE["cluster_identity"] not in seen and STATE["operator_identity"] not in seen
+        for host in (A1, A2):
+            logs = ssh(host, "sudo journalctl -u pelagos --since '-10min' --no-pager")[1]
+            assert STATE["cluster_identity"] not in logs
+        api().call("PUT", "/admin/archives/settings", {"schedule_enabled": True})
+        api().call("PUT", "/admin/archives/settings", {"schedule_enabled": False})
+
     def test_04_destinations(self):
         specs = {
             "peer": {"type": "peer", "name": "lab peer", "params": {"node_ids": []}},
@@ -681,6 +702,49 @@ class TestArchivesLab:
         assert code != 0 and "does not match its .sha256" in out + err, (code, out, err)
         ssh(A1, "sudo rm -rf /tmp/b7")
 
+    def test_09b_restore_verify_leaves_the_node_alone(self):
+        # 0.4.0 `pelagos restore --verify`, as the lab user (no root): green on a good copy, red on a
+        # damaged one, and not one byte of /etc/bind, /etc/kea or /var/lib/pelagos changes.
+        meta = STATE["archive:ns2"]
+        ids = node_ids()
+        src = f"{SFTP_DATA}/{ids['ns2']}/{meta['filename']}"
+        for suffix in ("", ".sha256"):
+            raw = subprocess.run(
+                [*ssh_argv(DK), f"sudo cat {src}{suffix}"], capture_output=True, check=True
+            ).stdout
+            ssh(A1, f"install -D -m 0600 /dev/stdin /tmp/b7v/{meta['filename']}{suffix}", data=raw)
+        ssh(
+            A1,
+            "install -m 0600 /dev/stdin /tmp/b7v/identity",
+            data=(STATE["operator_identity"] + "\n").encode(),
+        )
+        digest = (
+            "sudo find /etc/bind /etc/kea /var/lib/pelagos -xdev -type f ! -name '*.jnl' ! -name '*.csv*' "
+            "! -path '*/archives/*' ! -path '*/audit/*' ! -name 'series.sqlite*' -print0 "
+            "| sort -z | sudo xargs -0 sha256sum | sha256sum"
+        )
+        before = ssh(A1, digest)[1]
+        units = ssh(A1, "systemctl is-active named kea-dhcp4-server pelagos")[1]
+        verify = f"pelagos restore --verify /tmp/b7v/{meta['filename']} --identity /tmp/b7v/identity --json"
+        code, out, err = ssh(A1, verify, check=False, timeout=600)
+        report = json.loads(out)
+        assert code == 0 and report["ok"] is True, (code, report, err)
+        checks = {c["what"]: c["ok"] for c in report["checks"]}
+        assert checks["sha256"] and checks["decrypt"] and checks["cluster.toml"] and checks["named-checkconf"]
+        assert any(w.startswith("kea-dhcp4") and ok is not False for w, ok in checks.items()), checks
+        assert report["manifest"]["node_id"] == ids["ns2"]
+        # ns1 is another node: a real restore here would refuse, the check says so and passes.
+        assert any("already node" in h for h in report["host"]), report["host"]
+        flip(A1, f"/tmp/b7v/{meta['filename']}")
+        code, out, _err = ssh(A1, verify, check=False, timeout=600)
+        assert code == 1 and json.loads(out)["ok"] is False, out
+        assert ssh(A1, digest)[1] == before
+        assert ssh(A1, "systemctl is-active named kea-dhcp4-server pelagos")[1] == units
+        assert not ssh(A1, "ls /run/pelagos-restore-* /tmp/pelagos-restore-* 2>/dev/null", check=False)[
+            1
+        ].strip()
+        ssh(A1, "rm -rf /tmp/b7v")
+
     def test_10_online_restore_of_a_zone_and_kea_with_rollback(self):
         meta = newest("ns1")  # holds b7keep, like every archive since test_06
         lifetime = kea(A1, "config-get")["arguments"]["Dhcp4"]["valid-lifetime"]
@@ -765,7 +829,7 @@ class TestArchivesLab:
             "json.dump(d,open(p,'w'))"
         )
         ssh(A1, f"sudo python3 -c {shlex.quote(edit)} {state_file} {old}")
-        api().call("PUT", "/admin/archives/settings", {"schedule_enabled": True})
+        api().call("PUT", "/admin/archives/settings", {"schedule_enabled": True})  # key tested in test_03b
         try:
             wait_for("archive_stale open", lambda: alerts("archive_stale"), timeout=180, interval=5)
             [stale] = alerts("archive_stale")

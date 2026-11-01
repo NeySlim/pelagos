@@ -458,6 +458,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("POST", "/admin/archives/upload", "/admin/archives/upload", {}, "admin:archives"),
     ("POST", "/admin/archives/identity", "/admin/archives/identity", {"op": "generate"}, "admin:archives"),
     (
+        "POST",
+        "/admin/archives/keys/<string:recipient>/verify",
+        "/admin/archives/keys/age1x/verify",
+        {},
+        "admin:archives",
+    ),
+    (
         "GET",
         "/admin/archives/<string:archive_id>/download",
         "/admin/archives/a1/download",

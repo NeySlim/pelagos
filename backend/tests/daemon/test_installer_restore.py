@@ -150,7 +150,9 @@ def _real_checks(kea_root: Path):
     return run
 
 
-def test_offline_rebuild_of_a_signed_zone_and_leases(node_ctx, named_server, kea_dhcp4, tmp_root, monkeypatch):
+def test_offline_rebuild_of_a_signed_zone_and_leases(
+    node_ctx, named_server, kea_dhcp4, tmp_root, monkeypatch
+):
     named, kea = named_server, kea_dhcp4
     zones = named.root / "zones"
     (zones / f"{ZONE}.db").write_text(ZONE_TEXT)

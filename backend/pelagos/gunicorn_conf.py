@@ -24,6 +24,8 @@ bind = _node.get("node", {}).get("web_listen", "0.0.0.0:8443")
 workers = 1  # WebSocket fan-out lives in one process; gevent gives the concurrency.
 worker_class = "pelagos.web_worker.QuietWebSocketWorker"
 worker_connections = 1000
+# gunicorn 26's control socket could add workers at run time, breaking the one-worker rule above.
+control_socket_disable = True
 timeout = 120
 keepalive = 5
 certfile = _tls.get("cert", str(_paths.tls_dir / "server.crt"))

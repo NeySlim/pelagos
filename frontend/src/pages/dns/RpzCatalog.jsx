@@ -15,8 +15,10 @@ import TagsInput from '../../components/ui/TagsInput'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
+import { errorMessage } from '../../services/apiClient'
 import { formatSize } from '../../lib/utils'
 import { RpzCategoryCard } from './RpzCategoryCard'
+import { saveCategoryDrafts } from './rpzSave'
 import {
   ACTIONS,
   STATUS_VARIANT,
@@ -89,7 +91,7 @@ function SubscriptionModal({ open, onClose, onSave, busy }) {
 
 export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
   const { t } = useTranslation(['dns', 'common'])
-  const { showInfo, showSuccess } = useNotification()
+  const { showInfo, showSuccess, showError } = useNotification()
   const tm = useMessage()
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -121,14 +123,22 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
       setBusy(false)
     }
   }
-  // Every changed card is saved, then the last answer carries the one plan for the whole selection.
+  // Every changed card is saved; the last plan carries the whole selection. After a failure the
+  // saved categories stay saved: say which, and show the plan that covers them.
   const saveCategories = () =>
     submit(async () => {
-      let last
-      for (const [id, draft] of Object.entries(drafts)) {
-        last = await (draft.clear ? api.dns.rpzClearCategory(id) : api.dns.rpzSetCategory(id, draft.body))
+      const { plan, saved, failure } = await saveCategoryDrafts(drafts, api)
+      if (failure) {
+        const name = (id) => t(`rpzsub.categories.${id}.name`)
+        showError(
+          t('rpzsub.partialSave', {
+            saved: saved.map(name).join(', ') || t('rpzsub.none'),
+            failed: [failure.failed, ...failure.skipped].map(name).join(', '),
+            error: errorMessage(failure.error),
+          }),
+        )
       }
-      return last
+      return { plan }
     })
   const changed = Object.keys(drafts).length
   const blocked = Object.values(drafts).some((d) => d.blocked)

@@ -678,7 +678,9 @@
     "changedCount_other": "{{count}} categories changed",
     "noChange": "No category changed",
     "saveCategories": "Save the categories",
-    "ramNote": "RAM is the node's memory: named loads the lists into it."
+    "ramNote": "RAM is the node's memory: named loads the lists into it.",
+    "partialSave": "Some categories were not saved. Saved: {{saved}}. Not saved: {{failed}}. {{error}}",
+    "none": "none"
   },
   "orphans": {
     "title": "Orphan PTRs",

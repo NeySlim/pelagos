@@ -111,3 +111,24 @@ test('the policy zones tab keeps the hand-written zones', async ({ page }) => {
   await page.getByRole('button', { name: 'Policy zones' }).click()
   await expect(page.getByTestId('rpz-table')).toContainText('rpz.example.lan.')
 })
+
+test('two changed categories save into one plan and leave no superseded preview', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/dns/rpz')
+  const removed = []
+  page.on('request', (req) => req.method() === 'DELETE' && /\/plans\/[^/]+$/.test(req.url()) && removed.push(req.url()))
+  for (const id of ['social', 'piracy']) {
+    const card = page.getByTestId(`rpz-category-${id}`)
+    if ((await card.getByRole('switch').getAttribute('aria-checked')) !== 'true') await card.getByRole('switch').click()
+  }
+  await expect(page.getByTestId('rpz-categories-footer')).toContainText('2 categories changed')
+  await page.getByTestId('rpz-categories-save').click()
+  const preview = page.getByTestId('plan-preview')
+  await expect(preview).toBeVisible()
+  // The one plan covers both cards: the saved state holds both and nothing is left to plan.
+  expect(removed).toHaveLength(1)
+  await applyPlan(page)
+  await expect(page.getByTestId('rpz-category-social')).toHaveAttribute('data-dirty', 'false')
+  await expect(page.getByTestId('rpz-category-piracy')).toHaveAttribute('data-dirty', 'false')
+  await expect(page.getByTestId('rpz-apply')).toHaveCount(0)
+})

@@ -678,7 +678,9 @@
     "changedCount_other": "{{count}} catégories modifiées",
     "noChange": "Aucune catégorie modifiée",
     "saveCategories": "Enregistrer les catégories",
-    "ramNote": "La RAM est la mémoire du nœud : named y charge les listes."
+    "ramNote": "La RAM est la mémoire du nœud : named y charge les listes.",
+    "partialSave": "Certaines catégories n'ont pas été enregistrées. Enregistrées : {{saved}}. Non enregistrées : {{failed}}. {{error}}",
+    "none": "aucune"
   },
   "orphans": {
     "title": "PTR orphelins",

@@ -259,6 +259,8 @@ class Collector:
 
         # Scheduled archives of this node (section 23); run() moves the builds to their own thread.
         self.archives = ArchiveRunner(ctx, backends, self.backend_lock, clock)
+        # B1-ARCHIVES: the cluster-wide key alert is raised by the service node alone.
+        self.archives.service_node = lambda: self._is_service_node(self.ctx.settings())
         from pelagos.collector.ipv6.observer import Ipv6Observer
 
         # Observed IPv6 addresses (section 27): the node's neighbor table and DHCPv6 leases.

@@ -135,11 +135,11 @@ def key_alert(node_id: str, settings: dict[str, Any], now: datetime) -> Alert | 
 
 
 def archive_alerts(
-    node_id: str, state: RunState, settings: dict[str, Any], now: datetime, first_node: bool = False
+    node_id: str, state: RunState, settings: dict[str, Any], now: datetime, service_node: bool = False
 ) -> list[Alert]:
-    """This node's archive alerts; `first_node` adds the cluster-wide key alert (raised once)."""
+    """This node's archive alerts; `service_node` adds the cluster-wide key alert (raised once)."""
     out: list[Alert] = []
-    key = key_alert(node_id, settings, now) if first_node else None
+    key = key_alert(node_id, settings, now) if service_node else None
     if key is not None:
         out.append(key)
     critical = int(reg.get(settings, "checks.archive_failures_critical_count"))
@@ -405,6 +405,8 @@ class ArchiveRunner:
         self._thread: threading.Thread | None = None
         self._mutex = threading.Lock()
         self._requested: str | None = None
+        # The collector's service-node election (section 22); without it, the first listed node.
+        self.service_node: Callable[[], bool] | None = None
         with self._mutex:
             state = self.store.load_state()
             if state.running:  # a run the previous process did not finish
@@ -425,6 +427,16 @@ class ArchiveRunner:
 
     def _rank(self) -> int:
         return schedule.node_rank(list(self.ctx.cluster().nodes), self.ctx.node.id)
+
+    def _raises_cluster_alerts(self) -> bool:
+        if self.service_node is not None:
+            try:
+                return bool(self.service_node())
+            except Exception:
+                log.exception("service node election failed")
+                return False
+        nodes = list(self.ctx.cluster().nodes)
+        return bool(nodes) and nodes[0].id == self.ctx.node.id
 
     @property
     def running(self) -> bool:
@@ -464,7 +476,7 @@ class ArchiveRunner:
             state = self.store.load_state()
         node_id = self.ctx.node.id
         return PollOutcome(
-            alerts=archive_alerts(node_id, state, settings, now, first_node=self._rank() == 0),
+            alerts=archive_alerts(node_id, state, settings, now, service_node=self._raises_cluster_alerts()),
             kinds=ARCHIVE_KINDS,
             where=lambda a: a.node_id == node_id,
         )

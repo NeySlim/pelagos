@@ -583,9 +583,9 @@ def test_key_alert_until_a_key_is_proven_then_as_a_reminder(node_ctx) -> None:
     held = keys.generate_cluster_identity
     node_ctx.config_store.update_cluster(lambda c: held(c, node_ctx.secrets, by="t"), updated_by="t")
 
-    def kinds(first_node: bool = True) -> list:
+    def kinds(service_node: bool = True) -> list:
         alerts = archives_mod.archive_alerts(
-            node_ctx.node.id, RunState(), node_ctx.settings(), now, first_node
+            node_ctx.node.id, RunState(), node_ctx.settings(), now, service_node
         )
         return [a for a in alerts if a.kind is AlertKind.ARCHIVE_KEY_UNVERIFIED]
 
@@ -596,7 +596,7 @@ def test_key_alert_until_a_key_is_proven_then_as_a_reminder(node_ctx) -> None:
     [alert] = kinds()
     assert alert.severity is Severity.WARNING and alert.subject == "archive:key"
     assert alert.details["verified_at"] is None
-    assert kinds(first_node=False) == []
+    assert kinds(service_node=False) == []
     recipient = keys.encryption_recipients(node_ctx.settings())[0]
     node_ctx.config_store.update_cluster(
         lambda c: keys.mark_verified(c, recipient, by="admin", now=now - timedelta(days=10)), updated_by="t"
@@ -612,3 +612,29 @@ def test_key_alert_until_a_key_is_proven_then_as_a_reminder(node_ctx) -> None:
         lambda c: c.settings["archives"].update(key_reminder_days=0), updated_by="t"
     )
     assert kinds() == []
+
+
+def test_key_alert_follows_the_service_node_election(node_ctx, runner) -> None:
+    node_ctx.config_store.update_cluster(
+        lambda c: keys.generate_cluster_identity(c, node_ctx.secrets, by="t"), updated_by="t"
+    )
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("archives", {}).update(schedule_enabled=True), updated_by="t"
+    )
+
+    def raised() -> bool:
+        return any(a.kind is AlertKind.ARCHIVE_KEY_UNVERIFIED for a in runner.tick().alerts)
+
+    runner.service_node = lambda: True
+    assert raised()
+    runner.service_node = lambda: False
+    assert not raised()
+
+    def broken() -> bool:
+        raise RuntimeError("no election")
+
+    runner.service_node = broken
+    assert not raised()
+    runner.service_node = None
+    listed = [n.id for n in node_ctx.cluster().nodes]
+    assert raised() is (bool(listed) and listed[0] == node_ctx.node.id)

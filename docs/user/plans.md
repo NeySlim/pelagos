@@ -130,6 +130,26 @@ The audit log links each apply and rollback entry to its plan ("View plan"),
 and the "Plan applied" notification offers "View in Plans" next to "Roll back
 plan".
 
+## Applying with a node offline
+
+A Kea configuration plan (subnets, shared networks, reservations, classes,
+options) goes to every node running that engine. When one of them is
+offline, the apply answers that the node is offline and the preview offers
+**Apply only on the reachable nodes**. Ticking it asks for the
+confirmation; the plan then applies on the other nodes and lists the
+skipped ones with the reason (offline, or Kea not running).
+
+A node is skipped only when both Pelagos and Kea agree it is gone: if its
+Pelagos service does not answer but the Kea on this node still talks to it,
+the preview explains that Kea still serves and offers nothing (restart
+Pelagos on that node instead). Plans that touch DDNS keys, hooks, leases,
+HA, the whole configuration or DNS never apply in part.
+
+The skipped node keeps its old configuration until it is reconciled (see
+[DHCP](dhcp.md), "A partner that missed a change"). A partial plan rolls
+back like any other until the reconciliation; after it, the rollback is
+refused: build a new plan.
+
 ## Plans across nodes
 
 A plan built on one node may run on others. Pelagos picks the node that

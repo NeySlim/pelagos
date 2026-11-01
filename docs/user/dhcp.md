@@ -48,6 +48,33 @@ shows each client's.
 - Notes you type are stored in the Kea `user-context` of the object
   (`"pelagos": {"notes": ...}`).
 
+### A partner that missed a change
+
+A plan applied with **Apply only on the reachable nodes** (see
+[Plans](plans.md)) leaves the skipped partner behind. The
+`config_divergence` alert opens at once and names the plans; it is a
+warning while the node is away and turns critical when it comes back still
+behind, because its Kea then rejects the lease updates of a subnet it does
+not have and may terminate the HA relationship. Until it is reconciled,
+Kea plans that target it answer that a reconciliation is needed.
+
+**Reconcile from ns1** (`POST /dhcp/{family}/config/reconcile/plan`,
+`write:dhcp.config`) copies what the HA servers must share (subnets,
+pools, reservations, options, classes, lease settings) from the source
+onto the target, keeping the target's own keys (interfaces, sockets,
+hooks, lease database, DDNS, loggers). The plan says when the target
+changed too and lists what would be overwritten, and what the copy does
+not fix (different hooks, for example). Both servers must run the same
+major Kea version. Applying it reloads Kea on the target: its HA service
+restarts and synchronizes the leases for a few seconds. If the relationship
+terminated meanwhile, repair it afterwards (below).
+
+On the survivor, a partial change made by Kea commands (Kea 3.x with
+`subnet_cmds` and `host_cmds`) does not interrupt DHCP. A change made by
+`config-set` (Kea 2.6, options, global keys) restarts its HA service: it
+serves no DHCP for about `max-response-delay` plus `heartbeat-delay`
+(70 s with the defaults) before taking over alone; the plan says so.
+
 ## Subnets and pools
 
 The subnets of the node read, one full-width table with ID, prefix, shared

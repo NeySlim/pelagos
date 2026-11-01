@@ -87,6 +87,16 @@ def slash_in_zone_name(name: str) -> bool:
     return not (dot and CLASSLESS_LABEL.fullmatch(first) and "/" not in rest)
 
 
+def split_zone_target(target: str, default_view: str = "_default") -> tuple[str, str]:
+    """`view/zone` into (view, zone). Without a view the zone lands in `default_view`; a target
+    whose first label is RFC 2317 (`0/25.2.0.192.in-addr.arpa`) has no view either."""
+    first = target.strip().partition(".")[0]
+    if "/" not in target or CLASSLESS_LABEL.fullmatch(first):
+        return default_view, target
+    view, _, zone = target.partition("/")
+    return view, zone
+
+
 def normalize_name(name: str) -> str:
     """Absolute, lowercase DNS name with a single trailing dot."""
     name = name.strip().lower().rstrip(".")

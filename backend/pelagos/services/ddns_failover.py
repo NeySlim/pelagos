@@ -50,6 +50,7 @@ from pelagos.domain import (
     to_rfc3339,
 )
 from pelagos.domain.common import utcnow
+from pelagos.domain.dns import split_zone_target
 from pelagos.services import kea_files
 from pelagos.services.composite import merge_parts
 from pelagos.services.errors import Conflict, EngineUnavailable, ServiceError, ValidationError, field_error
@@ -620,7 +621,7 @@ class DdnsFailoverService:
         by_key = {s.key: s for s in states}
         out: list[ZoneState] = []
         for i, raw in enumerate(zones):
-            view, _, name = raw.rpartition("/") if "/" in raw else (DEFAULT_VIEW, "", raw)
+            view, name = split_zone_target(raw, DEFAULT_VIEW)
             st = by_key.get(f"{view or DEFAULT_VIEW}/{normalize_name(name)}")
             if st is None:
                 raise ValidationError(
@@ -873,7 +874,7 @@ class DdnsFailoverService:
         by_key = {s.key: s for s in prepared}
         out: list[ZoneState] = []
         for i, raw in enumerate(zones):
-            view, _, name = raw.rpartition("/") if "/" in raw else (DEFAULT_VIEW, "", raw)
+            view, name = split_zone_target(raw, DEFAULT_VIEW)
             st = by_key.get(f"{view or DEFAULT_VIEW}/{normalize_name(name)}")
             if st is None:
                 raise ValidationError(

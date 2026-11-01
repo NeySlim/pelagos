@@ -132,3 +132,18 @@ def test_alert_from_a_newer_version_is_read_not_refused():
     assert alert_id(a.kind, None, "x:1") == alert_id(AlertKind("kind_of_a_newer_version"), None, "x:1")
     with pytest.raises(ValueError):
         AlertKind("")
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("example.lan", ("_default", "example.lan")),
+        ("internal/example.lan", ("internal", "example.lan")),
+        ("0/25.2.0.192.in-addr.arpa", ("_default", "0/25.2.0.192.in-addr.arpa")),
+        ("internal/0/25.2.0.192.in-addr.arpa", ("internal", "0/25.2.0.192.in-addr.arpa")),
+    ],
+)
+def test_split_zone_target_reads_an_rfc2317_first_label_as_a_zone(target, expected):
+    from pelagos.domain.dns import split_zone_target
+
+    assert split_zone_target(target) == expected

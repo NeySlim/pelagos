@@ -370,3 +370,20 @@ def test_zone_operation_without_bind_here_runs_on_the_zone_plans_default_node(pa
     assert isinstance(out, str)
     there = [e for e in pair.b.audit_log.read() if e.user == f"node:{pair.a.node.id}"]
     assert there and "notify" in there[-1].target
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("0/25.2.0.192.in-addr.arpa", "_default/0/25.2.0.192.in-addr.arpa"),
+        ("internal/0/25.2.0.192.in-addr.arpa", "internal/0/25.2.0.192.in-addr.arpa"),
+        ("internal/new.example.lan", "internal/new.example.lan"),
+        ("new.example.lan", "_default/new.example.lan"),
+    ],
+)
+def test_zone_target_without_a_view_lands_in_the_default_view(pair, target, expected):
+    dns = DnsService(pair.a, None, pair.gateway)
+    name = expected.partition("/")[2]
+    after = {"name": name, "kind": "primary", "ns": ["ns1.example.net."]}
+    plan = dns.plan_zone({"op": "add", "target": target, "after": after}, "alice", None, pair.b.node.id)
+    assert plan.changes[0].target.rstrip(".") == expected

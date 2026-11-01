@@ -36,7 +36,7 @@ from pelagos.domain import (
     messages,
     normalize_name,
 )
-from pelagos.domain.dns import NO_RECORD_KINDS, ZoneRole, slash_in_zone_name, zone_role
+from pelagos.domain.dns import NO_RECORD_KINDS, ZoneRole, slash_in_zone_name, split_zone_target, zone_role
 from pelagos.services.dns_extras import DnsExtras, zone_mode
 from pelagos.services.errors import (
     EngineUnavailable,
@@ -644,10 +644,10 @@ class DnsService(DnsExtras):
         node that holds the zone (default: this node, else the first node running BIND); a peer
         builds the plan itself over the replication channel."""
         change = parse_change(raw, "change")
-        if "/" not in change.target:
-            change.target = f"_default/{change.target}"
+        view, zone = split_zone_target(change.target)
+        change.target = f"{view}/{zone}"
         apply_key_defaults(change, self.ctx.settings())
-        check_zone_name(change.target.partition("/")[2])
+        check_zone_name(zone)
         owner = self.zone_owner(node_id)
         if change.op is ChangeOp.DELETE and not node_ids:
             # Whichever node holds the primary, its Pelagos secondaries lose their copy with it.

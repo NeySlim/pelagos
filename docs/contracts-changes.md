@@ -55,10 +55,12 @@ true, cluster-wide). Responses may carry a refreshed cookie; `POST /auth/passwor
 secret when a node is removed. `auth/recovery.py`: only `reset-password` ends open sessions.
 `docs/user/operations.md`: supported load balancer topology. A 0.3.x node answers a 0.4.0 cookie
 `401` and keeps the secret as a plain entry.
-Dependency on the audit log (B1-AUDIT, not started): `Revocations` reads the entries of the last
-`auth.session_ttl_seconds` with `AuditLog.query(since=, action=)` at process start and follows the
-live file with `AuditLog.scan(offset, inode, needle)`; a rotation of the log must keep both working
-(the TTL window may span a sealed segment).
+Dependency on the audit log (B1-AUDIT, not merged): `Revocations` rebuilds from the entries of the
+last `auth.session_ttl_seconds` with `AuditLog.query(since=, action=)` (one function,
+`Revocations._recent`) at process start and whenever the live file changes inode or shrinks, and
+follows it with `AuditLog.scan(offset, inode, needle)` otherwise; never a scan from offset 0. When
+B1-AUDIT lands (sealed yearly segments), `_recent` switches to `AuditLog.tail(since=now - TTL)`;
+`query` already covers segments in its contract, so the rebuild stays correct across a rotation.
 WP-FRONTEND: nothing required (the CSRF token from login or `GET /auth/session` stays valid on every
 node; a `401` already leads to the login page). Optional hardening: on `403 csrf_failed`, read
 `GET /auth/session` once and replay (the token changes when the secret was replaced).

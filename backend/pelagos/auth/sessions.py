@@ -409,19 +409,16 @@ class Revocations:
         with self._lock:
             now = now or utcnow()
             self.ttl = sessions.ttl.total_seconds()
-            if self._offset is None:
-                try:
-                    st = audit_log.path.stat()
-                    self._offset, self._inode = st.st_size, st.st_ino
-                except FileNotFoundError:
-                    self._offset, self._inode = 0, None
+            try:
+                st = audit_log.path.stat()
+            except FileNotFoundError:
+                st = None
+            if self._offset is None or st is None or st.st_ino != self._inode or st.st_size < self._offset:
+                # Start, or the file was rotated or replaced: rebuild from the last TTL of the log.
+                self._offset, self._inode = (st.st_size, st.st_ino) if st else (0, None)
                 entries = list(self._recent(audit_log, now))
             else:
-                try:
-                    st = audit_log.path.stat()
-                except FileNotFoundError:
-                    return
-                if st.st_size == self._offset and st.st_ino == self._inode and not self._due(now):
+                if st.st_size == self._offset and not self._due(now):
                     return
                 entries, self._offset, self._inode = audit_log.scan(self._offset, self._inode, SCAN_NEEDLE)
             for entry in entries:
@@ -443,6 +440,8 @@ class Revocations:
         return due
 
     def _recent(self, audit_log: Any, now: datetime) -> Iterable[Any]:
+        """The rebuild, in one place: query(since) through the (ts, id) index; it becomes
+        AuditLog.tail(since) once the log rotates into sealed segments (B1-AUDIT)."""
         since = now - timedelta(seconds=self.ttl)
         for prefix in _WATCHED:
             page = 1

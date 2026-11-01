@@ -3103,9 +3103,13 @@ revocation therefore applies to the next request, with no delay. At process star
 of the last `auth.session_ttl_seconds` through `AuditLog.query(since=...,
 action="auth.")` and `action="admin."` (the `(ts, id)` index: merged entries
 are appended out of `ts` order), then follows the file with
-`AuditLog.scan` from its size at that moment, needle `"action":"a` (the
+`AuditLog.scan` from its size at that moment (a replaced or rotated file,
+new inode or smaller size, triggers the same rebuild rather than a scan from
+the start), needle `"action":"a` (the
 fixed key order of section 11 makes it select `auth.*`, `admin.*`,
-`alert.*`, `archive.*` in one pass; then filtered by action). It applies
+`alert.*`, `archive.*` in one pass; then filtered by action). The rebuild is
+one function (`Revocations._recent`); once the log rotates into sealed
+segments (B1-AUDIT) it reads `AuditLog.tail(since=now - TTL)`. It applies
 `REVOCATION_RULES`:
 
 | Entry | Effect |

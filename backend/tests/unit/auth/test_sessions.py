@@ -423,3 +423,16 @@ def test_copy_of_a_cookie_older_than_the_last_reissue_is_refused():
     s.issued_at = utcnow() + timedelta(seconds=1)  # re-issued (password change)
     new, _ = store.cookie(s)
     assert store.get(old) is None and store.get(new) is s
+
+
+def test_rotated_log_is_rebuilt_not_followed_from_zero(log, cluster):
+    """A replaced audit file (rotation) triggers the rebuild through query(since), not a scan."""
+    store, rev = SessionStore(), Revocations()
+    rev.refresh(log, cluster, store)
+    h = session_handle("rotated")
+    log.merge([entry("auth.logout", "user:alice", {"session": h.hex()})])
+    rotated = log.path.with_name("audit-old.jsonl")
+    log.path.rename(rotated)
+    log.path.write_bytes(rotated.read_bytes())  # new inode, same entries
+    rev.refresh(log, cluster, store)
+    assert h in rev.handles

@@ -201,15 +201,3 @@ export function restorePlanBody(request, chosen, modes, includeUserFiles) {
   if (includeUserFiles) body.include_user_files = true
   return body
 }
-
-export function formatBytes(n) {
-  if (n == null) return '-'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  let v = Number(n)
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i += 1
-  }
-  return `${i ? v.toFixed(1) : v} ${units[i]}`
-}

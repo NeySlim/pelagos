@@ -36,11 +36,21 @@ describe('ArchivesPage', () => {
     api.archives.list.mockResolvedValue({ items: [ARCHIVE], total: 1, page: 1, per_page: 25, meta: { unreachable: [] } })
   })
 
+  it('writes sizes through formatSize and a dash when a node has no archive', async () => {
+    api.archives.overview.mockResolvedValue(overview({ nodes: [NODE, { ...NODE, node_id: 'n2', name: 'ns2', last_archive: null }] }))
+    renderPage()
+    const nodes = await screen.findAllByTestId('archives-node')
+    expect(nodes[0]).toHaveTextContent('1.8 MiB')
+    expect(nodes[1]).not.toHaveTextContent('NaN')
+    expect(await screen.findByTestId('archives-table')).toHaveTextContent('1.8 MiB')
+  })
+
   it('refuses to schedule or run without a key, and shows the identity once after generating it', async () => {
     api.archives.identity.mockResolvedValue({ identity: `AGE-SECRET-KEY-1${'Q'.repeat(58)}`, recipients: [] })
     renderPage()
     expect(await screen.findByTestId('archives-no-key')).toBeInTheDocument()
     expect(screen.getByTestId('archives-run')).toBeDisabled()
+    expect(screen.getByTestId('archives-nodes-needkey')).toHaveTextContent('Generate the archive key first.')
     expect(within(screen.getByTestId('archives-schedule-toggle')).getByRole('switch')).toBeDisabled()
     fireEvent.click(screen.getByTestId('archives-key-generate'))
     const dialog = await screen.findByTestId('archives-password-dialog')

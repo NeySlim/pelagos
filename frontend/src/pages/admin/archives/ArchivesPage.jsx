@@ -16,10 +16,10 @@ import { useApi, usePaginatedApi, useWsTopic } from '../../../hooks'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { api } from '../../../services/api'
 import { errorMessage } from '../../../services/apiClient'
-import { downloadBlob, formatDate } from '../../../lib/utils'
+import { downloadBlob, formatDate, formatSize } from '../../../lib/utils'
 import DestinationDialog, { TestResult } from './DestinationDialog'
 import RestoreWizard from './RestoreWizard'
-import { RECIPIENT_RE, SETTING_GROUPS, destinationTarget, formatBytes, settingsChanges, settingsErrors, settingsForm } from './archivesForm'
+import { RECIPIENT_RE, SETTING_GROUPS, destinationTarget, settingsChanges, settingsErrors, settingsForm } from './archivesForm'
 import { ErrorNotice } from '../../../components/ErrorNotice'
 
 function Field({ label, children, testId }) {
@@ -243,7 +243,7 @@ function RunJob({ job, nameOf, onFinished }) {
         <p key={s.name} className="text-xs flex flex-wrap gap-2" data-testid="archives-run-step" data-state={s.state}>
           <span className="font-medium">{s.node_id ? nameOf(s.node_id) : s.name.slice('archive:'.length)}</span>
           <span className={s.state === 'failed' ? 'status-danger-text' : 'text-text-secondary'}>
-            {s.state === 'done' ? t('run.made', { size: formatBytes(s.output?.size), complete: s.output?.complete === false ? t('run.incomplete') : '' }) : s.state === 'failed' ? String(s.output || '') : t(`run.state.${s.state}`, { defaultValue: s.state })}
+            {s.state === 'done' ? t('run.made', { size: size(s.output?.size), complete: s.output?.complete === false ? t('run.incomplete') : '' }) : s.state === 'failed' ? String(s.output || '') : t(`run.state.${s.state}`, { defaultValue: s.state })}
           </span>
         </p>
       ))}
@@ -252,11 +252,14 @@ function RunJob({ job, nameOf, onFinished }) {
   )
 }
 
+const size = (bytes) => formatSize(bytes) || '-'
+
 function NodesCard({ nodes, canRun, onRun, running }) {
   const { t } = useTranslation('archives')
   return (
     <Card className="p-4 space-y-3" hover={false} data-testid="archives-nodes">
       <CardTitle icon={ClockCounterClockwise}>{t('nodes.title')}</CardTitle>
+      {!canRun && <p className="text-xs status-warning-text" data-testid="archives-nodes-needkey">{t('settings.needKey')}</p>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {nodes.map((n) => {
           const failing = n.last_error || Object.values(n.errors || {}).some(Boolean)
@@ -277,7 +280,7 @@ function NodesCard({ nodes, canRun, onRun, running }) {
               {n.reachable ? (
                 <dl className="grid grid-cols-2 gap-2">
                   <Field label={t('nodes.lastSuccess')}>{n.last_success ? formatDate(n.last_success) : t('nodes.never')}</Field>
-                  <Field label={t('nodes.size')}>{formatBytes(n.last_archive?.size)}</Field>
+                  <Field label={t('nodes.size')}>{size(n.last_archive?.size)}</Field>
                   <Field label={t('nodes.next')}>{n.next_run ? formatDate(n.next_run) : t('nodes.notScheduled')}</Field>
                   <Field label={t('nodes.testRestore')}>
                     {n.test_restore ? (n.test_restore.ok === false ? <span className="status-danger-text">{t('nodes.testFailed')}</span> : n.test_restore.ok ? t('nodes.testOk', { when: formatDate(n.test_restore.at) }) : t('nodes.testSkipped')) : '-'}
@@ -503,7 +506,7 @@ function ArchivesTable({ nodes, destinations, nameOf, reloadKey, onRestore }) {
   const columns = [
     { key: 'created_at', label: t('list.created'), render: (r) => <span className="whitespace-nowrap text-xs">{formatDate(r.created_at)}</span> },
     { key: 'node_id', label: t('list.node'), render: (r) => r.node_name || nameOf(r.node_id) },
-    { key: 'size', label: t('list.size'), render: (r) => <span className="text-xs whitespace-nowrap">{formatBytes(r.size)}</span> },
+    { key: 'size', label: t('list.size'), render: (r) => <span className="text-xs whitespace-nowrap">{size(r.size)}</span> },
     { key: 'complete', label: t('list.state'), render: (r) => (r.complete ? <Badge variant="success" size="sm">{t('list.complete')}</Badge> : <Badge variant="warning" size="sm">{t('list.incomplete')}</Badge>) },
     { key: 'destinations', label: t('list.destinations'), render: (r) => <span className="text-xs">{(r.destinations || []).map(destName).join(', ')}</span> },
     { key: 'verified_at', label: t('list.verified'), render: (r) => (r.verified_at ? <ShieldCheck size={14} className="status-success-text" aria-label={t('list.verifiedAt', { when: formatDate(r.verified_at) })} /> : '') },
@@ -526,13 +529,19 @@ function ArchivesTable({ nodes, destinations, nameOf, reloadKey, onRestore }) {
         {t('list.title')}
       </CardTitle>
       {unreachable.length > 0 && <p className="text-xs status-warning-text">{t('list.unreachable', { nodes: unreachable.map(nameOf).join(', ') })}</p>}
+      {list.error && <ErrorNotice error={list.error} onRetry={list.refetch} />}
       <DataTable
         columns={columns}
         rows={list.items}
         rowKey="id"
         loading={list.loading && !list.data}
-        error={list.error}
-        onRetry={list.refetch}
+        mobileCard={{
+          title: (r) => formatDate(r.created_at),
+          subtitle: (r) => r.node_name || nameOf(r.node_id),
+          status: (r) => (r.complete ? <Badge variant="success" size="sm">{t('list.complete')}</Badge> : <Badge variant="warning" size="sm">{t('list.incomplete')}</Badge>),
+          fields: ['size', 'destinations'],
+          primaryAction: (r) => <Button size="xs" variant="secondary" onClick={() => onRestore(r)}><ClockCounterClockwise size={12} />{t('list.restore')}</Button>,
+        }}
         onRowClick={onRestore}
         filters={[
           { key: 'node_id', label: t('list.node'), value: nodeId, onChange: setNodeId, options: nodes.map((n) => option(n.node_id, n.name)) },

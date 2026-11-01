@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { resources, languages } from '../../../i18n'
 import {
   destinationBody, destinationErrors, formFromDestination, partChanged, partInfo, restorePlanBody, restoreRequest,
-  serverFieldErrors, settingsChanges, settingsErrors, settingsForm, formatBytes,
+  serverFieldErrors, settingsChanges, settingsErrors, settingsForm,
 } from './archivesForm'
 
 const FP = `SHA256:${'A'.repeat(43)}`
@@ -62,7 +62,6 @@ describe('restore helpers', () => {
     expect(restorePlanBody({ target_node_id: 'n1' }, ['bind.zone:_default/a', 'kea4.config'], { 'bind.zone:_default/a': 'replace' }, false))
       .toEqual({ target_node_id: 'n1', parts: [{ id: 'bind.zone:_default/a', mode: 'replace' }, 'kea4.config'] })
     expect(restorePlanBody({}, ['bind.user_files'], {}, true).include_user_files).toBe(true)
-    expect(formatBytes(1843200)).toBe('1.8 MiB')
   })
 })
 

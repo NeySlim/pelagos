@@ -55,7 +55,9 @@ class Out:
             return
         lines = self.families.setdefault(name, [f"# HELP {name} {help_text}", f"# TYPE {name} {mtype}"])
         lab = ",".join(f'{k}="{esc(v)}"' for k, v in labels.items() if v is not None)
-        lines.append(f"{name}{{{lab}}} {float(value):g}" if lab else f"{name} {float(value):g}")
+        v = float(value)  # `%g` would round a counter past 6 digits
+        text = str(int(v)) if v.is_integer() and abs(v) < 1e16 else repr(v)
+        lines.append(f"{name}{{{lab}}} {text}" if lab else f"{name} {text}")
 
     def text(self) -> str:
         return "".join(line + "\n" for lines in self.families.values() for line in lines)

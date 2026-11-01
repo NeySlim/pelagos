@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from pelagos import __version__
+from pelagos.auth.rbac import has_permission
 from pelagos.connectors.kea.commands import latest
 from pelagos.core.context import NodeContext
 from pelagos.domain import Engine
@@ -32,11 +33,19 @@ HA_HEALTHY = frozenset({"hot-standby", "load-balancing", "passive-backup", "back
 _PACKET = re.compile(r"^pkt[46]-(?P<name>[a-z0-9-]+)$")
 _SUBNET = re.compile(r"^subnet\[\d+\]\.(?P<name>assigned-addresses|assigned-nas|declined-addresses)$")
 _XFR = re.compile(r"xfr", re.IGNORECASE)
+# What each part of the scrape needs, as the screens do (dashboard summary filters the rest itself).
+AREAS = {"dns": "read:dns", "dhcp": "read:dhcp", "alerts": "read:alerts"}
 _PLAN_EVENTS = ("applied", "rolled_back", "failed")
 
 
 def esc(value: Any) -> str:
     return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def number(value: Any) -> str:
+    """A sample value without precision loss: `%g` would round a counter past 6 digits."""
+    v = float(value)
+    return str(int(v)) if v.is_integer() and abs(v) < 1e16 else repr(v)
 
 
 class Exposition:
@@ -50,7 +59,8 @@ class Exposition:
             return
         lines = self.families.setdefault(name, [f"# HELP {name} {help_text}", f"# TYPE {name} {mtype}"])
         lab = ",".join(f'{k}="{esc(v)}"' for k, v in labels.items() if v is not None)
-        lines.append(f"{name}{{{lab}}} {float(value):g}" if lab else f"{name} {float(value):g}")
+        text = number(value)
+        lines.append(f"{name}{{{lab}}} {text}" if lab else f"{name} {text}")
 
     def text(self) -> str:
         return "".join(line + "\n" for lines in self.families.values() for line in lines)
@@ -74,7 +84,7 @@ class MetricsService:
         self.dhcp = {"v4": dhcp4, "v6": dhcp6}
         self.peers = peers
         self._lock = threading.Lock()
-        self._cached: tuple[float, str] | None = None
+        self._cached: dict[frozenset[str], tuple[float, str]] = {}
         self._plans: dict[tuple[str, str], int] = {}
         self._plans_lock = threading.Lock()
 
@@ -90,28 +100,35 @@ class MetricsService:
         with self._plans_lock:
             self._plans[key] = self._plans.get(key, 0) + 1
 
-    def render(self, now: float | None = None) -> str:
-        """The exposition text, rebuilt at most every CACHE_SECONDS."""
+    def render(self, permissions: set[str] | None = None, now: float | None = None) -> str:
+        """The exposition text for what `permissions` may read (everything when None: a listed network),
+        rebuilt at most every CACHE_SECONDS per set of readable areas."""
         now = time.monotonic() if now is None else now
+        perms = {"*"} if permissions is None else set(permissions)
+        scope = frozenset(a for a in AREAS if has_permission(perms, AREAS[a]))
         with self._lock:
-            if self._cached is not None and now - self._cached[0] < CACHE_SECONDS:
-                return self._cached[1]
-            text = self._build()
-            self._cached = (now, text)
+            hit = self._cached.get(scope)
+            if hit is not None and now - hit[0] < CACHE_SECONDS:
+                return hit[1]
+            text = self._build(perms, scope)
+            self._cached[scope] = (now, text)
             return text
 
-    def _build(self) -> str:
+    def _build(self, perms: set[str], scope: frozenset[str]) -> str:
         out = Exposition()
         out.add(
             "pelagos_build_info", "gauge", "Pelagos version of this node (value 1)", 1, version=__version__
         )
-        for source, fill in (
-            ("dashboard", self._summary),
-            ("alerts", self._alerts),
-            ("ha", self._ha),
-            ("bind", self._bind),
-            ("kea", self._kea),
-        ):
+        sources = (
+            ("dashboard", None, lambda o: self._summary(o, perms)),
+            ("alerts", "alerts", self._alerts),
+            ("ha", "dhcp", self._ha),
+            ("bind", "dns", self._bind),
+            ("kea", "dhcp", self._kea),
+        )
+        for source, area, fill in sources:
+            if area is not None and area not in scope:
+                continue
             try:
                 fill(out)
                 ok = 1
@@ -128,8 +145,8 @@ class MetricsService:
             )  # fmt: skip
         return out.text()
 
-    def _summary(self, out: Exposition) -> None:
-        s = self.dashboard.summary({"*"})
+    def _summary(self, out: Exposition, perms: set[str]) -> None:
+        s = self.dashboard.summary(perms)
         names: dict[Any, Any] = {}
         for n in s.get("nodes") or []:
             peer = n.get("peer") or {}
@@ -247,7 +264,9 @@ class MetricsService:
 
     def _bind(self, out: Exposition) -> None:
         me = self.ctx.self_node().peer.name
-        nodes = [(me, None), *((p.name, p.id) for p in self.peers.peers_running(Engine.BIND))]
+        # Without local BIND, `stats(None)` would answer with a peer's counters: ask the peers only.
+        nodes = [(me, None)] if self.dns.local is not None else []
+        nodes += [(p.name, p.id) for p in self.peers.peers_running(Engine.BIND)]
         for name, stats in self._per_node(nodes, self.dns.stats):
             for qtype, count in (stats.get("qtypes") or {}).items():
                 out.add(

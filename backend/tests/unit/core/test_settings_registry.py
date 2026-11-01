@@ -419,3 +419,10 @@ def test_feature_domains_of_release_0_2_2():
             "must be lower than checks.resolver_timeouts_critical_percent",
         )
     ]
+
+
+def test_allowed_networks_must_parse_as_networks():
+    spec = next(x for x in reg.REGISTRY if x.key == "metrics.allowed_networks")
+    assert reg.check_value(spec, ["192.0.2.0/24", "2001:db8::/64", "192.0.2.7"]) is None
+    assert "1.2.3.4/99" in reg.check_value(spec, ["1.2.3.4/99"])
+    assert reg.check_value(spec, ["999.1.1.1"]) is not None

@@ -37,13 +37,15 @@ def metrics() -> Response:
     if not reg.get(settings, "metrics.endpoint_enabled"):
         raise ApiError("not_found", "metrics are disabled (metrics.endpoint_enabled)")
     presented = api_tokens.bearer(request.headers.get("Authorization"))
+    perms: set[str] | None = None  # a listed network reads everything the scrape holds
     if presented is not None:
         # A presented token decides alone: a wrong one is refused even from an allowed network.
-        if not has_permission(_token_session(presented).permissions, "read:series"):
+        perms = set(_token_session(presented).permissions)
+        if not has_permission(perms, "read:series"):
             raise ApiError("forbidden", "requires read:series")
     elif not network_allowed(list(reg.get(settings, "metrics.allowed_networks")), client_ip()):
         raise ApiError("unauthenticated", "an API token with read:series or an allowed network is required")
-    resp = Response(services().metrics.render(), mimetype="text/plain")
+    resp = Response(services().metrics.render(perms), mimetype="text/plain")
     resp.headers["Content-Type"] = CONTENT_TYPE
     resp.headers["Cache-Control"] = "no-store"
     return resp

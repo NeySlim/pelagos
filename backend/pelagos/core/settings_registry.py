@@ -20,6 +20,7 @@ PUT /admin/settings accepts it. Adding a setting is one `S(...)` line plus its e
 from __future__ import annotations
 
 import copy
+import ipaddress
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -621,10 +622,20 @@ def check_value(spec: Setting, value: Any) -> str | None:
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             return "list of strings expected"
         bad = [v for v in value if spec.pattern and not re.fullmatch(spec.pattern, v)]
+        if spec.pattern == CIDR_PATTERN:
+            bad += [v for v in value if v not in bad and not _is_network(v)]
         return f"invalid item: {bad[0]}" if bad else None
     if spec.type == "map":
         return _check_view_keys(value)
     return "unsupported setting"
+
+
+def _is_network(value: str) -> bool:
+    try:
+        ipaddress.ip_network(value, strict=False)
+    except ValueError:
+        return False
+    return True
 
 
 def _check_view_keys(value: Any) -> str | None:

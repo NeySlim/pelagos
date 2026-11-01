@@ -74,7 +74,7 @@ def test_no_secret_in_the_exposition(services: Services) -> None:
 
 def test_cache_holds_ten_seconds(services: Services, monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr(services.metrics, "_build", lambda: calls.append(1) or "x 1\n")
+    monkeypatch.setattr(services.metrics, "_build", lambda perms, scope: calls.append(1) or "x 1\n")
     services.metrics.render(now=100.0)
     services.metrics.render(now=109.0)
     assert len(calls) == 1
@@ -117,3 +117,35 @@ def test_promtool_accepts_the_output(services: Services) -> None:
         ["promtool", "check", "metrics"], input=services.metrics.render(), text=True, capture_output=True
     )
     assert r.returncode == 0, r.stderr
+
+
+def test_large_counters_keep_every_digit(services: Services, monkeypatch) -> None:
+    monkeypatch.setattr(services.dns, "stats", lambda nid: {"qtypes": {"A": 123456789, "AAAA": 2**40}})
+    text = services.metrics.render()
+    assert 'qtype="A"} 123456789\n' in text and f'qtype="AAAA"}} {2**40}\n' in text
+    assert ms.number(0.5) == "0.5" and ms.number(True) == "1" and ms.number(3.0) == "3"
+
+
+def test_no_local_bind_reads_no_peer_counters_as_its_own(services: Services, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(services.dns, "local", None)
+    monkeypatch.setattr(services.dns, "stats", lambda nid: calls.append(nid) or {"qtypes": {"A": 1}})
+    text = services.metrics.render()
+    assert calls == [] and "pelagos_bind_queries_total" not in text
+
+
+def test_a_series_only_token_sees_no_engine_data(services: Services) -> None:
+    text = services.metrics.render({"read:series"})
+    validate(text)
+    for word in (
+        "pelagos_bind_",
+        "pelagos_kea_",
+        "pelagos_ha_",
+        "pelagos_alerts",
+        "pelagos_zone_",
+        "pelagos_pool_",
+    ):
+        assert word not in text
+    assert "pelagos_build_info" in text
+    full = services.metrics.render({"read:series", "read:dns", "read:dhcp", "read:alerts", "read:nodes"})
+    assert "pelagos_bind_queries_total" in full and "pelagos_kea_packets_total" in full

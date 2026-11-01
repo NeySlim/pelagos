@@ -508,7 +508,7 @@ class PlanService:
             self._track(-1)
 
     def _check_window(self, plan: Plan) -> None:
-        """410 past rollback_until; a plan finished without one (a job, an update) never rolls back.
+        """410 past rollback_until; a plan finished without one (a job scope) never rolls back.
         Plans from 0.3.x carry no finished_at: they roll back while the store holds them."""
         if plan.rollback_until is not None:
             if utcnow() > plan.rollback_until:

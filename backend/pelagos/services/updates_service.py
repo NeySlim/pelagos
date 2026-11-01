@@ -27,6 +27,7 @@ from typing import Any, BinaryIO
 
 from pelagos import __version__
 from pelagos.auth.passwords import dummy_hash, verify_password
+from pelagos.connectors.base import PreconditionFailed
 from pelagos.core import engine_packages as ep
 from pelagos.core import settings_registry as reg
 from pelagos.core import update_rollout as ur
@@ -41,6 +42,8 @@ from pelagos.domain.plan import (
     NodeApplyResult,
     Plan,
     PlanScope,
+    Precondition,
+    PreconditionKind,
 )
 from pelagos.domain.updates import (
     CHECKSUMS,
@@ -49,6 +52,7 @@ from pelagos.domain.updates import (
     NodeState,
     Rollout,
     RolloutKind,
+    RolloutState,
     SignatureState,
     parse_checksums,
     valid_version,
@@ -1211,19 +1215,38 @@ class RolloutWriter:
             log.debug("config signal not sent", exc_info=True)
         return NodeApplyResult(node_id=me, ok=True, message=f"rollout {rollout.id} written")
 
+    @staticmethod
+    def _not_withdrawable(r: Rollout | None, plan: Plan) -> str | None:
+        """Only the rollout this plan wrote, still running with every node pending, can be withdrawn."""
+        if r is None or r.plan_id != plan.id:
+            return "the rollout of this plan finished or was replaced: see the Updates screen"
+        if r.state != RolloutState.RUNNING.value or any(
+            n.state != NodeState.PENDING.value for n in r.nodes.values()
+        ):
+            return f"rollout {r.id} has started: cancel it or roll it back from the Updates screen"
+        return None
+
+    def check_rollback(self, plan: Plan) -> None:
+        """Section 6 guard: refuses before anything runs (409, the plan stays applied)."""
+        problem = self._not_withdrawable(ur.load(self.ctx.settings()), plan)
+        if problem is not None:
+            pre = Precondition(
+                PreconditionKind.CONFIG_HASH, "settings.updates.rollout", plan.id, self.ctx.node.id
+            )
+            exc = PreconditionFailed(pre, problem)
+            exc.args = (problem,)  # the reason is the whole answer
+            raise exc
+
     def rollback(self, plan: Plan) -> NodeApplyResult:
-        """Removes the rollout this plan wrote while no node has started; else the actions apply."""
+        """Removes the rollout this plan wrote while no node has started; never a success otherwise."""
         me = self.ctx.node.id
         refused: list[str] = []
 
         def mutate(cluster: Any) -> None:
             r = ur.load(cluster.settings)
-            if r is None or r.plan_id != plan.id:
-                return
-            if any(n.state != NodeState.PENDING.value for n in r.nodes.values()):
-                refused.append(
-                    f"rollout {r.id} has started: cancel it or roll it back from the Updates screen"
-                )
+            problem = self._not_withdrawable(r, plan)
+            if problem is not None:
+                refused.append(problem)
                 return
             cluster.settings.get("updates", {}).pop("rollout", None)
 

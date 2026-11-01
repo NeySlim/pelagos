@@ -445,7 +445,7 @@
   "plan.kea.ha_effect_cancel": "les deux serveurs reviennent au fonctionnement normal",
   "plan.kea.ha_effect_start": "{{partner}} passe en in-maintenance et peut être arrêté",
   "plan.kea.ha_maintenance": "Maintenance HA {{action}} sur {{server}} : {{effect}}",
-  "plan.kea.ha_maintenance_update": "maintenance HA {{action}} sur {{server}} : paquets du moteur de {{node}}",
+  "plan.kea.ha_maintenance_update": "Maintenance HA {{action}} sur {{server}} : paquets du moteur de {{node}}",
   "plan.kea.ha_remove": "{{engine}} : retirer le hook HA",
   "plan.kea.ha_remove_cluster": "{{engine}} : retirer la HA de {{servers}}",
   "plan.kea.ha_repair": "réparer la HA {{engine}} : redémarrer le service HA de {{servers}} l'un après l'autre",

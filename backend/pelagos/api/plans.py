@@ -16,7 +16,7 @@ from pelagos.core.plans import PlanExpired, PlanNotFound
 from pelagos.domain import Plan, PlanScope, PlanState, to_rfc3339
 from pelagos.services.archive_restore import restore_permissions
 from pelagos.services.hosts_service import touches
-from pelagos.services.masking import masked_text
+from pelagos.services.masking import mask_text_values, masked_text
 from pelagos.services.plan_service import JOB_SCOPES
 
 ns = Namespace("plans", description="Previewed writes and long-running jobs", path="/")
@@ -37,6 +37,9 @@ def summary_dict(plan: Plan) -> dict[str, Any]:
     out["summary"] = masked_text(out["summary"] or "")
     if out["error"]:
         out["error"] = masked_text(out["error"])
+    # Message params may quote engine text, like the plain fields above.
+    for name in ("summary_message", "error_message"):
+        out[name] = mask_text_values(out[name])
     return out
 
 

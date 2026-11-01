@@ -96,6 +96,8 @@ class PlanStore:
         loaded = self._load_plans() if self.plans_dir is not None else set()
         if tombstone_path is not None:
             self._load(loaded)
+        if loaded:
+            self._cap_finished()
 
     def put(self, plan: Plan) -> Plan:
         if self.guard is not None:
@@ -187,7 +189,12 @@ class PlanStore:
     def sweep(self) -> int:
         now = utcnow()
         with self._lock:
-            expired = [pid for pid, p in self._plans.items() if p.expires_at <= now]
+            # An apply or rollback in flight finishes first: finish() then sets a new deadline.
+            expired = [
+                pid
+                for pid, p in self._plans.items()
+                if p.expires_at <= now and p.state is not PlanState.APPLYING
+            ]
             gone = [self._drop_locked(pid) for pid in expired]
         self._after_drop(gone)
         return len(expired)

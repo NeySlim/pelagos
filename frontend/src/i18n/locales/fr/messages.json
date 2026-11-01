@@ -240,7 +240,7 @@
   "plan.kea.reservation": "{{op}} de la réservation {{target}}",
   "plan.kea.service_disable": "désactiver le service DHCP ({{engine}})",
   "plan.kea.service_disable_on": "désactiver le service DHCP ({{engine}} sur {{node}})",
-  "plan.kea.ha_maintenance_update": "maintenance HA {{action}} sur {{server}} : paquets du moteur de {{node}}",
+  "plan.kea.ha_maintenance_update": "Maintenance HA {{action}} sur {{server}} : paquets du moteur de {{node}}",
   "plan.kea.service_enable": "activer le service DHCP ({{engine}})",
   "plan.kea.service_enable_on": "activer le service DHCP ({{engine}} sur {{node}})",
   "plan.kea.subnet": "{{op}} du sous-réseau {{subnet}}",

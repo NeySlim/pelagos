@@ -162,3 +162,27 @@ def test_plan_from_0_3_keeps_its_expires_at_and_rolls_back_while_held(tmp_root):
     again = PlanStore(ttl_seconds=600, **dirs).get(plan.id)
     assert again.finished_at is None and again.rollback_until is None
     assert again.expires_at == plan.expires_at
+
+
+def test_a_plan_in_flight_is_not_swept(monkeypatch):
+    store = PlanStore(ttl_seconds=600)
+    plan = store.put(_plan())
+    plan.state = PlanState.APPLYING
+    _clock(monkeypatch, timedelta(seconds=601))
+    assert store.sweep() == 0 and store.get(plan.id) is plan
+
+
+def test_the_cap_also_holds_on_reload(tmp_root):
+    dirs = {"tombstone_path": tmp_root / "t.json", "plans_dir": tmp_root / "plans", "box": _box()}
+    store = PlanStore(ttl_seconds=600, **dirs)
+    finished = []
+    for _ in range(3):
+        plan = store.put(_plan())
+        plan.state = PlanState.APPLIED
+        store.finish(plan, DAY)
+        finished.append(plan)
+    again = PlanStore(ttl_seconds=600, max_finished=2, **dirs)
+    with pytest.raises(PlanExpired):
+        again.get(finished[0].id)
+    assert again.get(finished[2].id).id == finished[2].id
+    assert not (tmp_root / "plans" / f"{finished[0].id}.plan").exists()

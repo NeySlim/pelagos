@@ -32,7 +32,9 @@ test('a category is enabled by level, shown with its size and applied through a 
   await expect(ads.getByTestId('rpz-size')).toContainText('118 000 entries')
   await expect(ads.getByTestId('rpz-lists')).toContainText('OISD small')
   await expect(ads.getByTestId('rpz-lists')).toContainText('license GPL-3.0')
-  await ads.getByTestId('rpz-category-save').click()
+  await expect(ads.getByTestId('rpz-category-modified')).toBeVisible()
+  await expect(page.getByTestId('rpz-categories-footer')).toContainText('1 category changed')
+  await page.getByTestId('rpz-categories-save').click()
   await expect(page.getByTestId('plan-preview')).toContainText('RPZ subscriptions')
   await applyPlan(page)
   await expect(page.getByTestId('rpz-lists-table')).toContainText('OISD small')
@@ -50,7 +52,7 @@ test('a list too big for a small node asks for an acknowledgement', async ({ pag
   await page.getByRole('option', { name: /^Strict/ }).click()
   await expect(adult.getByTestId('rpz-estimate')).toContainText('too large')
   await expect(adult.getByTestId('rpz-estimate-node').first()).toContainText('of memory at peak')
-  const save = adult.getByTestId('rpz-category-save')
+  const save = page.getByTestId('rpz-categories-save')
   await expect(save).toBeDisabled()
   await adult.getByTestId('rpz-estimate-ack').check()
   await expect(save).toBeEnabled()
@@ -75,7 +77,7 @@ test('the lookup names the list, the category and the rule, and an allowed domai
   const ads = page.getByTestId('rpz-category-ads')
   if ((await ads.getByRole('switch').getAttribute('aria-checked')) !== 'true') {
     await ads.getByRole('switch').click()
-    await ads.getByTestId('rpz-category-save').click()
+    await page.getByTestId('rpz-categories-save').click()
     await applyPlan(page)
   }
   await page.getByRole('button', { name: 'Exceptions' }).click()

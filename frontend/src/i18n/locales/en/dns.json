@@ -133,7 +133,6 @@
     "add": "Add record",
     "empty": "No record matches",
     "applied": "Plan applied",
-    "rollbackPlan": "Roll back plan",
     "rollbackGone": "The server no longer holds this plan: it cannot be rolled back from here"
   },
   "editor": {
@@ -250,7 +249,8 @@
       "primaryOn": "primary on {{node}}",
       "plan": "Plan the secondaries",
       "hint": "Ticked nodes transfer the zone from the primary with the read key; the primary notifies each of them. Unticked copies are removed.",
-      "transfers": "Transfers from the primary on {{node}}"
+      "transfers": "Transfers from the primary on {{node}}",
+      "onPrimary": "The secondaries of this zone are planned on <node/>, its primary."
     },
     "failover": "active primary on {{node}} since {{since}} (epoch {{epoch}})",
     "forwarding": {
@@ -282,11 +282,12 @@
     },
     "zoneFile": "Zone file",
     "zoneFileHelp": "Set when the zone was created, relative to the BIND directory; read only here: named keeps loading this file.",
-    "primaryOn": "Primary: {{node}}",
-    "recordsOnPrimary": "Copy of {{node}}, the zone's primary: record changes made here are applied there, and this node follows by zone transfer.",
+    "recordsOnPrimary": "Copy of <node/>, the zone's primary: record changes made here are applied there, and this node follows by zone transfer.",
     "recordsExternal": "Read-only: this node holds a copy transferred from {{primaries}}, a server outside the cluster. Edit the records on that server.",
     "recordsExternalUnknown": "Read-only: this node holds a copy of a zone whose primary is outside the cluster. Edit the records on that server.",
-    "recordsUnreachable": "Read-only for now: no reachable node holds this zone as primary, and these nodes cannot be reached: {{nodes}}. If the primary is one of them, edit the records once it is back."
+    "recordsUnreachable": "Read-only for now: no reachable node holds this zone as primary, and these nodes cannot be reached: {{nodes}}. If the primary is one of them, edit the records once it is back.",
+    "primaryLabel": "Primary:",
+    "notifyOnPrimary": "Notify (on {{node}}, primary)"
   },
   "resolver": {
     "recursion": "Recursion",
@@ -479,7 +480,9 @@
       "zones": "Hand the zone over to Pelagos"
     },
     "zone": "Hand over the zone",
-    "zoneHelp": "Moves the zone statement from your named.conf files to the Pelagos zones file so it can be edited here"
+    "zoneHelp": "Moves the zone statement from your named.conf files to the Pelagos zones file so it can be edited here",
+    "zonesHelp_one": "{{count}} zone is declared in your named.conf files: Pelagos reads it without changing it. Hand it over to edit it here.",
+    "zonesHelp_other": "{{count}} zones are declared in your named.conf files: Pelagos reads them without changing them. Hand them over to edit them here."
   },
   "rpzsub": {
     "tabs": {
@@ -522,8 +525,6 @@
     "interval": "Update every (hours)",
     "onNodes": "Nodes",
     "allNodes": "Every node",
-    "remove": "Remove",
-    "save": "Save",
     "sub": {
       "title": "Add a subscription",
       "submit": "Add",
@@ -671,7 +672,13 @@
         "name": "Spam TLDs",
         "description": "Top-level domains that mostly carry spam and abuse"
       }
-    }
+    },
+    "modified": "modified",
+    "changedCount_one": "{{count}} category changed",
+    "changedCount_other": "{{count}} categories changed",
+    "noChange": "No category changed",
+    "saveCategories": "Save the categories",
+    "ramNote": "RAM is the node's memory: named loads the lists into it."
   },
   "orphans": {
     "title": "Orphan PTRs",

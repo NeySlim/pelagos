@@ -17,6 +17,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import RpzCatalog from './RpzCatalog'
 import RpzExceptions from './RpzExceptions'
 import RpzActivity from './RpzActivity'
@@ -155,6 +156,7 @@ export default function RpzPage() {
         ) : null
       }
     >
+      {!canWrite && ['catalog', 'exceptions'].includes(tab) && <ReadOnlyNote permission="write:dns.config" className="mb-3" testId="rpz-read-only-note" />}
       {content}
       {flow.modal}
     </PageLayout>

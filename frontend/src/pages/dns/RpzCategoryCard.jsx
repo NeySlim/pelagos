@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // One category of the RPZ catalog: switch, level with its size, add-ons, extra URLs, action and the
-// memory estimate per node before anything is subscribed.
+// memory estimate per node before anything is subscribed. A change is reported to the catalog,
+// whose single footer button saves every changed card in one plan.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Warning } from '@phosphor-icons/react'
 import { Card } from '../../components/Card'
 import { Badge } from '../../components/Badge'
-import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Select } from '../../components/ui/Select'
 import ToggleSwitch from '../../components/ui/ToggleSwitch'
@@ -54,7 +54,7 @@ function Estimate({ estimate, acknowledged, onAcknowledge }) {
   )
 }
 
-export function RpzCategoryCard({ id, category, catalog, selection, nodes, settings, canWrite, onSave, onClear, busy }) {
+export function RpzCategoryCard({ id, category, catalog, selection, nodes, settings, canWrite, onDraft }) {
   const { t } = useTranslation(['dns', 'common'])
   const initial = useMemo(() => formFromSelection(category, selection), [category, selection])
   const [form, setForm] = useState(initial)
@@ -90,15 +90,29 @@ export function RpzCategoryCard({ id, category, catalog, selection, nodes, setti
 
   const needsAck = (estimate?.nodes || []).some((n) => n.level === 'high')
   const invalid = (form.action === 'redirect' && !form.redirect.trim()) || (form.level === 'custom' && !form.lists.length)
+  const blocked = invalid || (needsAck && !acknowledged)
+  // The catalog keeps one draft per changed card; a card that matches the saved state has none.
+  useEffect(() => {
+    onDraft(id, dirty ? { clear: !form.enabled, body: form.enabled ? categoryBody(form) : null, blocked } : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, dirty, blocked, form])
+  useEffect(() => () => onDraft(id, null), [id, onDraft])
   const toggleIn = (key, value) => set(key)(form[key].includes(value) ? form[key].filter((v) => v !== value) : [...form[key], value])
   const levelLabel = (level) =>
     level === 'custom' ? t('rpzsub.levels.custom') : `${t(`rpzsub.levels.${level}`)} (${formatCount(category.levels[level].entries)})`
 
   return (
-    <Card className="p-4 space-y-3" hover={false} data-testid={`rpz-category-${id}`}>
+    <Card className="p-4 space-y-3" hover={false} data-testid={`rpz-category-${id}`} data-dirty={dirty ? 'true' : 'false'}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-semibold text-text-primary">{t(`rpzsub.categories.${id}.name`)}</h3>
+          <h3 className="font-semibold text-text-primary">
+            {t(`rpzsub.categories.${id}.name`)}
+            {dirty && (
+              <Badge variant="warning" size="sm" className="ml-2 align-middle" data-testid="rpz-category-modified">
+                {t('rpzsub.modified')}
+              </Badge>
+            )}
+          </h3>
           <p className="text-xs text-text-secondary mt-0.5">{t(`rpzsub.categories.${id}.description`)}</p>
         </div>
         <ToggleSwitch checked={form.enabled} onChange={set('enabled')} disabled={!canWrite} ariaLabel={t('rpzsub.enable', { name: t(`rpzsub.categories.${id}.name`) })} />
@@ -197,23 +211,6 @@ export function RpzCategoryCard({ id, category, catalog, selection, nodes, setti
 
       <Estimate estimate={estimate} acknowledged={acknowledged} onAcknowledge={setAcknowledged} />
 
-      {canWrite && (
-        <div className="flex gap-2 justify-end">
-          {selection && (
-            <Button variant="ghost" size="sm" onClick={() => onClear(id)} disabled={busy} data-testid="rpz-category-clear">
-              {t('rpzsub.remove')}
-            </Button>
-          )}
-          <Button
-            size="sm"
-            onClick={() => (form.enabled ? onSave(id, categoryBody(form)) : onClear(id))}
-            disabled={busy || !dirty || invalid || (needsAck && !acknowledged)}
-            data-testid="rpz-category-save"
-          >
-            {t('rpzsub.save')}
-          </Button>
-        </div>
-      )}
     </Card>
   )
 }

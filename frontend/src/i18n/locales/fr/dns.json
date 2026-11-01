@@ -133,7 +133,6 @@
     "add": "Ajouter un enregistrement",
     "empty": "Aucun enregistrement ne correspond",
     "applied": "Plan appliqué",
-    "rollbackPlan": "Annuler le plan",
     "rollbackGone": "Le serveur ne détient plus ce plan : il ne peut plus être annulé d'ici"
   },
   "editor": {
@@ -250,7 +249,8 @@
       "primaryOn": "primaire sur {{node}}",
       "plan": "Planifier les secondaires",
       "hint": "Les nœuds cochés transfèrent la zone depuis le primaire avec la clé de lecture ; le primaire notifie chacun d'eux. Les copies décochées sont retirées.",
-      "transfers": "Transferts depuis le primaire sur {{node}}"
+      "transfers": "Transferts depuis le primaire sur {{node}}",
+      "onPrimary": "Les secondaires de cette zone se planifient sur <node/>, son primaire."
     },
     "failover": "primaire actif sur {{node}} depuis {{since}} (époque {{epoch}})",
     "forwarding": {
@@ -282,11 +282,12 @@
     },
     "zoneFile": "Fichier de zone",
     "zoneFileHelp": "Défini à la création de la zone, relatif au répertoire de BIND ; en lecture seule ici : named continue de charger ce fichier.",
-    "primaryOn": "Primaire : {{node}}",
-    "recordsOnPrimary": "Copie de {{node}}, primaire de la zone : les modifications faites ici y sont appliquées, et ce nœud suit par transfert de zone.",
+    "recordsOnPrimary": "Copie de <node/>, primaire de la zone : les modifications faites ici y sont appliquées, et ce nœud suit par transfert de zone.",
     "recordsExternal": "Lecture seule : ce nœud détient une copie transférée depuis {{primaries}}, un serveur hors du cluster. Modifiez les enregistrements sur ce serveur.",
     "recordsExternalUnknown": "Lecture seule : ce nœud détient une copie d'une zone dont la primaire est hors du cluster. Modifiez les enregistrements sur ce serveur.",
-    "recordsUnreachable": "Lecture seule pour l'instant : aucun nœud joignable ne détient cette zone en primaire, et ces nœuds sont injoignables : {{nodes}}. Si la primaire est l'un d'eux, modifiez les enregistrements à son retour."
+    "recordsUnreachable": "Lecture seule pour l'instant : aucun nœud joignable ne détient cette zone en primaire, et ces nœuds sont injoignables : {{nodes}}. Si la primaire est l'un d'eux, modifiez les enregistrements à son retour.",
+    "primaryLabel": "Primaire :",
+    "notifyOnPrimary": "Notifier (sur {{node}}, primaire)"
   },
   "resolver": {
     "recursion": "Récursion",
@@ -479,7 +480,9 @@
       "zones": "Confier la zone à Pelagos"
     },
     "zone": "Confier la zone",
-    "zoneHelp": "Déplace la déclaration de la zone de vos fichiers named.conf vers le fichier de zones de Pelagos pour pouvoir la modifier ici"
+    "zoneHelp": "Déplace la déclaration de la zone de vos fichiers named.conf vers le fichier de zones de Pelagos pour pouvoir la modifier ici",
+    "zonesHelp_one": "{{count}} zone est déclarée dans vos fichiers named.conf : Pelagos la lit sans la modifier. Confiez-la pour l'éditer ici.",
+    "zonesHelp_other": "{{count}} zones sont déclarées dans vos fichiers named.conf : Pelagos les lit sans les modifier. Confiez-les pour les éditer ici."
   },
   "rpzsub": {
     "tabs": {
@@ -522,8 +525,6 @@
     "interval": "Mettre à jour toutes les (heures)",
     "onNodes": "Nœuds",
     "allNodes": "Tous les nœuds",
-    "remove": "Retirer",
-    "save": "Enregistrer",
     "sub": {
       "title": "Ajouter un abonnement",
       "submit": "Ajouter",
@@ -671,7 +672,13 @@
         "name": "TLD à spam",
         "description": "Domaines de premier niveau qui servent surtout au spam et aux abus"
       }
-    }
+    },
+    "modified": "modifié",
+    "changedCount_one": "{{count}} catégorie modifiée",
+    "changedCount_other": "{{count}} catégories modifiées",
+    "noChange": "Aucune catégorie modifiée",
+    "saveCategories": "Enregistrer les catégories",
+    "ramNote": "La RAM est la mémoire du nœud : named y charge les listes."
   },
   "orphans": {
     "title": "PTR orphelins",

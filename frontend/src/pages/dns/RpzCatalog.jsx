@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The subscriptions tab: nodes and their memory, the catalog by category, own lists and zone transfers,
 // the state of every list (size, entries, source date, last update) and the order of the zones.
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowDown, ArrowUp, ArrowsClockwise, CloudArrowDown, Plus, Trash } from '@phosphor-icons/react'
 import { Card } from '../../components/Card'
@@ -15,11 +15,11 @@ import TagsInput from '../../components/ui/TagsInput'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
+import { formatSize } from '../../lib/utils'
 import { RpzCategoryCard } from './RpzCategoryCard'
 import {
   ACTIONS,
   STATUS_VARIANT,
-  formatBytes,
   formatCount,
   formatEpoch,
   formatMib,
@@ -93,6 +93,17 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
   const tm = useMessage()
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
+  // One draft per changed category card, kept up to date by the cards themselves.
+  const [drafts, setDrafts] = useState({})
+  const onDraft = useCallback(
+    (id, draft) =>
+      setDrafts((cur) => {
+        if (!draft && !(id in cur)) return cur
+        const { [id]: _gone, ...rest } = cur
+        return draft ? { ...rest, [id]: draft } : rest
+      }),
+    [],
+  )
   const { catalog, categories, subscriptions, nodes, settings } = overview
 
   // A change saves the selection, then shows the plan that brings the nodes to it.
@@ -110,6 +121,17 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
       setBusy(false)
     }
   }
+  // Every changed card is saved, then the last answer carries the one plan for the whole selection.
+  const saveCategories = () =>
+    submit(async () => {
+      let last
+      for (const [id, draft] of Object.entries(drafts)) {
+        last = await (draft.clear ? api.dns.rpzClearCategory(id) : api.dns.rpzSetCategory(id, draft.body))
+      }
+      return last
+    })
+  const changed = Object.keys(drafts).length
+  const blocked = Object.values(drafts).some((d) => d.blocked)
   const applyNow = () => submit(() => api.dns.rpzPlan())
   const refresh = async (id, acceptShrink = false) => {
     await api.dns.rpzRefresh(id, acceptShrink)
@@ -151,7 +173,7 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
     },
     { key: 'category', label: t('rpzsub.table.category'), render: (s) => (s.category ? t(`rpzsub.categories.${s.category}.name`) : '') },
     { key: 'entries', label: t('rpzsub.table.entries'), align: 'right', mono: true, render: (s) => formatCount(latestStatus(s.status)?.entries ?? '') },
-    { key: 'size', label: t('rpzsub.table.size'), align: 'right', mono: true, render: (s) => formatBytes(latestStatus(s.status)?.bytes) },
+    { key: 'size', label: t('rpzsub.table.size'), align: 'right', mono: true, render: (s) => formatSize(latestStatus(s.status)?.bytes) },
     { key: 'source', label: t('rpzsub.table.sourceDate'), render: (s) => formatEpoch(latestStatus(s.status)?.source_date) },
     { key: 'updated', label: t('rpzsub.table.lastUpdate'), render: (s) => formatEpoch(latestStatus(s.status)?.updated_at) },
     { key: 'next', label: t('rpzsub.table.nextCheck'), render: (s) => formatEpoch(latestStatus(s.status)?.next_check) },
@@ -184,7 +206,7 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
             {nodes.map((n) => (
               <li key={n.id} data-testid="rpz-node">
                 <span className="font-medium">{n.name}</span>{' '}
-                <span className="text-text-tertiary">{n.ram_mb ? t('rpzsub.ram', { ram: formatMib(n.ram_mb) }) : ''}</span>{' '}
+                <span className="text-text-tertiary" title={t('rpzsub.ramNote')}>{n.ram_mb ? t('rpzsub.ram', { ram: formatMib(n.ram_mb) }) : ''}</span>{' '}
                 <Badge variant={n.error ? 'danger' : n.pending ? 'warning' : 'success'} size="sm">
                   {n.error ? t('rpzsub.nodeError') : n.pending ? t('rpzsub.pending') : t('rpzsub.upToDate')}
                 </Badge>
@@ -199,8 +221,10 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
           )}
         </div>
         <p className="text-xs text-text-secondary mt-2">{t('rpzsub.catalogNote', { version: catalog.version })}</p>
+        <p className="text-xs text-text-tertiary mt-1" data-testid="rpz-ram-note">{t('rpzsub.ramNote')}</p>
       </Card>
 
+      <div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="rpz-categories">
         {Object.entries(catalog.categories).map(([id, category]) => (
           <RpzCategoryCard
@@ -212,11 +236,18 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
             nodes={nodes}
             settings={settings}
             canWrite={canWrite}
-            busy={busy}
-            onSave={(cat, body) => submit(() => api.dns.rpzSetCategory(cat, body))}
-            onClear={(cat) => submit(() => api.dns.rpzClearCategory(cat))}
+            onDraft={onDraft}
           />
         ))}
+      </div>
+      {canWrite && (
+        <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-bg-primary py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]" data-testid="rpz-categories-footer">
+          <span className="text-xs text-text-secondary">{changed ? t('rpzsub.changedCount', { count: changed }) : t('rpzsub.noChange')}</span>
+          <Button size="sm" onClick={saveCategories} disabled={busy || !changed || blocked} data-testid="rpz-categories-save">
+            {t('rpzsub.saveCategories')}
+          </Button>
+        </div>
+      )}
       </div>
 
       <DataTable

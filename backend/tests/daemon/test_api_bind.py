@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -167,3 +169,162 @@ def test_secondary_zone_status_in_the_zone_list(tmp_root, named_server, named_se
     assert zones["example.lan."]["zone"]["kind"] == "secondary"
     assert status["expires"] and status["next_refresh"], status
     assert status["serial"] == 2026102401
+
+
+# Non-blocking web worker (section 2): the real gunicorn worker serves /health while another
+# request waits on a slow named-checkconf or works through a zone transfer.
+HEALTH_BUDGET = 0.1
+
+
+def _gunicorn(ctx, tmp_root):
+    """The packaged command line: gunicorn_conf.py (monkey patch, gevent worker) on a free port."""
+    import os
+    import sys
+
+    from pelagos.core.webcert import pem
+    from tests.fixtures.ports import free_port
+
+    key = pem.generate_key()
+    (tmp_root / "web.key").write_bytes(pem.key_pem(key))
+    (tmp_root / "web.crt").write_bytes(pem.cert_pem(pem.self_signed(key, ["127.0.0.1"])))
+    port = free_port()
+    conf = Path(__file__).resolve().parents[2] / "pelagos" / "gunicorn_conf.py"
+    env = dict(os.environ, PELAGOS_HOME=str(ctx.paths.etc.parent))
+    log = (tmp_root / "gunicorn.log").open("w")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "gunicorn", "-c", str(conf), "-b", f"127.0.0.1:{port}",
+         "--certfile", str(tmp_root / "web.crt"), "--keyfile", str(tmp_root / "web.key"),
+         "--no-control-socket", "--access-logfile", "/dev/null", "pelagos.app:wsgi_app()"],
+        env=env, stdout=log, stderr=subprocess.STDOUT,
+    )  # fmt: skip
+    return proc, port
+
+
+class _Web:
+    def __init__(self, port: int, cafile: Path) -> None:
+        import ssl
+
+        self.port = port
+        self.tls = ssl.create_default_context(cafile=str(cafile))
+        self.headers: dict[str, str] = {}
+
+    def request(self, method: str, path: str, body: Any = None, timeout: float = 60) -> tuple[int, Any]:
+        import http.client
+        import json
+
+        conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=self.tls, timeout=timeout)
+        try:
+            payload = None if body is None else json.dumps(body)
+            conn.request(
+                method, path, body=payload, headers={"Content-Type": "application/json", **self.headers}
+            )
+            resp = conn.getresponse()
+            data = resp.read()
+            cookie = resp.getheader("Set-Cookie")
+            if cookie and path.endswith("/auth/login"):
+                self.headers["Cookie"] = cookie.split(";")[0]
+                self.headers["X-CSRF-Token"] = json.loads(data)["csrf_token"]
+            return resp.status, json.loads(data) if data else None
+        finally:
+            conn.close()
+
+    def health_during(self, work: Any) -> tuple[Any, list[float]]:
+        """`work()` in this thread, /health polled on one keep-alive connection meanwhile."""
+        import http.client
+        import threading
+
+        stop, latencies = threading.Event(), []
+
+        def poll() -> None:
+            conn = http.client.HTTPSConnection("127.0.0.1", self.port, context=self.tls, timeout=30)
+            while not stop.is_set():
+                started = time.monotonic()
+                conn.request("GET", f"{V1}/health")
+                conn.getresponse().read()
+                latencies.append(time.monotonic() - started)
+                time.sleep(0.02)
+            conn.close()
+
+        poller = threading.Thread(target=poll)
+        poller.start()
+        time.sleep(0.2)
+        try:
+            result = work()
+        finally:
+            stop.set()
+            poller.join()
+        return result, latencies
+
+
+def _wait_for_name(server: Any, name: str) -> None:
+    import dns.message
+    import dns.query
+
+    deadline = time.monotonic() + 20
+    while True:
+        answer = dns.query.udp(
+            dns.message.make_query(name, "A"), "127.0.0.1", port=server.dns_port, timeout=2
+        )
+        if answer.answer or time.monotonic() > deadline:
+            assert answer.answer, f"{name} not loaded"
+            return
+        time.sleep(0.2)
+
+
+@pytest.fixture
+def web(tmp_root, named_server):
+    from tests.conftest import ADMIN_PASSWORD
+
+    checkconf = find_binary("named-checkconf")
+    slow = tmp_root / "slow-checkconf"
+    slow.write_text(f'#!/bin/sh\nsleep 1.5\nexec {checkconf} "$@"\n')
+    slow.chmod(0o755)
+    ctx = make_node(tmp_root / "node", named=named_server)
+    node = ctx.config_store.load_node()
+    node.engines["bind"]["checkconf"] = str(slow)
+    ctx.config_store.save_node(node)
+    proc, port = _gunicorn(ctx, tmp_root)
+    client = _Web(port, tmp_root / "web.crt")
+    try:
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                if client.request("GET", f"{V1}/health")[0] == 200:
+                    break
+            except OSError:
+                pass
+            if proc.poll() is not None or time.monotonic() > deadline:
+                pytest.fail("gunicorn did not start:\n" + (tmp_root / "gunicorn.log").read_text())
+            time.sleep(0.1)
+        status, _ = client.request(
+            "POST", f"{V1}/auth/login", {"username": "admin", "password": ADMIN_PASSWORD}
+        )
+        assert status == 200
+        yield client
+    finally:
+        proc.terminate()
+        proc.wait(15)
+
+
+def test_health_answers_during_a_slow_checkconf(web) -> None:
+    change = {"op": "add", "target": "acls/web", "after": {"name": "web", "elements": ["192.0.2.0/24"]}}
+    (status, plan), latencies = web.health_during(
+        lambda: web.request("POST", f"{V1}/dns/acls/plan", {"change": change})
+    )
+    assert status == 200 and plan["state"] == "validated", plan
+    assert len(latencies) >= 20  # /health kept answering through the 1.5 s checkconf
+    assert max(latencies) < HEALTH_BUDGET, sorted(latencies)[-5:]
+
+
+def test_health_answers_during_a_zone_transfer(web, named_server) -> None:
+    zone_file = named_server.root / "zones" / "example.lan.db"
+    named_server.rndc("freeze", "example.lan")
+    with zone_file.open("a") as fh:
+        fh.writelines(f"bulk{i} 300 IN A 10.0.{i >> 8}.{i & 255}\n" for i in range(10000))
+    named_server.rndc("thaw", "example.lan")
+    _wait_for_name(named_server, "bulk9999.example.lan.")
+    (status, page), latencies = web.health_during(
+        lambda: web.request("GET", f"{V1}/dns/zones/example.lan/records?per_page=10")
+    )
+    assert status == 200 and page["total"] > 10000, page
+    assert max(latencies) < HEALTH_BUDGET, sorted(latencies)[-5:]

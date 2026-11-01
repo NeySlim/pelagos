@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import enum
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -30,11 +31,17 @@ def clean_web_url(value: Any) -> str | None:
 
 
 def clean_site(value: Any) -> str | None:
-    """The trimmed site label when it is 1 to SITE_MAX characters without control characters."""
+    """The trimmed site label when it is 1 to SITE_MAX code points without control or format ones.
+
+    Unicode categories Cc, Cf, Zl and Zp (C1, line separators, bidi overrides, zero-width) are refused."""
     if not isinstance(value, str):
         return None
     value = value.strip()
-    if not value or len(value) > SITE_MAX or any(ord(c) < 32 or c == "\x7f" for c in value):
+    if (
+        not value
+        or len(value) > SITE_MAX
+        or any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in value)
+    ):
         return None
     return value
 

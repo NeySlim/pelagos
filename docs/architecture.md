@@ -659,7 +659,7 @@ by. Rules:
 - Absent (`None`) by default. Stored as `site` in the `[[nodes]]` entry only when set
   (`_strip_none`), so a cluster that never sets a site keeps the same `cluster.toml` bytes
   and digest as before.
-- Value: a string of 1 to 64 characters after trimming, no control characters, compared
+- Value: a string of 1 to 64 code points after trimming, none of Unicode category Cc, Cf, Zl or Zp (control, format such as zero-width and bidi overrides, line and paragraph separators), compared
   case-sensitively; `null` or an empty string clears it. A stored or replicated value that
   breaks the rule counts as absent (the `web_url` precedent in `Peer.__post_init__`).
 - Why a field of the peer and not a generic collection: a site is a one-to-one attribute

@@ -14,15 +14,15 @@ What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
 ## 2026-11-01, B1-SITE (WP-CORE, WP-API-AUTH, WP-FRONTEND): site label on a node
-Additive. `domain.cluster.Peer` gains `site: str | None = None` (1 to 64 characters, trimmed, no
-control characters; invalid counts as absent). Stored in the `[[nodes]]` entry only when set: a
+Additive. `domain.cluster.Peer` gains `site: str | None = None` (1 to 64 code points, trimmed, no
+Unicode Cc, Cf, Zl or Zp character; invalid counts as absent). Stored in the `[[nodes]]` entry only when set: a
 cluster that never sets it keeps the same `cluster.toml` bytes and digest. A 0.3.x node drops the
 field on read and never tombstones it (tested with a simulated old node). New `PATCH /nodes/{id}`
 body `{"site": str | null}` (`admin:nodes`, audit `admin.node.replace`); `site` appears in
 `peer` of every Node answer; `pelagos init --site` and `pelagos enroll --site`; the enrollment
 request carries an optional `site`. The label lives on the peer, not in a collection (section 4,
 "Node site"). WP-FRONTEND (U1-HOSTS) groups nodes by `peer.site` and shows a site badge when at
-least two sites exist; the mock adds `site` to its nodes.
+least two sites exist; the mock gets the `PATCH` route, U1-HOSTS adds `site` to its node data.
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains

@@ -44,7 +44,10 @@ def test_site_is_stored_only_when_set_and_survives_a_round_trip():
     assert "site" not in tomllib.loads(cleared.dumps())["nodes"][0]
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "x" * 65, "a\nb", "a\x00b", 7, ["a"]])
+@pytest.mark.parametrize(
+    "bad",
+    ["", "   ", "x" * 65, "a\nb", "a\x00b", "a\x85b", "a\u2028b", "a\u202eb", "a\u200bb", "\u200b", 7, ["a"]],
+)
 def test_an_invalid_site_counts_as_absent(bad):
     assert clean_site(bad) is None
     assert Peer(id="A", name="n", url="u", cert_fingerprint="f", site=bad).site is None
@@ -73,8 +76,7 @@ def test_an_old_node_ignores_the_site_and_never_tombstones_it():
     old = _as_old_node(new)
     assert old.peer("A").name == "ns1"
     old = _write(old, "B", lambda c: c.secrets.__setitem__("tsig/o", "enc:v1:b"))
-    raw = tomllib.loads(_as_old_node(old).dumps())
-    assert "site" not in raw["nodes"][0]
+    assert "site" not in tomllib.loads(old.dumps())["nodes"][0]
     assert not [p for p in old.tombstones if p.startswith("nodes/A/site")]
 
 
@@ -88,3 +90,8 @@ def test_the_site_comes_back_after_merging_through_an_old_node():
     assert back.secrets["tsig/o"] == "enc:v1:b"
     other = merge_configs(ClusterConfig.from_toml(old_text), new)
     assert other.peer("A").site == "paris" and other.digest() == back.digest()
+
+
+def test_the_length_limit_counts_code_points():
+    assert clean_site("é" * 64) == "é" * 64
+    assert clean_site("é" * 65) is None

@@ -2653,6 +2653,7 @@ CREATE INDEX lease_events_hw ON lease_events(hw, ts);
 CREATE INDEX lease_events_duid ON lease_events(duid, ts);
 CREATE INDEX lease_events_hostname ON lease_events(hostname, ts);
 CREATE INDEX lease_events_ts ON lease_events(ts);
+CREATE INDEX lease_events_node ON lease_events(node_id, engine, ip, lease_type);  -- the walk's seed
 ```
 
 `meta.schema_version` is 2 since 0.4.0. Schema changes are additive: a
@@ -2668,9 +2669,11 @@ aggregated into `series_pool_hourly` and deleted; hourly rows older than
 `(zone, view, node_id)` is always kept; `ha_transitions` older than
 `ha_transition_days` (365) are deleted; resolved alerts older than
 `alerts_resolved_days` (90) are deleted; `lease_events` older than
-`lease_history_days` (90) are deleted; the audit log is never purged.
+`lease_history_days` (90) are deleted, 10000 rows per statement and at most
+2 s per run (the rest at the next run); the audit log is never purged.
 `pelagos collector --rebuild` drops and recreates the cache: everything in
-it is derived.
+it is derived, except `lease_events`, which nothing can rebuild (it is lost
+with the cache and is not part of the archives).
 
 Alert lifecycle: evaluation produces the set of currently true alerts; an
 alert that is true and unknown is inserted `OPEN` (`first_seen = now`) and

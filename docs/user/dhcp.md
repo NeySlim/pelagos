@@ -142,10 +142,19 @@ to a delete or a decline (`delete`). It answers "which device had
   server does not fill the cache (0 records every renewal).
 - **Limits**: a change that comes and goes between two walks leaves no
   trace, and a table larger than `collector.lease_watch_max_leases` has no
-  history. The history is derived data, local to each node: `pelagos
-  collector --rebuild` clears it. For a legal record of every exchange,
-  configure Kea's forensic logging hook (`legal_log`); Pelagos does not
-  read its output.
+  history. A DHCPv4 decline is listed as `delete` (state `declined`); the
+  IAID and the delegated prefix length of DHCPv6 leases are not kept.
+- **Not rebuildable**: the history lives in each node's series cache
+  (`series.sqlite`) and nothing can recreate it. `pelagos collector
+  --rebuild`, an update rollback that resets the cache or a lost disk
+  erase it, and archives do not include it. For a legal record of every
+  exchange, configure Kea's forensic logging hook (`legal_log`); Pelagos
+  does not read its output.
+- **Size**: about 0.9 GB per node for 50 000 leases kept 90 days with the
+  default of one renewal row per address and per day (each row with its
+  indexes takes about 200 bytes). Lower `retention.lease_history_days` or
+  raise `collector.lease_history_renew_seconds` on large servers; a lower
+  retention is applied in steps of at most 2 s per hourly run.
 
 ## Reservations
 

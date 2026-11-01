@@ -703,8 +703,9 @@ comments. Pelagos keeps them in one of two ways.
   `<conf dir>/<engine>.d/`, for example `/etc/kea/kea4.d/subnet4.json`.
   The top file keeps the global values and one `<?include?>` per section;
   each comment moves with the section it describes. The import plan shows
-  the files it creates, Kea checks and reloads the tree, and the running
-  configuration does not change. From then on Pelagos patches the files
+  the files it creates, Kea checks and reloads the tree (`config-reload`,
+  which restarts the HA service of that server once, as the plan's diff
+  says), and the running configuration does not change. From then on Pelagos patches the files
   and never runs `config-write` on them. The change is proposed by default
   for a file with comments; `pelagos import --no-kea-include-tree` or
   `"kea_include_tree": false` in `POST /install/import/plan` leaves the
@@ -717,17 +718,24 @@ comments. Pelagos keeps them in one of two ways.
   class; D2 domains, servers and keys; else the global scope), under
   `"pelagos": {"comment": "..."}`. A comment alone on its line belongs to
   what follows it, a comment after a value to that value's object. Kea
-  then writes them in its file. A comment already copied is not copied
-  twice. The DHCP screens say how many comments the file holds while it
-  has no includes. When the plan already replaces the configuration
+  then writes them in its file. The copy is line by line: a line the
+  object's comment already holds is not added again, so copying twice
+  changes nothing (two identical lines of one object are kept once). A
+  secret written in a comment (`"password": "..."`, `secret = ...`) is
+  copied as `"***"`. The DHCP screens say how many comments would be
+  copied while the file has no includes (rulers and blank comments are
+  left out). When the plan already replaces the configuration
   (`config-set`), the comments ride on it; when it goes through the
   `subnet_cmds` or `host_cmds` commands, one more `config-set` carries
   them first, which restarts the HA service of that server once (as any
-  `config-set` does). If `config-test` refuses them, the write goes on
-  without them and its result says so.
+  `config-set` does; the plan's impact says so in a partial apply). The
+  copy is best effort: if `config-test` or `config-set` refuses it, the
+  change still applies and its result says the comments were not copied.
 
-Rolling back that first plan undoes its change, not the copy: the comments
-stay in `user-context`.
+Once copied, a comment stays: a later replace or rollback built from an
+older configuration (rolling back that first plan, a reconciliation, a
+whole-configuration edit) keeps the `"pelagos": {"comment"}` the objects
+held. To drop one, set it to an empty string.
 
 ### Changes made outside Pelagos
 

@@ -1732,16 +1732,25 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   Without includes, `KeaConfigFile.persist` copies the comments before
   `config-write` (`KeaDocument.comment_notes`, `keafile.copy_comments`): each
   comment goes to `user-context.pelagos.comment` (lines joined by `\n`, a line
-  already present skipped, so the copy is idempotent) of the nearest object of
-  a list in `keafile.NOTED_LISTS` that still runs (matched by identity), else
-  of the root body. A config-set plan carries them in its own `config-set`
-  (`KeaConfigFile.with_comments`); otherwise `persist` runs `config-test` and
-  one `config-set` first, and goes on without them when `config-test` refuses
-  or a secret is only known masked. The reconciliation of a partial apply
-  takes the config-set path, so it carries the target's comments the same way.
-  `user-context` is outside the HA shared view: comments never make partners
-  diverge. `GET /dhcp/{family}/config/file` items gain `comments` (count of
-  comments in this node's file).
+  already present skipped, so the copy is idempotent; secrets after a
+  `password` or `secret` key masked as `"***"`, `keafile.mask_comment`) of the
+  nearest object of a list in `keafile.NOTED_LISTS` that still runs (matched
+  by identity), else of the root body. `keafile.keep_comments` puts back the
+  copies the configuration before the change held on objects whose new value
+  lacks the key (an explicit value, even `""`, wins): a rollback, a
+  whole-configuration replace or a reconciliation never erases them. A
+  config-set plan carries both in its own `config-set`
+  (`KeaConfigFile.with_comments(doc, body, before)`; when `config-test`
+  refuses that body and accepts the plain one, the plain one is set);
+  otherwise `persist` runs `config-test` and one `config-set` first. The copy
+  is best effort: a refusal, a failed `config-set` or a secret only known
+  masked skips it and the apply message says so, the change stays. The
+  reconciliation of a partial apply takes the config-set path, so it carries
+  the target's comments the same way. In a partial apply, a command-path target
+  whose file has comments to copy and no include gets the `ha_restart` impact
+  too. `user-context` is outside the HA shared view: comments never make
+  partners diverge. `GET /dhcp/{family}/config/file` items gain `comments`
+  (comments a config-write would copy, rulers and blank comments left out).
 - SELinux: where the policy confines Kea (`dhcpd_exec_t` or `kea_exec_t`
   binaries), the installer adds a CIL module letting the domain write its
   configuration type (`/var/lib/pelagos-helper/selinux/pelagos-kea-<domain>.cil`,

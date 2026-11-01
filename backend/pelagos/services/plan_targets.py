@@ -158,25 +158,61 @@ RDATA_FORMS: dict[str, str] = {
 }
 
 
-def check_rdata(rtype: str, after: Any, zone: str, field: str) -> None:
+# Port label of `_<port>._dns` (RFC 9461 2): digits without a leading zero, at most 5.
+_PORT_LABEL = re.compile(r"^_(?:0|[1-9][0-9]{0,4})$")
+
+
+def _dns_svcb_owner(name: dns.name.Name) -> bool:
+    """`_dns.<name>` or `_<port>._dns.<name>`: the owners named requires alpn for (dns_name_isdnssvcb)."""
+    labels = [label.decode("ascii", "replace").lower() for label in name.labels]
+    if labels and labels[0] == "_dns":
+        return True
+    return len(labels) > 1 and bool(_PORT_LABEL.match(labels[0])) and labels[1] == "_dns"
+
+
+def _svcb_problem(rd: Any, rtype: str, owner: dns.name.Name | None) -> str | None:
+    """What named refuses that dnspython accepts (dns_rdata_checksvcb, BIND 9.20.15, read 2026-11-01):
+    parameters in AliasMode, and an SVCB for DNS (RFC 9461) without alpn, or with h2/h3 but no dohpath."""
+    from dns.rdtypes.svcbbase import ParamKey
+
+    if rd.priority == 0 and rd.params:
+        return "priority 0 (AliasMode) takes no parameters"
+    if rtype != "SVCB" or owner is None or not _dns_svcb_owner(owner):
+        return None
+    alpn = rd.params.get(ParamKey.ALPN)
+    if alpn is None:
+        return "an SVCB for DNS (_dns owner) needs alpn"
+    if any(i.lower() in (b"h2", b"h3") for i in alpn.ids) and ParamKey.DOHPATH not in rd.params:
+        return "alpn h2 or h3 for DNS needs dohpath"
+    return None
+
+
+def check_rdata(rtype: str, after: Any, zone: str, field: str, owner: str | None = None) -> None:
     """Each rdata of `after` parses as `rtype` (dnspython, names relative to the zone): a 400 naming
-    the value at fault. A missing or empty list is left to the plan builder."""
+    the value at fault, with the expected form and the reason. A missing or empty list is left to
+    the plan builder. `owner` (as typed) enables the owner-dependent SVCB checks."""
     if not isinstance(after, dict) or not isinstance(after.get("rdata"), list):
         return
     try:
         rdtype = dns.rdatatype.from_text(rtype)
         origin = dns.name.from_text(zone)
+        name = dns.name.from_text(_absolute(owner.strip().lower(), zone)) if owner is not None else None
     except dns.exception.DNSException:
         return
     errors = []
     for j, text in enumerate(after["rdata"]):
         if not isinstance(text, str):
             continue
+        expected = RDATA_FORMS.get(rtype)
         try:
-            dns.rdata.from_text(dns.rdataclass.IN, rdtype, text, origin=origin, relativize=False)
+            rd = dns.rdata.from_text(dns.rdataclass.IN, rdtype, text, origin=origin, relativize=False)
         except Exception as exc:  # dnspython raises several types for a bad value
-            expected = RDATA_FORMS.get(rtype)
-            hint = f"expected {expected}" if expected else str(exc) or "invalid value"
+            reason = str(exc) or type(exc).__name__
+            hint = f"expected {expected} ({reason})" if expected else reason
             errors.append(field_error(f"{field}.rdata[{j}]", f"invalid {rtype} value: {hint}"))
+            continue
+        problem = _svcb_problem(rd, rtype, name) if rtype in ("SVCB", "HTTPS") else None
+        if problem:
+            errors.append(field_error(f"{field}.rdata[{j}]", f"invalid {rtype} value: {problem}"))
     if errors:
         raise ValidationError(f"{field}.rdata has values that are not valid {rtype} records", errors)

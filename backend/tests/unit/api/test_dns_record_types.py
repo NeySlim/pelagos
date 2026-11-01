@@ -43,7 +43,8 @@ def test_bad_values_name_the_field_and_the_expected_form(role_client):
     assert doc["errors"] == [
         {
             "field": "changes[1].after.rdata[1]",
-            "message": "invalid SSHFP value: expected <algorithm> <fingerprint type> <fingerprint hex>",
+            "message": "invalid SSHFP value: expected <algorithm> <fingerprint type> <fingerprint hex>"
+            " (expecting an integer)",
         }
     ]
     r = _plan(dora, [{"op": "add", "target": "a/A", "after": {"rdata": ["not-an-address"]}}])
@@ -59,3 +60,24 @@ def test_ds_at_the_apex_is_refused(role_client):
     # Deleting a stray one stays possible.
     r = _plan(dora, [{"op": "delete", "target": "@/DS"}])
     assert r.status_code != 400
+
+
+def test_svcb_for_dns_needs_alpn_as_named_does(role_client):
+    """named refuses these at load or UPDATE (dns_rdata_checksvcb): the API says so before the plan."""
+    dora = role_client("dns-operator")
+    cases = [
+        ("_dns.resolver/SVCB", "1 dot.example.lan. port=853", "needs alpn"),
+        ("_853._dns.resolver/SVCB", "1 dot.example.lan.", "needs alpn"),
+        ("_dns.resolver/SVCB", '1 doh.example.lan. alpn="h2"', "needs dohpath"),
+    ]
+    for target, rdata, why in cases:
+        r = _plan(dora, [{"op": "add", "target": target, "after": {"rdata": [rdata]}}])
+        assert r.status_code == 400, (target, r.get_json())
+        assert why in r.get_json()["errors"][0]["message"]
+    for target, rdata in [
+        ("_dns.resolver/SVCB", '1 dot.example.lan. alpn="dot" port=853'),
+        ("_dns.resolver/SVCB", '1 doh.example.lan. alpn="h2" dohpath="/dns-query{?dns}"'),
+        ("svc/SVCB", "1 svc.example.lan. port=853"),
+    ]:
+        r = _plan(dora, [{"op": "add", "target": target, "after": {"rdata": [rdata]}}])
+        assert r.status_code == 200, (target, r.get_json())

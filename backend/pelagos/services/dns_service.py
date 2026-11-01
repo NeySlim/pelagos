@@ -581,7 +581,7 @@ class DnsService(DnsExtras):
             owner, rtype = change.target.split("/")[1:]
             check_record_owner(owner, zone, rtype.strip().upper(), change.op.value, f"changes[{i}].target")
             check_ttl(change.after, f"changes[{i}].after")
-            check_rdata(rtype.strip().upper(), change.after, zone, f"changes[{i}].after")
+            check_rdata(rtype.strip().upper(), change.after, zone, f"changes[{i}].after", owner)
             parsed.append(change)
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   absoluteName, relativeName, validOwner, validDomainName, isIPv4, isIPv6, validateRdata, normalizeRdata,
-  validateForm, buildChanges, localDiff, validForwarder, composeRdata, fieldDefaults, RDATA_FIELDS, EDITABLE_TYPES,
+  validateForm, buildChanges, localDiff, validForwarder, composeRdata, fieldDefaults, RDATA_FIELDS, EDITABLE_TYPES, dms,
 } from './records'
 import { laggingNodes, resolverChanges, resynchronizeZone, zoneHref } from './helpers'
 
@@ -241,5 +241,19 @@ describe('record types of 0.4.0', () => {
     expect(normalizeRdata('DNAME', 'New.Example.Lan.')).toBe('new.example.lan.')
     const { errors } = validateForm({ owner: 'old', rtype: 'DNAME', ttl: '300', rdata: 'a.\nb.' }, 'example.lan.')
     expect(errors.rdata).toBe('records.types.errors.singleton')
+  })
+})
+
+describe('LOC degrees', () => {
+  it('carries rounded seconds into minutes and degrees', () => {
+    expect(dms(48.9999999, 'N', 'S')).toBe('49 0 0.000 N')
+    expect(dms(-0.0166666, 'N', 'S')).toBe('0 1 0.000 S')
+    expect(dms(-0.0166, 'N', 'S')).toBe('0 0 59.760 S')
+    expect(dms(4.99999999, 'E', 'W')).toBe('5 0 0.000 E')
+    expect(dms(52.373, 'N', 'S')).toBe('52 22 22.800 N')
+    for (const v of [12.3456789, 89.99999, 0.0002777]) {
+      const s = Number(dms(v, 'N', 'S').split(' ')[2])
+      expect(s).toBeLessThan(60)
+    }
   })
 })

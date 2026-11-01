@@ -204,15 +204,14 @@ export const RDATA_FIELDS = {
   URI: [{ key: 'priority' }, { key: 'weight' }, { key: 'target', wide: true }],
 }
 
-// Decimal degrees to LOC's "d m s.sss H".
-function dms(value, pos, neg) {
+// Decimal degrees to LOC's "d m s.sss H": rounded once in milliseconds of arc, so seconds never reach 60.
+export function dms(value, pos, neg) {
   const n = Number(value)
   const hemi = n < 0 ? neg : pos
-  let rest = Math.abs(n)
-  const d = Math.floor(rest)
-  rest = (rest - d) * 60
-  const m = Math.floor(rest)
-  const s = Math.round((rest - m) * 60 * 1000) / 1000
+  const total = Math.round(Math.abs(n) * 3600 * 1000)
+  const d = Math.floor(total / 3600000)
+  const m = Math.floor((total % 3600000) / 60000)
+  const s = (total % 60000) / 1000
   return `${d} ${m} ${s.toFixed(3)} ${hemi}`
 }
 

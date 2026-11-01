@@ -457,7 +457,8 @@ Access, one of:
 
 Without either, the answer is `401`. `metrics.endpoint_enabled` off answers
 `404`. A scrape is never written to the audit log, so the interval can be
-short; the answer is cached for 10 seconds per node.
+short (a known token that is refused, expired or from the wrong address is
+still audited, as on every route); the answer is cached for 10 seconds per node.
 
 ```yaml
 scrape_configs:
@@ -487,6 +488,18 @@ built on them):
 | `pelagos_kea_packets_total{node,engine,packet}`, `pelagos_kea_assigned_addresses`, `pelagos_kea_declined_addresses` | Kea statistics, per node and engine |
 | `pelagos_plan_applied_total{scope,result}` | plans applied, rolled back or failed since the web process started |
 | `pelagos_scrape_success{source}` | 1 when the source (`dashboard`, `alerts`, `ha`, `bind`, `kea`) was read |
+
+Every node serves the engine counters of the whole cluster, read from its
+peers, so a scrape of N nodes reads N times the same data and costs N peer
+reads per node (N squared in all). Scrape one node, or each node and
+aggregate: `max by (node, qtype) (rate(...))` for the cluster families,
+`sum` only for `pelagos_plan_applied_total`, which each process counts for
+itself. The Grafana dashboard does this.
+
+A token sees only what its permissions allow, as on the screens: without
+`read:dns` there are no BIND, zone or serial series; without `read:dhcp` no
+Kea, pool or HA series; without `read:alerts` no alert series. A client of
+`metrics.allowed_networks` sees all of them.
 
 Counters restart at zero with the web process: use `rate()` or `increase()`.
 A node that does not answer is missing from the engine families (and

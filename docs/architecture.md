@@ -6589,7 +6589,10 @@ enough; the token's own source networks and expiry apply, and a wrong token is `
 listed network), or a client address inside `metrics.allowed_networks` and no token. Otherwise
 `401` (problem document); a token without `read:series` is `403`. `metrics.endpoint_enabled`
 (default true) off answers `404`. The client address is the connection's, never a forwarded header.
-The route is never audited, a Bearer call to it included.
+The route is never audited, a Bearer call to it included (a known token refused by
+`authenticate` is still audited by the token service). The data follows the caller's permissions:
+`read:dns` (BIND, zones), `read:dhcp` (Kea, pools, HA), `read:alerts`, `read:nodes`; a listed
+network gets all of them. Entries of `metrics.allowed_networks` must parse as networks (`400` on save).
 
 **Content.** One document per scrape of the node asked, cached 10 seconds per process. The data is
 what the dashboard summary, the alert summary, the HA view and the statistics routes already show
@@ -6618,4 +6621,6 @@ The families from `pelagos_node_up` to `pelagos_summary_source_error` (except `p
 same names and labels. A node that does not answer a counter read is left out of that family and logged;
 the other nodes and sources are still served. `pelagos_plan_applied_total` counts in memory in
 the process that applied or rolled back the plan (it restarts at zero with the process): use
-`increase()` or `rate()`.
+`increase()` or `rate()`. Every node reports the whole cluster, so dashboards aggregate with
+`max by (...)` over the scraped nodes, `sum` only for the plan counter. Sample values are written
+without precision loss (integers in full).

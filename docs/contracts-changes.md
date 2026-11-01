@@ -15,8 +15,8 @@ What changed (file, symbol). Why. Which packages must react, and how.
 
 ## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
 Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created
-in place in a version 1 cache, purged after `retention.lease_history_days` (90); `rebuild` drops it
-with the rest. The lease watch writes one row per `new`, `renew`, `reassign`, `release`, `expire`
+in place in a version 1 cache, purged after `retention.lease_history_days` (90) in chunks; unlike
+the rest of the cache it cannot be rebuilt (`rebuild` loses it, archives do not hold it). The lease watch writes one row per `new`, `renew`, `reassign`, `release`, `expire`
 or `delete`; the live `leases` events keep their shape. Settings `collector.lease_history_enabled`
 (true), `collector.lease_history_renew_seconds` (86400). New `GET /dhcp/{family}/leases/history`
 and `GET /hosts/{key}/timeline` (section 17), new peer action `lease.history` (section 13; a peer
@@ -33,7 +33,6 @@ keeps a plan's private state for `plans.rollback_window_seconds` plus `peers.pla
 after the apply (memory only), same `finished_at` rule. The collector's backup purge and the
 replication housekeeping keep at least `ceil(window / 86400)` days. No API shape change:
 these refusals now answer `409 precondition_failed` instead of a `200` with state `failed`.
-
 
 ## 2026-11-01, B1-SITE (WP-CORE, WP-API-AUTH, WP-FRONTEND): site label on a node
 Additive. `domain.cluster.Peer` gains `site: str | None = None` (1 to 64 code points, trimmed, no
@@ -80,7 +79,6 @@ node; a `401` already leads to the login page). Optional hardening: on `403 csrf
 E2-SSO-OIDC: opens its sessions through `_open_session`; with `SameSite=Strict` the cookie is not
 sent on the cross-site redirect to the callback, so the OIDC state and PKCE verifier cannot depend
 on it. E3-KEYROT: re-seals the secret and adds `pelagos secrets rotate auth/session_signing`.
-
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains
 `rollback_until` (optional, `null` by default; a 0.3.x peer drops unknown keys in

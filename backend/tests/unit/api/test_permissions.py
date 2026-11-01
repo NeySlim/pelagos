@@ -160,6 +160,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/dhcp/<string:family>/leases/<string:ip>", "/dhcp/v4/leases/192.0.2.100", None, "read:dhcp"),
     ("GET", "/dhcp/<string:family>/leases/recent", "/dhcp/v4/leases/recent", None, "read:dhcp"),
     (
+        "GET",
+        "/dhcp/<string:family>/leases/history",
+        "/dhcp/v4/leases/history",
+        None,
+        "read:dhcp",
+    ),  # B1-LEASEHIST
+    (
         "POST",
         "/dhcp/<string:family>/leases/<string:ip>/delete/plan",
         "/dhcp/v4/leases/192.0.2.100/delete/plan",
@@ -220,6 +227,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ),
     ("GET", "/hosts", "/hosts", None, "read:hosts"),
     ("GET", "/hosts/<path:key>", "/hosts/mac:aa:bb:cc:dd:ee:01", None, "read:hosts"),
+    (
+        "GET",
+        "/hosts/<path:key>/timeline",
+        "/hosts/mac:02:00:00:00:00:0a/timeline",
+        None,
+        "read:hosts",
+    ),  # B1-LEASEHIST
     ("GET", "/search", "/search?q=example", None, "read:hosts"),  # or read:dns, or read:dhcp
     (
         "POST",

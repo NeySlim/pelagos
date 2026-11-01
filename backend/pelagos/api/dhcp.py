@@ -6,7 +6,17 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import arg, int_arg, items, json_body, page_of, paged, plan_answer, time_range
+from pelagos.api.common import (
+    arg,
+    int_arg,
+    items,
+    json_body,
+    page_of,
+    paged,
+    plan_answer,
+    time_arg,
+    time_range,
+)
 from pelagos.api.errors import ApiError
 from pelagos.api.security import require, require_module, services, username
 from pelagos.domain import Family
@@ -419,3 +429,35 @@ class D2ConfigPlan(Resource):
     @ns.response(200, "Plan replacing the DhcpDdns object", m.Plan)
     def post(self):
         return plan_answer(services().dhcp4.plan_d2_config(json_body(), username()))
+
+
+# B1-LEASEHIST: lease history (section 15, Lease history) ------------------------
+
+
+@ns.route("/<string:family>/leases/history")
+class LeaseHistory(FamilyResource):
+    @require("read:dhcp")
+    @ns.doc(
+        params={
+            "ip": "address (exact)",
+            "mac": "hardware address, any separator",
+            "duid": "DUID, any separator",
+            "hostname": "hostname, case-insensitive",
+            "since": "RFC 3339 or Unix seconds (default: the retention window)",
+            "until": "RFC 3339 or Unix seconds (default now)",
+            "node_id": "one node (default: this node and every peer running the engine)",
+            **PAGE,
+        }
+    )
+    @ns.response(200, "Lease events newest first; meta.unavailable, meta.truncated", m.RawList)
+    def get(self, family: str):
+        from pelagos.services.lease_history import LeaseHistoryService
+
+        rows, meta = LeaseHistoryService.of(services()).history(
+            Family(family),
+            {k: arg(k) for k in ("ip", "mac", "duid", "hostname")},
+            time_arg("since"),
+            time_arg("until"),
+            arg("node_id"),
+        )
+        return page_of(rows, meta)

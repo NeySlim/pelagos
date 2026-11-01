@@ -6,7 +6,7 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import arg, bool_arg, int_arg, json_body, page_of, plan_answer
+from pelagos.api.common import arg, bool_arg, int_arg, json_body, page_of, plan_answer, time_arg
 from pelagos.api.errors import ApiError
 from pelagos.api.security import check_permission, require, services, username
 from pelagos.auth.rbac import host_plan_permissions
@@ -48,6 +48,28 @@ class HostPlan(Resource):
         if not host_plan_permissions(session.permissions, True, bool(body.get("reservation"))):
             raise ApiError("forbidden", "requires write:hosts")
         return plan_answer(services().hosts.plan(body, username()))
+
+
+# B1-LEASEHIST: one host's lease events (section 15, Lease history); before /<path:key>.
+@ns.route("/<path:key>/timeline")
+class HostTimeline(Resource):
+    @require("read:hosts")
+    @ns.doc(
+        params={
+            "since": "RFC 3339 or Unix seconds (default: the retention window)",
+            "until": "RFC 3339 or Unix seconds (default now)",
+            "page": "1-based",
+            "per_page": "default 50, max 500",
+        }
+    )
+    @ns.response(200, "Events of one host key (mac:, ip:, name:), newest first", m.RawList)
+    def get(self, key: str):
+        from pelagos.services.lease_history import LeaseHistoryService
+
+        svc = services()
+        v6 = bool(svc.ctx.cluster().modules.get("dhcpv6", False))
+        rows, meta = LeaseHistoryService.of(svc).timeline(key, time_arg("since"), time_arg("until"), v6)
+        return page_of(rows, meta)
 
 
 @ns.route("/<path:key>")

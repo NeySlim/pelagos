@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Real kea-dhcp4 running from a commented file tree with <?include?>: plans write back into the file
 that defines the element, a hand edit blocks writes until "adopt file" or "adopt running", both with
-rollback, and the API answers 409 config_divergence meanwhile."""
+rollback, and the API answers 409 config_divergence meanwhile. A commented file is split into an
+include tree, or its comments ride into user-context before config-write, on one server and an HA pair."""
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from pelagos.connectors.kea.backend import KeaBackend
 from pelagos.connectors.kea.configfile import FileDiverged
 from pelagos.core.keadoc import KeaDocument
 from pelagos.core.keafile import kea_config_differences
-from pelagos.domain import Change, ChangeOp, Family, PlanState, Pool, Subnet
+from pelagos.domain import Change, ChangeOp, Family, PlanState, Pool, Reservation, ReservationIdType, Subnet
 from tests.daemon.api_node import V1, apply, login, make_app, make_node, planned
 from tests.fixtures import kea as kea_fx
 
@@ -209,3 +211,162 @@ def test_api_blocks_with_409_then_adopt_unblocks(tmp_root, kea_dhcp4):
         from pelagos.services.container import Services
 
         Services.of(ctx).close()
+
+
+# B1-KEACOMMENTS: a commented file without includes -------------------------------------------------
+
+
+def commented(daemon: kea_fx.KeaDaemon) -> Path:
+    """The fixture's config rewritten by hand: a header, a comment above the subnet and one closing
+    the reservation's line; Kea reloads it."""
+    path = daemon.config_path
+    text = path.read_text()
+    text = "// Lab DHCPv4 server, written by hand\n" + text
+    text = text.replace('"subnet4": [\n', '"subnet4": [\n      // office LAN\n', 1)
+    text = re.sub(r'("hostname": "printer"\n\s*})', r"\1 // the printer", text, count=1)
+    assert "// the printer" in text and "// office LAN" in text
+    path.write_text(text)
+    daemon.ok("config-reload")
+    return path
+
+
+def reservation(mac: str, ip: str) -> Change:
+    res = Reservation(subnet_id=1, id_type=ReservationIdType.HW_ADDRESS, identifier=mac, ip_address=ip)
+    return Change(ChangeOp.ADD, f"subnet4/1/reservations/hw-address={mac}", after=res.to_dict())
+
+
+def kea_check(daemon: kea_fx.KeaDaemon) -> None:
+    binary = kea_fx.find_binary(daemon.name)
+    check = subprocess.run(
+        [binary, "-t", str(daemon.config_path)],
+        capture_output=True,
+        text=True,
+        env=kea_fx.kea_env(daemon.root),
+        check=False,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+
+
+def split(daemon: kea_fx.KeaDaemon) -> dict[Path, str]:
+    """What import/kea4/include-tree writes, then a reload: the daemon runs from the tree."""
+    tree = KeaDocument(daemon.config_path).include_tree("Dhcp4", daemon.root / "kea4.d")
+    for p, text in tree.items():
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(text)
+    kea_check(daemon)
+    daemon.ok("config-reload")
+    return tree
+
+
+def comments_of(path: Path) -> list[str]:
+    return [c.text for c in KeaDocument(path).comments]
+
+
+def test_include_tree_keeps_comments_across_a_reservation(kea_dhcp4, tmp_root):
+    main = commented(kea_dhcp4)
+    before = kea_dhcp4.ok("config-get")
+    tree = split(kea_dhcp4)
+    assert len(tree) > 1 and "<?include" in main.read_text()
+    # The running configuration did not move.
+    assert kea_dhcp4.ok("config-get") == before
+    backend = backend_for(kea_dhcp4, tmp_root)
+    plan = backend.plan_reservation_change(reservation("aa:bb:cc:dd:ee:42", "192.0.2.42"))
+    assert plan.state is PlanState.VALIDATED, plan.validations
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert "patched subnet4.json" in result.message and "config-write" not in result.message
+    assert {"Lab DHCPv4 server, written by hand", "office LAN", "the printer"} <= set(comments_of(main))
+    assert "aa:bb:cc:dd:ee:42" in (kea_dhcp4.root / "kea4.d/subnet4.json").read_text()
+    kea_check(kea_dhcp4)
+    kea_dhcp4.ok("config-reload")
+    assert reads_as_running(backend) == []
+    subnet = backend.config_get()["subnet4"][0]
+    assert any(r["hw-address"] == "aa:bb:cc:dd:ee:42" for r in subnet["reservations"])
+    assert "comment" not in subnet["user-context"]["pelagos"]
+
+
+def test_config_write_carries_comments_into_user_context(kea_dhcp4, tmp_root):
+    main = commented(kea_dhcp4)
+    backend = backend_for(kea_dhcp4, tmp_root)
+    plan = backend.plan_reservation_change(reservation("aa:bb:cc:dd:ee:43", "192.0.2.43"))
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert "config-write" in result.message
+    body = backend.config_get()
+    assert body["user-context"]["pelagos"]["comment"] == "Lab DHCPv4 server, written by hand"
+    subnet = body["subnet4"][0]
+    # Pelagos metadata already there stays next to the comment.
+    assert subnet["user-context"]["pelagos"]["notes"] == "fixture subnet"
+    assert subnet["user-context"]["pelagos"]["comment"] == "office LAN"
+    printer = next(r for r in subnet["reservations"] if r["hw-address"] == "aa:bb:cc:dd:ee:01")
+    assert printer["user-context"]["pelagos"]["comment"] == "the printer"
+    # Kea's own file now holds them, reads back as what runs and reloads.
+    assert comments_of(main) == [] and '"comment": "office LAN"' in main.read_text()
+    assert reads_as_running(backend) == []
+    kea_dhcp4.ok("config-reload")
+    # Copying again changes nothing: the next write is a plain config-write.
+    again = backend.apply(backend.plan_reservation_change(reservation("aa:bb:cc:dd:ee:44", "192.0.2.44")))
+    assert again.ok and "comments copied" not in again.message
+    assert backend.config_get()["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+    assert backend.rollback(again).ok and backend.rollback(plan).ok
+    assert "// office LAN" in main.read_text()
+
+
+def test_ha_pair_copies_the_same_comments_and_never_config_writes_a_tree(tmp_root):
+    from pelagos.collector import kea_shared
+    from tests.daemon.test_kea_ha import ha_config, local_state
+    from tests.fixtures.ports import free_port, wait_for
+
+    hooks = kea_fx.kea_hooks_dir()
+    assert hooks is not None
+    ports = [free_port(), free_port()]
+    daemons: list[kea_fx.KeaDaemon] = []
+    try:
+        for i in (1, 2):
+            root = tmp_root / f"ha{i}"
+            daemons.append(kea_fx.start_kea("kea-dhcp4", root, ha_config(root, hooks, i, ports)))
+
+        def serving() -> bool:
+            return all(local_state(d) == "hot-standby" for d in daemons)
+
+        wait_for(serving, timeout=30, what="HA hot-standby")
+        for d in daemons:
+            commented(d)
+        backends = [backend_for(d, tmp_root / f"n{i}") for i, d in enumerate(daemons, 1)]
+
+        def same_on_both() -> None:
+            bodies = [b.config_get() for b in backends]
+            assert (
+                kea_shared.shared_hashes({"Dhcp4": bodies[0]})["relationships"][0]["hash"]
+                == (kea_shared.shared_hashes({"Dhcp4": bodies[1]})["relationships"][0]["hash"])
+            )
+            notes = [[s.get("user-context") for s in b["subnet4"]] + [b.get("user-context")] for b in bodies]
+            assert notes[0] == notes[1]
+
+        # Without includes: config-set then config-write on each partner, comments in user-context.
+        change = reservation("aa:bb:cc:dd:ee:45", "192.0.2.45")
+        for b in backends:
+            result = b.apply(b.plan_reservation_change(change))
+            assert result.ok, result.message
+            assert "config-write" in result.message
+        wait_for(serving, timeout=60, what="HA back to hot-standby")
+        same_on_both()
+        assert backends[0].config_get()["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+
+        # With includes: the files are patched, config-write never runs on the tree.
+        for d in daemons:
+            d.config_path.write_text("// pair member\n" + d.config_path.read_text())
+            d.ok("config-reload")
+            split(d)
+        change = reservation("aa:bb:cc:dd:ee:46", "192.0.2.46")
+        for d, b in zip(daemons, backends, strict=True):
+            result = b.apply(b.plan_reservation_change(change))
+            assert result.ok, result.message
+            assert "config-write" not in result.message
+            assert "<?include" in d.config_path.read_text() and "pair member" in comments_of(d.config_path)
+            assert reads_as_running(b) == []
+        wait_for(serving, timeout=60, what="HA back to hot-standby")
+        same_on_both()
+    finally:
+        for d in daemons:
+            d.stop()

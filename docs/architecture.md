@@ -2491,6 +2491,15 @@ live file as one log:
   re-serialised from the entry (`json.dumps` of `to_dict`), and the rotation
   keeps the order: the export of a time range is byte for byte what it was
   before the rotation.
+- A filtered `query` reads the lines of its time window and keeps those
+  that hold the filters' byte needles (`"action":"<prefix>`, `"user":"<name>"`,
+  ...; the fixed key order makes them necessary conditions; a value that
+  needs JSON escaping gives none) and pass a plain `json.loads` check; only
+  the page is turned into entries (200 000 entries, 134 MB: an action page
+  in 0.5 s instead of 3.9 s). Long loops (index load, filtered query, `tail`,
+  `matching`, export) hand the gevent hub a turn every 20 ms in the web
+  process (none elsewhere), so no single block of the worker exceeds about
+  50 ms.
 - `query(plan_id=...)` (F0-PLANS) and `query(action=..., since=...)` (the
   `replication_conflict` check, notifications) work across the segments.
 

@@ -860,3 +860,38 @@ def test_apply_acks_after_rebuild_finds_an_ack_in_a_segment(rig):  # noqa: F811
     collector.store.set_meta(META_ACK_INODE, "0")
     assert [a.id for a in collector.apply_acks()] == [alert.id]
     assert collector.alerts.get(alert.id).state is AlertState.ACKED
+
+
+def test_filtered_query_decodes_only_the_page(alog, monkeypatch):
+    """A filtered page: byte needles, then a json check; only the page becomes entries."""
+    from pelagos.core import audit_log as audit_mod
+
+    for i in range(60):
+        alog.append(
+            entry(
+                ts(2026, 3, 1) + timedelta(minutes=i), action="auth.login" if i % 3 == 0 else "dns.rrset.add"
+            )
+        )
+    decoded: list[bytes] = []
+    real = audit_mod._decode
+    monkeypatch.setattr(audit_mod, "_decode", lambda line: (decoded.append(line), real(line))[1])
+    rows, total = alog.query(action="auth.", page=2, per_page=5)
+    assert total == 20 and len(rows) == 5 and all(e.action == "auth.login" for e in rows)
+    assert len(decoded) == 5
+    rows_all, _ = alog.query(action="auth.", per_page=100)
+    assert [e.id for e in rows_all][5:10] == [e.id for e in rows]
+    assert alog.query(user='a"b')[1] == 0  # a value needing escaping: no needle, still exact
+
+
+def test_long_reads_hand_the_gevent_hub_a_turn(alog, monkeypatch):
+    from pelagos.core import audit_log as audit_mod
+
+    for i in range(50):
+        alog.append(entry(ts(2026, 3, 1) + timedelta(minutes=i)))
+    turns: list[float] = []
+    monkeypatch.setattr(audit_mod, "_gevent_sleep", lambda: turns.append)
+    monkeypatch.setattr(audit_mod, "PACE_SECONDS", 0.0)
+    fresh = AuditLog(alog.path, alog.dir.parent / "audit.lock")
+    fresh.query(user="alice")
+    list(fresh.export_lines())
+    assert len(turns) >= 100

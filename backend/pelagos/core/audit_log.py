@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,8 +26,8 @@ from pelagos.domain.audit import AuditEntry
 from pelagos.domain.common import from_rfc3339
 
 log = logging.getLogger(__name__)
-# Entries decoded per read when a query has filters beyond the time range.
-DECODE_CHUNK = 2000
+# Work between two turns handed to the gevent hub in the web process.
+PACE_SECONDS = 0.02
 SEGMENT_RE = re.compile(r"^audit-(\d{4})(?:-(\d+))?\.jsonl$")
 HORIZON_FILE = "purged-before"
 # Fast path of the index: the fixed key order of AuditEntry.to_dict puts id and ts first.
@@ -129,6 +130,44 @@ def _id_ts(line: bytes) -> tuple[str, float]:
             pass
     raw = json.loads(line)
     return str(raw["id"]), from_rfc3339(raw["ts"]).timestamp()
+
+
+class _Pacer:
+    """Long loops in the web process (one gevent worker) hand the hub a turn about every 20 ms;
+    without gevent's monkey patching (collector, CLI, tests) it does nothing."""
+
+    def __init__(self) -> None:
+        self._sleep = _gevent_sleep()
+        self._next = time.monotonic() + PACE_SECONDS
+
+    def tick(self) -> None:
+        if self._sleep is not None and time.monotonic() >= self._next:
+            self._sleep(0.001)
+            self._next = time.monotonic() + PACE_SECONDS
+
+
+def _gevent_sleep() -> Callable[[float], None] | None:
+    try:
+        from gevent import monkey, sleep
+    except ImportError:  # pragma: no cover - gevent ships with the web process
+        return None
+    return sleep if monkey.is_module_patched("socket") else None
+
+
+def _needles(**fields: str | None) -> list[bytes]:
+    """Byte strings every matching line holds (fixed key order of AuditEntry.to_dict): `name` for
+    an exact value, `name~` for a prefix. A value needing JSON escaping gives no needle."""
+    out: list[bytes] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        prefix = key.endswith("~")
+        name = key.rstrip("~")
+        encoded = json.dumps(value, ensure_ascii=False)
+        if encoded[1:-1] != value:
+            continue
+        out.append(f'"{name}":"{value}'.encode() + (b"" if prefix else b'"'))
+    return out
 
 
 @dataclass(slots=True)
@@ -257,7 +296,9 @@ class AuditLog:
             pos = part.offset
             fresh: list[tuple[str, int, int]] = []
             fresh_ts: list[tuple[float, str, int, int]] = []
+            pacer = _Pacer()
             for line in fh:
+                pacer.tick()
                 if not line.endswith(b"\n"):
                     break  # a writer is mid-line: index it on the next refresh
                 stripped = line.strip()
@@ -324,6 +365,7 @@ class AuditLog:
     def _load_at(self, locs: list[Loc], needle: bytes | None = None) -> list[AuditEntry]:
         """Entries at these locations, in the order given; offsets grouped by file. `needle` skips
         lines without that byte string before decoding them."""
+        pacer = _Pacer()
         by_file: dict[int, list[int]] = {}
         for ino, off in locs:
             by_file.setdefault(ino, []).append(off)
@@ -334,6 +376,7 @@ class AuditLog:
                 continue
             with fh:
                 for off in sorted(offsets):
+                    pacer.tick()
                     fh.seek(off)
                     line = fh.readline()
                     if needle is not None and needle not in line:
@@ -491,10 +534,54 @@ class AuditLog:
                 window = [self._by_ts[i][2:] for i in range(hi - 1, lo - 1, -1)]
         if not window:
             return self._load_at(locs), total
-        rows: list[AuditEntry] = []
-        for i in range(0, len(window), DECODE_CHUNK):
-            rows.extend(e for e in self._load_at(window[i : i + DECODE_CHUNK]) if keep(e))
-        return rows[start : start + per_page], len(rows)
+        # Byte needles first, then a plain json.loads check: only the page is turned into entries.
+        needles = _needles(
+            **{"user": user, "action~": action, "target~": target, "node_id": node_id},
+            **{"plan_id": plan_id, "engine": engine, "result": result},
+        )
+
+        def raw_keep(raw: dict[str, Any]) -> bool:
+            return (
+                (user is None or raw.get("user") == user)
+                and (action is None or str(raw.get("action", "")).startswith(action))
+                and (target is None or str(raw.get("target", "")).startswith(target))
+                and (node_id is None or raw.get("node_id") == node_id)
+                and (plan_id is None or raw.get("plan_id") == plan_id)
+                and (engine is None or raw.get("engine") == engine)
+                and (result is None or raw.get("result") == result)
+            )
+
+        hits = self._matching_locs(window, needles, raw_keep)
+        rows = [e for e in self._load_at(hits[start : start + per_page]) if keep(e)]
+        return rows, len(hits)
+
+    def _matching_locs(
+        self, locs: list[Loc], needles: list[bytes], raw_keep: Callable[[dict[str, Any]], bool]
+    ) -> list[Loc]:
+        """The locations, in the order given, whose line holds every needle and passes `raw_keep`."""
+        by_file: dict[int, list[int]] = {}
+        for ino, off in locs:
+            by_file.setdefault(ino, []).append(off)
+        good: set[Loc] = set()
+        pacer = _Pacer()
+        for ino, offsets in by_file.items():
+            fh = self._open(ino)
+            if fh is None:
+                continue
+            with fh:
+                for off in sorted(offsets):
+                    pacer.tick()
+                    fh.seek(off)
+                    line = fh.readline()
+                    if not all(n in line for n in needles):
+                        continue
+                    try:
+                        raw = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(raw, dict) and raw_keep(raw):
+                        good.add((ino, off))
+        return [loc for loc in locs if loc in good]
 
     def get(self, entry_id: str) -> AuditEntry | None:
         found = self.get_many([entry_id])
@@ -577,6 +664,7 @@ class AuditLog:
             dupes = set(self._dupes)
         out: list[AuditEntry] = []
         seen = 0
+        pacer = _Pacer()
         for ino, limit in files:
             fh = self._open(ino)
             if fh is None:
@@ -588,6 +676,7 @@ class AuditLog:
                         break
                     here, pos = pos, pos + len(line)
                     seen += 1
+                    pacer.tick()
                     if pause is not None and seen % 5000 == 0:
                         pause()
                     if needle not in line or (ino, here) in dupes:
@@ -617,6 +706,7 @@ class AuditLog:
             files = [(ino, self._parts[ino].path, self._parts[ino].offset) for ino in self._order]
             dupes = set(self._dupes)
         seals = {s.inode: s.seal for s in list_segments(self.dir) if s.seal}
+        pacer = _Pacer()
         for ino, _path, limit in files:
             seal = seals.get(ino)
             if seal is not None and _outside(seal, since, until):
@@ -627,6 +717,7 @@ class AuditLog:
             with fh:
                 pos = 0
                 for line in fh:
+                    pacer.tick()
                     if pos >= limit or not line.endswith(b"\n"):
                         break
                     here = pos

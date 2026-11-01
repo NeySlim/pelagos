@@ -216,9 +216,13 @@ class AuditLog:
     def _refresh_locked(self) -> None:
         try:
             dir_mtime = self.dir.stat().st_mtime_ns
-            live_ino: int | None = self.path.stat().st_ino
+            st = self.path.stat()
+            live_ino: int | None = st.st_ino
         except FileNotFoundError:
-            dir_mtime, live_ino = None, None
+            dir_mtime, live_ino, st = None, None, None
+        part = self._parts.get(live_ino) if live_ino is not None else None
+        if st is not None and part is not None and st.st_size < part.offset:
+            self._reset()  # shrunk, or a new file that reused the inode: what was indexed is gone
         if dir_mtime != self._dir_mtime or not self._order or self._order[-1] != live_ino:
             order, paths = self._expected()
             if order[: len(self._order)] != self._order:

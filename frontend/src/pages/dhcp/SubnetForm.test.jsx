@@ -96,6 +96,11 @@ describe('SubnetForm', () => {
     expect(options.map((o) => [o.name, o.data])).toEqual([['routers', '192.0.2.1'], ['domain-name-servers', '192.0.2.53']])
   })
 
+  it('starts a new subnet with one empty pool row', () => {
+    renderForm({ subnet: null, existing: [] })
+    expect(screen.getAllByTestId('subnet-pools-row')).toHaveLength(1)
+  })
+
   it('explains the greyed ID field', () => {
     renderForm()
     expect(screen.getByTestId('subnet-id')).toBeDisabled()

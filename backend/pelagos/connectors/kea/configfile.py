@@ -24,6 +24,7 @@ from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import (
     KeaConfigError,
     conform_root,
+    copy_comments,
     kea_config_differences,
     rebase_root,
     redact_kea_difference,
@@ -287,14 +288,43 @@ class KeaConfigFile:
                 "adopt the file, or edit the secret by hand or move it to a secret file"
             )
 
+    # Comments of a file Kea rewrites ------------------------------------------------------------
+
+    def with_comments(self, doc: KeaDocument | None, body: dict[str, Any]) -> dict[str, Any]:
+        """`body` with the comments of a file without includes copied to `user-context.pelagos.comment`
+        (config-write drops them from the file); `body` itself when there is nothing to copy."""
+        if doc is None or doc.has_includes or not doc.comments:
+            return body
+        out, added = copy_comments(doc.value, doc.comment_notes(self.root), body, self.root)
+        return out if added else body
+
+    def _carry_comments(self, doc: KeaDocument | None, clear: list[Any]) -> str:
+        """Before the config-write that drops the comments of the file, the running configuration
+        takes them in user-context (one config-set, skipped when the change already carried them)."""
+        if doc is None or doc.has_includes or not doc.comments:
+            return ""
+        running = self.socket.config_get()[self.root]
+        body = self.with_comments(doc, running)
+        if body is running:
+            return ""
+        target = {self.root: body}
+        if restore_secrets(target, clear, doc.value):
+            return "comments not copied (a secret is only known masked); "
+        test = self.socket.send("config-test", target)
+        if int(test.get("result", 1)) != 0:
+            return f"comments not copied (config-test: {test.get('text', '')}); "
+        self.socket.call("config-set", target)
+        return "comments copied to user-context; "
+
     def persist(
         self, doc: KeaDocument | None, before_body: dict[str, Any], label: str, clear: list[Any] | None = None
     ) -> str:
         """Makes the file say what the daemon now runs. config-write unless the file uses includes.
         `clear` holds the values just applied, which carry the secrets config-get masks."""
         if doc is None or not doc.has_includes:
+            carried = self._carry_comments(doc, list(clear or []))
             written = self.socket.call("config-write")
-            return f"config-write {written.get('filename', '')}".strip()
+            return f"{carried}config-write {written.get('filename', '')}".strip()
         after_body = self.socket.config_get()[self.root]
         target = rebase_root(doc.value, before_body, after_body, self.root)
         self._unmask(target, doc, list(clear or []), "persisting the change")

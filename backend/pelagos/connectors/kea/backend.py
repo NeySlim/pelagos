@@ -1218,6 +1218,8 @@ class KeaBackend(DhcpBackend):
                         current = kcfg.apply_change(current, change, self.family, version, explicit)
             else:
                 new_cfg = kcfg.apply_changes(before, changes, self.family, version, explicit)
+                # B1-KEACOMMENTS: the comments config-write drops ride on this config-set.
+                new_cfg = self.file.with_comments(doc, new_cfg)
                 validation = self.config_test(new_cfg)
                 if not validation.ok:
                     raise ValidationFailed(validation)

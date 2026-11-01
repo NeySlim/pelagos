@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+"""KeaConfigFile.persist on a file without includes: its comments ride into user-context before the
+config-write that drops them, once (section 9)."""
+
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from pelagos.connectors.kea.configfile import KeaConfigFile
+from pelagos.core.write_pipeline import WritePipeline
+
+pytestmark = pytest.mark.unit
+
+MAIN = """// lab server
+{ "Dhcp4": {
+  "valid-lifetime": 3600,
+  "subnet4": [
+    // office
+    { "id": 1, "subnet": "192.0.2.0/24" }
+  ]
+} }
+"""
+RUNNING = {"valid-lifetime": 3600, "subnet4": [{"id": 1, "subnet": "192.0.2.0/24"}]}
+
+
+class Socket:
+    def __init__(self, body: dict[str, Any], test_result: int = 0) -> None:
+        self.body = body
+        self.test_result = test_result
+        self.calls: list[str] = []
+
+    def config_get(self) -> dict[str, Any]:
+        return {"Dhcp4": copy.deepcopy(self.body)}
+
+    def send(self, command: str, arguments: Any = None) -> dict[str, Any]:
+        self.calls.append(command)
+        return {"result": self.test_result, "text": "refused" if self.test_result else ""}
+
+    def call(self, command: str, arguments: Any = None) -> dict[str, Any]:
+        self.calls.append(command)
+        if command == "config-set":
+            self.body = arguments["Dhcp4"]
+        return {"filename": "kea-dhcp4.conf"} if command == "config-write" else {}
+
+
+def make(tmp_path: Path, text: str = MAIN, test_result: int = 0) -> tuple[KeaConfigFile, Socket]:
+    conf = tmp_path / "kea-dhcp4.conf"
+    conf.write_text(text)
+    sock = Socket(copy.deepcopy(RUNNING), test_result)
+    file = KeaConfigFile(conf, "Dhcp4", "kea4", lambda: sock, WritePipeline, tmp_path / "b", "n1")
+    return file, sock
+
+
+def test_comments_are_set_in_user_context_before_config_write(tmp_path):
+    file, sock = make(tmp_path)
+    message = file.persist(file.document(), RUNNING, "t")
+    assert sock.calls == ["config-test", "config-set", "config-write"]
+    assert message.startswith("comments copied to user-context; config-write")
+    assert sock.body["user-context"] == {"pelagos": {"comment": "lab server"}}
+    assert sock.body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office"}}
+
+
+def test_comments_already_carried_cost_no_config_set(tmp_path):
+    file, sock = make(tmp_path)
+    doc = file.document()
+    sock.body = file.with_comments(doc, sock.body)  # the change's config-set carried them
+    file.persist(doc, RUNNING, "t")
+    assert sock.calls == ["config-write"]
+
+
+def test_a_refused_copy_still_persists(tmp_path):
+    file, sock = make(tmp_path, test_result=1)
+    message = file.persist(file.document(), RUNNING, "t")
+    assert sock.calls == ["config-test", "config-write"]
+    assert "comments not copied (config-test: refused)" in message
+
+
+def test_a_file_without_comments_goes_straight_to_config_write(tmp_path):
+    file, sock = make(tmp_path, MAIN.replace("// lab server\n", "").replace("    // office\n", ""))
+    assert file.with_comments(file.document(), RUNNING) is RUNNING
+    file.persist(file.document(), RUNNING, "t")
+    assert sock.calls == ["config-write"]

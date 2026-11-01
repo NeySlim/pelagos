@@ -241,6 +241,8 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         None,
         "read:hosts",
     ),  # B1-LEASEHIST
+    ("GET", "/hosts/discovered", "/hosts/discovered", None, "read:hosts"),  # B1-DISCOVERY
+    ("GET", "/hosts/vendor/<string:mac>", "/hosts/vendor/b8:27:eb:00:00:01", None, "read:hosts"),
     ("GET", "/search", "/search?q=example", None, "read:hosts"),  # or read:dns, or read:dhcp
     (
         "POST",

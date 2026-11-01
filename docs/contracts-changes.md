@@ -2786,3 +2786,11 @@ migration runs Pelagos older than 0.3.1 or does not report its version. A failed
 ISC packages still puts /etc/kea back and keeps its copy (path in the error); `kea-mig-cleanup` keeps
 `private/before` as `before-<id>-<timestamp>` when /etc/kea differs from the prepare. Lab test_04: a
 target postinst that fails inside dpkg, returned exactly.
+## 2026-11-01, FIX-ARCHIVECAP (WP-CORE, WP-INSTALLER): archive extraction limits
+Additive. `archives.bundle.extract`, `read_manifest` and `read_members` take `max_size: int | None`
+and refuse an archive past the default caps (total `max(2 GiB, 20 x archive size)`, member
+`max(1 GiB, 10 x size)`, 200000 members) or the free space of the work folder with the new
+`ArchiveTooLarge(ArchiveError)`, removing what `extract` wrote. `OfflineRestore(max_size=)` and
+`pelagos restore --max-size SIZE` raise the caps. Behaviour change: an archive that unpacks beyond
+the caps is no longer restorable without `--max-size` (the scheduled test restore has no override
+and reports the failure).

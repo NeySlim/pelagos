@@ -237,8 +237,10 @@ class OfflineRestore:
         force: bool = False,
         checker: Checker | None = None,
         log: Callable[[str], None] = lambda _line: None,
+        max_size: int | None = None,
     ) -> None:
         self.env = env
+        self.max_size = max_size
         self.archive = Path(archive)
         self.identities = list(identities)
         unknown = sorted(set(only or ()) - set(GROUPS))
@@ -289,7 +291,10 @@ class OfflineRestore:
             raise RestoreError("no identity to open the archive: give --identity")
         self.workdir = self._make_workdir()
         try:
-            manifest = bundle.extract(self.archive, self.identities, self.workdir)
+            manifest = bundle.extract(self.archive, self.identities, self.workdir, max_size=self.max_size)
+        except bundle.ArchiveTooLarge as exc:
+            self.close()
+            raise RestoreError(f"the archive is refused: {exc} (--max-size raises the limit)") from None
         except age.AgeNoMatchError:
             raise RestoreError("none of the identities given opens this archive") from None
         except age.AgeError as exc:
@@ -530,11 +535,21 @@ class OfflineRestore:
             return
         try:
             # Two passes: the manifest is the last member, and only the engine files are written.
-            wanted = verify_members(bundle.read_manifest(self.archive, self.identities))
+            wanted = verify_members(bundle.read_manifest(self.archive, self.identities, self.max_size))
             self.workdir = self._make_workdir()
             manifest = bundle.extract(
-                self.archive, self.identities, self.workdir, lambda n: n.startswith("zones/") or n in wanted
+                self.archive,
+                self.identities,
+                self.workdir,
+                lambda n: n.startswith("zones/") or n in wanted,
+                self.max_size,
             )
+        except bundle.ArchiveTooLarge as exc:
+            self.close()
+            checks.append(
+                {"what": "decrypt", "ok": False, "output": f"the archive is refused: {exc} (--max-size)"}
+            )
+            return
         except age.AgeNoMatchError:
             checks.append(
                 {"what": "decrypt", "ok": False, "output": "none of the identities given opens this archive"}

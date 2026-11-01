@@ -260,6 +260,20 @@ def _verify(args: argparse.Namespace, restore: Any) -> int:
     return EXIT_OK if report["ok"] else EXIT_FAILED
 
 
+def _size(text: str) -> int:
+    from pelagos.installer.restore import RestoreError
+
+    units = {"k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+    t = text.strip().lower().removesuffix("b").removesuffix("i")
+    try:
+        n = int(float(t[:-1]) * units[t[-1]]) if t and t[-1] in units else int(t)
+    except ValueError:
+        raise RestoreError(f"--max-size: {text!r} is not a size (bytes, or K, M, G, T)") from None
+    if n <= 0:
+        raise RestoreError("--max-size must be positive")
+    return n
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     from pelagos.installer.restore import OfflineRestore, RestoreError
 
@@ -289,6 +303,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
             backup_root=Path(args.backup_dir),
             force=args.force,
             log=(lambda _l: None) if args.json else print,
+            max_size=_size(args.max_size) if args.max_size else None,
         )
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -371,6 +386,12 @@ def add_parsers(sub: Any) -> None:
     )
     r.add_argument("--no-start", action="store_true", help="leave the services stopped afterwards")
     r.add_argument("--force", action="store_true", help="replace the identity of another node on this host")
+    r.add_argument(
+        "--max-size",
+        metavar="SIZE",
+        help="raise the unpacked size limit (default the larger of 2 GiB and 20 times the archive); "
+        "bytes or K, M, G, T",
+    )
     r.add_argument("--workdir", help="where the archive is opened (default /run when it has room)")
     r.add_argument(
         "--backup-dir", default="/var/backups", help="where replaced files are saved (default /var/backups)"

@@ -5521,6 +5521,18 @@ command line, B6 API and screen, B7 lab.
   segments and seals (section 11) still verify, since the rebuilt node has the archive's node id.
   The online `pelagos.audit` part instead merges the entries of every `audit*.jsonl` member
   (segments and live file) into this node's live file and never restores a seal.
+- **Extraction limits** (0.4.0, `bundle.ExtractLimits`): age does not authenticate the sender, so
+  anyone holding the public key can send a gzip bomb. Every read of an archive (`extract`,
+  `read_manifest`, `read_members`: `restore`, `--dry-run`, `--verify`, the scheduled test restore)
+  checks the tar headers before any byte is written: at most 200000 members, a member of at most
+  `max(1 GiB, 10 x archive size)` (capped by the total), and a total of at most `max(2 GiB,
+  20 x archive size)` (configuration and zones gzip 5 to 10 times). `extract` also refuses when
+  the work folder has less free space than the bytes it is about to write, plus 64 MiB. Past a
+  limit it stops at once with `ArchiveTooLarge` (an `ArchiveError`), removes what it wrote and
+  names the limit: `pelagos restore` prints `error: the archive is refused: ...` and exits 1,
+  `--verify` reports a red `decrypt` check, the scheduled test restore records the failure like
+  any other. `--max-size SIZE` (bytes, or K, M, G, T) replaces the total and the member cap for
+  an operator whose genuine archive is larger.
 - **Restore check** (`pelagos restore --verify [--archive] F [--identity F]... [--workdir D]
   [--json]`, 0.4.0, `OfflineRestore.verify`): proves an archive restorable without touching the
   host: no root needed (an identity is then required unless this node's master key is readable),

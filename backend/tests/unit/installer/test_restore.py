@@ -552,3 +552,24 @@ def test_a_signal_removes_the_clear_copies(rig):
     assert exc.value.code == 128 + signal.SIGTERM
     assert not workdir.exists()
     assert signal.getsignal(signal.SIGTERM) is not None
+
+
+def test_restore_and_verify_refuse_an_archive_over_the_cap(rig):
+    with _restore(rig, max_size=1000) as r:
+        with pytest.raises(RestoreError, match="--max-size"):
+            r.prepare()
+        assert r.workdir is None
+    with _restore(rig, max_size=1000) as r:
+        report = r.verify()
+        assert r.workdir is None
+    assert report["ok"] is False
+    assert "refused" in report["checks"][-1]["output"]
+
+
+def test_max_size_option_parses_sizes():
+    from pelagos.installer.archive_cli import _size
+
+    assert _size("500") == 500 and _size("2G") == 2 * 1024**3 and _size("1.5MiB") == 1536 * 1024
+    for bad in ("0", "abc", "-1k"):
+        with pytest.raises(RestoreError):
+            _size(bad)

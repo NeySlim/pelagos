@@ -186,6 +186,24 @@ already installed, a missing engine). The scheduled test restore
 (`archives.test_restore_days`) runs the same checks on each node's newest
 archive.
 
+### Size limits when opening an archive
+
+An archive is encrypted to a public key that anyone can hold, so a restore
+does not trust its size. `pelagos restore` (also `--dry-run` and `--verify`)
+and the scheduled test restore refuse an archive that would unpack to more
+than the larger of 2 GiB and 20 times the file size, a member over 1 GiB (or
+10 times the file size when larger), more than 200000 members, or more than
+the free space of the work folder. Nothing stays on disk, `restore` exits 1
+with `the archive is refused`, and `--verify` reports `NOT restorable`. If the
+archive is genuine and just huge, raise the limit:
+
+```sh
+sudo pelagos restore --archive big.tar.gz.age --identity cluster-key.txt --max-size 20G
+```
+
+`--max-size` takes bytes or a K, M, G or T suffix; the work folder must still
+have the room (`--workdir` picks another).
+
 ### Rebuilding a lost node
 
 The node comes back with its identity, its zones, its DNSSEC keys and its

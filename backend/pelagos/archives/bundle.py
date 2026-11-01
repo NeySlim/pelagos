@@ -13,9 +13,11 @@ import io
 import json
 import os
 import pwd
+import shutil
 import stat
 import tarfile
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO
@@ -35,6 +37,29 @@ from pelagos.archives.model import (
 from pelagos.domain.common import new_id, utcnow
 
 _READ = 1024 * 1024
+_GIB = 1024**3
+_FREE_RESERVE = 64 * 1024 * 1024
+
+
+class ArchiveTooLarge(ArchiveError):
+    """The archive would unpack beyond the extraction limits (a trapped archive, or a huge real one)."""
+
+
+@dataclass(frozen=True)
+class ExtractLimits:
+    """Caps on what an archive may unpack to; age does not authenticate the sender, so anyone holding
+    the public key can send a gzip bomb. Checked on the tar headers, before a byte is written."""
+
+    max_total: int
+    max_member: int
+    max_members: int
+
+    @classmethod
+    def for_archive(cls, compressed: int, max_total: int | None = None) -> ExtractLimits:
+        # Configuration and zones gzip at 5 to 10 times: 20 times the encrypted size, or 2 GiB, leaves a
+        # wide margin. A member is capped at 1 GiB (leases and journals), 200000 members cover any zone set.
+        total = max_total if max_total else max(2 * _GIB, 20 * compressed)
+        return cls(total, total if max_total else min(total, max(_GIB, 10 * compressed)), 200_000)
 
 
 def file_member(path: str) -> str:
@@ -273,11 +298,25 @@ def verify_sum(path: Path) -> bool:
 # Reading ------------------------------------------------------------------------------
 
 
-def _members(src: BinaryIO, identities: Sequence[str]) -> Iterator[tuple[tarfile.TarInfo, Any]]:
+def _members(
+    src: BinaryIO, identities: Sequence[str], limits: ExtractLimits
+) -> Iterator[tuple[tarfile.TarInfo, Any]]:
     dec = age.Decryptor(src, identities)
+    count = total = 0
     try:
         with tarfile.open(fileobj=dec, mode="r|gz") as tar:  # type: ignore[call-overload]
             for info in tar:
+                count += 1
+                total += info.size
+                if count > limits.max_members:
+                    raise ArchiveTooLarge(f"more than {limits.max_members} members")
+                if info.size > limits.max_member:
+                    raise ArchiveTooLarge(
+                        f"member {info.name!r} unpacks to {info.size} bytes, "
+                        f"over the {limits.max_member} limit"
+                    )
+                if total > limits.max_total:
+                    raise ArchiveTooLarge(f"the archive unpacks beyond {limits.max_total} bytes")
                 name = PurePosixPath(info.name)
                 if name.is_absolute() or ".." in name.parts:
                     raise ArchiveError(f"unsafe member name {info.name!r}")
@@ -289,13 +328,17 @@ def _members(src: BinaryIO, identities: Sequence[str]) -> Iterator[tuple[tarfile
 
 
 def _walk(
-    path: Path, identities: Sequence[str], sink: Callable[[str, Any], str]
+    path: Path,
+    identities: Sequence[str],
+    sink: Callable[[str, Any], str],
+    max_size: int | None = None,
 ) -> tuple[Manifest, dict[str, str]]:
     """Feeds every member but the manifest to `sink` (returns its sha256), then checks the sums."""
     digests: dict[str, str] = {}
     manifest: Manifest | None = None
     with open(path, "rb") as fh:
-        for info, member in _members(fh, identities):
+        limits = ExtractLimits.for_archive(os.fstat(fh.fileno()).st_size, max_size)
+        for info, member in _members(fh, identities, limits):
             if info.name == MANIFEST:
                 manifest = Manifest.from_dict(json.loads(member.read()))
             elif manifest is not None:
@@ -321,14 +364,14 @@ def _hash_stream(member: Any, out: BinaryIO | None = None) -> str:
     return h.hexdigest()
 
 
-def read_manifest(path: Path, identities: Sequence[str]) -> Manifest:
+def read_manifest(path: Path, identities: Sequence[str], max_size: int | None = None) -> Manifest:
     """Decrypts the whole archive (the manifest is last) and checks every member's sum."""
-    manifest, _ = _walk(path, identities, lambda _name, member: _hash_stream(member))
+    manifest, _ = _walk(path, identities, lambda _name, member: _hash_stream(member), max_size)
     return manifest
 
 
 def read_members(
-    path: Path, identities: Sequence[str], select: Callable[[str], bool]
+    path: Path, identities: Sequence[str], select: Callable[[str], bool], max_size: int | None = None
 ) -> tuple[Manifest, dict[str, bytes]]:
     """Members chosen by name, in memory (zone snapshots, small configuration files)."""
     out: dict[str, bytes] = {}
@@ -341,26 +384,49 @@ def read_members(
         out[name] = buf.getvalue()
         return digest
 
-    manifest, _ = _walk(path, identities, sink)
+    manifest, _ = _walk(path, identities, sink, max_size)
     return manifest, out
 
 
 def extract(
-    path: Path, identities: Sequence[str], dest: Path, select: Callable[[str], bool] | None = None
+    path: Path,
+    identities: Sequence[str],
+    dest: Path,
+    select: Callable[[str], bool] | None = None,
+    max_size: int | None = None,
 ) -> Manifest:
     """Writes the chosen members under `dest` (0600 files, 0700 directories), sums checked.
 
-    On a mismatch the extracted tree is left for inspection and ArchiveError is raised."""
+    Past the limits (`max_size` replaces the total cap and the member cap) or the free space of `dest`,
+    ArchiveTooLarge is raised and what was written is removed. On a sum mismatch the tree is left for
+    inspection and ArchiveError is raised."""
     dest.mkdir(parents=True, exist_ok=True, mode=0o700)
+    written: list[Path] = []
+    budget = shutil.disk_usage(dest).free - _FREE_RESERVE
+    used = 0
 
     def sink(name: str, member: Any) -> str:
+        nonlocal used
         if select is not None and not select(name):
             return _hash_stream(member)
         target = dest / name
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        written.append(target)
         with os.fdopen(fd, "wb") as out:
-            return _hash_stream(member, out)
+            h = hashlib.sha256()
+            while data := member.read(_READ):
+                used += len(data)
+                if used > budget:
+                    raise ArchiveTooLarge(f"not enough free space in {dest} to open the archive")
+                h.update(data)
+                out.write(data)
+            return h.hexdigest()
 
-    manifest, _ = _walk(path, identities, sink)
+    try:
+        manifest, _ = _walk(path, identities, sink, max_size)
+    except ArchiveTooLarge:
+        for target in written:
+            target.unlink(missing_ok=True)
+        raise
     return manifest

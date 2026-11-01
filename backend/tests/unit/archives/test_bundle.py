@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -226,3 +227,76 @@ def test_age_tool_opens_archive(tmp_path: Path) -> None:
         manifest = json.loads(tar.extractfile("manifest.json").read())
     assert names[-1] == "manifest.json" and manifest["format"] == 1 and manifest["node_name"] == "ns1"
     assert "files/etc/kea/kea-dhcp4.conf" in names
+
+
+# Extraction limits ----------------------------------------------------------------------
+
+
+def _trap(tmp_path: Path, members: list[tuple[str, int]]) -> tuple[Path, str]:
+    """An archive of zero-filled members (a few hundred bytes per megabyte once compressed)."""
+    identity = age.generate_identity()
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w:gz") as tar:
+        for name, size in members:
+            info = tarfile.TarInfo(name)
+            info.size = size
+            tar.addfile(info, io.BytesIO(bytes(size)))
+    path = tmp_path / "ns1-20261028T031507Z.tar.gz.age"
+    path.write_bytes(age.encrypt(out.getvalue(), [age.recipient_of(identity)]))
+    return path, identity
+
+
+def test_default_limits_scale_with_the_archive() -> None:
+    small = bundle.ExtractLimits.for_archive(1000)
+    assert small.max_total == 2 * 1024**3 and small.max_member == 1024**3
+    big = bundle.ExtractLimits.for_archive(1024**3)
+    assert big.max_total == 20 * 1024**3 and big.max_member == 10 * 1024**3
+    raised = bundle.ExtractLimits.for_archive(1000, 5000)
+    assert raised.max_total == raised.max_member == 5000
+
+
+def test_gzip_bomb_refused_and_nothing_left(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bundle, "_GIB", 4096)  # the default cap becomes a few KiB
+    path, identity = _trap(tmp_path, [("files/etc/a", 100), ("files/etc/bomb", 3_000_000)])
+    assert path.stat().st_size < 4000
+    dest = tmp_path / "x"
+    with pytest.raises(bundle.ArchiveTooLarge, match="bomb"):
+        bundle.extract(path, [identity], dest)
+    assert [p for p in dest.rglob("*") if p.is_file()] == []
+    with pytest.raises(bundle.ArchiveTooLarge):
+        bundle.read_manifest(path, [identity])
+
+
+def test_member_and_total_caps(tmp_path: Path) -> None:
+    path, identity = _trap(tmp_path, [("files/a", 600_000), ("files/b", 600_000)])
+    with pytest.raises(bundle.ArchiveTooLarge, match="member 'files/a'"):
+        bundle.extract(path, [identity], tmp_path / "x", max_size=500_000)
+    with pytest.raises(bundle.ArchiveTooLarge, match="unpacks beyond"):
+        bundle.extract(path, [identity], tmp_path / "y", max_size=1_000_000)
+    assert not (tmp_path / "x" / "files" / "a").exists()
+
+
+def test_too_many_members(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path, identity = _trap(tmp_path, [(f"files/m{i}", 1) for i in range(6)])
+    real = bundle.ExtractLimits.for_archive
+    few = classmethod(lambda c, n, m=None: replace(real(n, m), max_members=5))
+    monkeypatch.setattr(bundle.ExtractLimits, "for_archive", few)
+    with pytest.raises(bundle.ArchiveTooLarge, match="more than 5 members"):
+        bundle.extract(path, [identity], tmp_path / "x")
+
+
+def test_not_enough_free_space(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path, identity = _trap(tmp_path, [("files/a", 1000)])
+    free = bundle._FREE_RESERVE + 10
+    usage = shutil._ntuple_diskusage(100, 100 - free, free)
+    monkeypatch.setattr(bundle.shutil, "disk_usage", lambda _p: usage)
+    with pytest.raises(bundle.ArchiveTooLarge, match="free space"):
+        bundle.extract(path, [identity], tmp_path / "x")
+    assert not (tmp_path / "x" / "files" / "a").exists()
+
+
+def test_a_normal_archive_passes_the_default_limits(tmp_path: Path) -> None:
+    identity = age.generate_identity()
+    _, path = _write(tmp_path, [age.recipient_of(identity)])
+    bundle.extract(path, [identity], tmp_path / "x")
+    assert (tmp_path / "x" / "manifest.json").exists() is False

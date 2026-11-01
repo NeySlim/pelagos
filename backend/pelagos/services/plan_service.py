@@ -268,9 +268,11 @@ class PlanService:
             if problem:
                 # Nothing was applied anywhere: the plan stays as it was, to apply once fixed.
                 raise PlanError("preflight_failed", problem)
-            if offline:
-                self._narrow(plan, parts, offline, partial)
+            # Every refusal comes before the plan is touched: a refused plan stays as it was built.
+            skipped = self._skippable(parts, offline, partial) if offline else []
             self._check_reconcile(parts, set(offline))
+            if skipped:
+                self._narrow(plan, parts, offline, skipped)
             plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
         self._phase(plan, "applying")
@@ -352,7 +354,10 @@ class PlanService:
         for part in parts:
             for node_id in part.target_node_ids or [self.ctx.node.id]:
                 if node_id in offline:
-                    continue
+                    if kea_files.narrowable(part):
+                        continue
+                    # A part that cannot narrow targets a node found offline by an earlier part.
+                    return f"{self._name(node_id)}: {offline[node_id]}", offline
                 if node_id == self.ctx.node.id:
                     check = getattr(self._backend(part), "preflight", None)
                     try:
@@ -384,19 +389,50 @@ class PlanService:
         problem, code = self.peers.preflight_verdict(peer, part)
         if code == "engine_down":
             return None, "engine_down"
+        if code == "reconcile_required":
+            # The peer knows a kea_partials record this node may not have received yet.
+            recs = kea_files.waiting(self.ctx.cluster(), part.engine, [peer.id])  # type: ignore[arg-type]
+            names = {p.id: p.name for p in self.ctx.cluster().nodes}
+            if recs:
+                exc = kea_files.reconcile_required(part.engine, recs, names)  # type: ignore[arg-type]
+                raise PlanError(exc.code, exc.detail, extra=exc.extra)
+            raise PlanError(
+                "reconcile_required",
+                problem or f"{peer.name} waits for a Kea reconciliation",
+                extra={
+                    "engine": part.engine.value if part.engine else None,
+                    "divergences": [
+                        {
+                            "node_id": peer.id,
+                            "node_name": peer.name,
+                            "source_node_id": None,
+                            "plan_ids": [],
+                            "since": None,
+                        }
+                    ],
+                },
+            )
         return problem, None
 
-    def _narrow(self, plan: Plan, parts: list[Plan], offline: dict[str, str], partial: bool) -> None:
-        """Section 6, partial apply: refuse with node_unreachable, or drop the skippable targets."""
+    def _name(self, node_id: str) -> str:
+        return next((p.name for p in self.ctx.cluster().nodes if p.id == node_id), node_id)
+
+    def _skippable(self, parts: list[Plan], offline: dict[str, str], partial: bool) -> list[dict[str, str]]:
+        """Section 6, partial apply: the offline nodes with their reason, or node_unreachable /
+        collection_unavailable. A node is skippable only when the Kea of this node sees it lost
+        for every engine of a narrowable part that targets it. Nothing is changed here."""
         names = {p.id: p.name for p in self.ctx.cluster().nodes}
-        engine_of = {
-            n: part.engine for part in parts if kea_files.narrowable(part) for n in part.target_node_ids
-        }
+        engines: dict[str, set[Engine]] = {}
+        for part in parts:
+            if kea_files.narrowable(part) and part.engine is not None:
+                for n in part.target_node_ids:
+                    engines.setdefault(n, set()).add(part.engine)
         nodes = []
         for node_id, reason in sorted(offline.items()):
-            dhcp = self.kea.get(engine_of.get(node_id))  # type: ignore[arg-type]
-            if dhcp is not None and dhcp.partner_state(node_id) != "lost":
-                reason = "ha_partner_in_touch"
+            for engine in sorted(engines.get(node_id, set()), key=lambda e: e.value):
+                dhcp = self.kea.get(engine)
+                if dhcp is not None and dhcp.partner_state(node_id) != "lost":
+                    reason = "ha_partner_in_touch"
             nodes.append({"node_id": node_id, "reason": reason})
         allowed = all(n["reason"] != "ha_partner_in_touch" for n in nodes)
         if not partial or not allowed:
@@ -426,6 +462,13 @@ class PlanService:
                 " in part",
                 extra={"errors": [{"field": "partial", "message": kea_files.COLLECTION}]},
             )
+        return nodes
+
+    def _narrow(
+        self, plan: Plan, parts: list[Plan], offline: dict[str, str], nodes: list[dict[str, str]]
+    ) -> None:
+        """Drop the skippable targets of every narrowable part; the caller saves the plan."""
+        names = {p.id: p.name for p in self.ctx.cluster().nodes}
         skipped = sorted(offline)
         for part in parts:
             if not kea_files.narrowable(part):
@@ -448,7 +491,6 @@ class PlanService:
         if ConfirmationReason.PARTIAL_APPLY.value not in plan.requires_confirmation_reasons:
             plan.requires_confirmation_reasons.append(ConfirmationReason.PARTIAL_APPLY.value)
         self._partial_impacts(plan, parts, names)
-        self.ctx.plan_store.update(plan)
 
     def _partial_impacts(self, plan: Plan, parts: list[Plan], names: dict[str, str]) -> None:
         """Impact items appended to the plan (deduplicated by kind), never a second annotate."""
@@ -708,10 +750,24 @@ class PlanService:
             return
         cluster = self.ctx.cluster()
         for part in self._partial_parts(plan):
-            if not kea_files.lists_plan(cluster, plan.id, part.engine, plan.node_id, part.skipped_node_ids):  # type: ignore[arg-type]
-                names = {p.id: p.name for p in cluster.nodes}
-                nodes = ", ".join(names.get(n, n) for n in part.skipped_node_ids)
-                raise PlanError("plan_state", f"reconciled to {nodes}: undo it with a new plan")
+            why = kea_files.rollback_refusal(
+                cluster,
+                plan.id,
+                part.engine,  # type: ignore[arg-type]
+                plan.node_id,
+                part.skipped_node_ids,
+            )
+            if why is None:
+                continue
+            names = {p.id: p.name for p in cluster.nodes}
+            nodes = ", ".join(names.get(n, n) for n in part.skipped_node_ids)
+            if why == "evicted":
+                raise PlanError(
+                    "plan_state",
+                    f"{kea_files.MAX_PLAN_REFS} newer partial plans for {nodes} came after this one:"
+                    " undo it with a new plan",
+                )
+            raise PlanError("plan_state", f"reconciled to {nodes}: undo it with a new plan")
 
     def _forget_partial(self, plan: Plan, user: str) -> None:
         try:

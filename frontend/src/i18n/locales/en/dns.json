@@ -133,7 +133,107 @@
     "add": "Add record",
     "empty": "No record matches",
     "applied": "Plan applied",
-    "rollbackGone": "The server no longer holds this plan: it cannot be rolled back from here"
+    "rollbackGone": "The server no longer holds this plan: it cannot be rolled back from here",
+    "types": {
+      "assisted": "{{type}} value",
+      "addValue": "Add the value",
+      "fields": {
+        "algorithm": "Algorithm",
+        "fpType": "Fingerprint type",
+        "fingerprint": "Fingerprint (hex)",
+        "usage": "Certificate usage",
+        "selector": "Selector",
+        "matching": "Matching type",
+        "data": "Certificate data (hex)",
+        "priority": "Priority",
+        "target": "Target",
+        "params": "Parameters",
+        "order": "Order",
+        "preference": "Preference",
+        "flags": "Flags",
+        "services": "Services",
+        "regexp": "Regular expression",
+        "replacement": "Replacement",
+        "latitude": "Latitude (decimal degrees)",
+        "longitude": "Longitude (decimal degrees)",
+        "altitude": "Altitude (m)",
+        "size": "Size (m)",
+        "keyTag": "Key tag",
+        "digestType": "Digest type",
+        "digest": "Digest (hex)",
+        "weight": "Weight"
+      },
+      "options": {
+        "SSHFP": {
+          "algorithm": {
+            "1": "1 RSA",
+            "2": "2 DSA",
+            "3": "3 ECDSA",
+            "4": "4 Ed25519",
+            "6": "6 Ed448"
+          },
+          "fpType": {
+            "1": "1 SHA-1",
+            "2": "2 SHA-256"
+          }
+        },
+        "TLSA": {
+          "usage": {
+            "0": "0 PKIX-TA",
+            "1": "1 PKIX-EE",
+            "2": "2 DANE-TA",
+            "3": "3 DANE-EE"
+          },
+          "selector": {
+            "0": "0 Full certificate",
+            "1": "1 Public key"
+          },
+          "matching": {
+            "0": "0 Exact",
+            "1": "1 SHA-256",
+            "2": "2 SHA-512"
+          }
+        },
+        "DS": {
+          "digestType": {
+            "1": "1 SHA-1",
+            "2": "2 SHA-256",
+            "4": "4 SHA-384"
+          }
+        }
+      },
+      "help": {
+        "SSHFP": "Host key fingerprint, as ssh-keygen -r prints it. Owner: the host name.",
+        "TLSA": "DANE certificate association. Owner: _<port>._<protocol>.<host>, for instance _443._tcp.www.",
+        "HTTPS": "Service binding for HTTPS: priority 0 is an alias to the target, otherwise parameters such as alpn=\"h2,h3\" port=8443.",
+        "SVCB": "Service binding: priority, target (. for the owner itself) and parameters such as alpn=\"dot\" port=853. Under _dns, named requires alpn.",
+        "NAPTR": "Naming authority pointer (SIP, ENUM): order, preference, flags, services, regular expression and replacement.",
+        "LOC": "Location: enter decimal degrees, negative for south or west; the value is written in degrees, minutes and seconds.",
+        "DS": "Delegation signer of a child zone: only at a delegated name (with NS records), never at the zone apex.",
+        "URI": "URI record: priority, weight and the URI. Owner: _<service>._<protocol>."
+      },
+      "placeholder": {
+        "HTTPS_target": ".",
+        "SVCB_target": "dot.example.lan.",
+        "HTTPS_params": "alpn=\"h2,h3\"",
+        "SVCB_params": "alpn=\"dot\" port=853",
+        "NAPTR_replacement": "_sip._udp.example.lan.",
+        "LOC_latitude": "52.373",
+        "LOC_longitude": "4.892",
+        "URI_target": "https://www.example.lan/"
+      },
+      "errors": {
+        "SSHFP": "Expected: algorithm, fingerprint type, fingerprint in hex (40 characters for SHA-1, 64 for SHA-256)",
+        "TLSA": "Expected: usage, selector, matching type, data in hex (64 characters for SHA-256, 128 for SHA-512)",
+        "HTTPS": "Expected: priority target [key=value ...]; priority 0 takes no parameters",
+        "SVCB": "Expected: priority target [key=value ...]; priority 0 takes no parameters",
+        "NAPTR": "Expected: order preference \"flags\" \"services\" \"regexp\" replacement",
+        "LOC": "Expected: d [m [s]] N|S d [m [s]] E|W altitude[m] [size[m] [hp[m] [vp[m]]]]",
+        "DS": "Expected: key tag, algorithm, digest type, digest in hex (64 characters for SHA-256)",
+        "URI": "Expected: priority weight \"URI\"",
+        "singleton": "A DNAME holds a single target"
+      }
+    }
   },
   "editor": {
     "title": {
@@ -162,7 +262,16 @@
       "PTR": "host.example.lan.",
       "NS": "ns1.example.lan.",
       "CAA": "0 issue \"ca.example.lan\"",
-      "DHCID": "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
+      "DHCID": "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA=",
+      "SSHFP": "4 2 d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971",
+      "TLSA": "3 1 1 d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971",
+      "HTTPS": "1 . alpn=\"h2,h3\"",
+      "SVCB": "1 dot.example.lan. alpn=\"dot\" port=853",
+      "NAPTR": "100 10 \"S\" \"SIP+D2U\" \"\" _sip._udp.example.lan.",
+      "LOC": "52 22 23.000 N 4 53 32.000 E -2.00m",
+      "DNAME": "example.net.",
+      "DS": "60485 13 2 2bb183af5f22588179a53b0a98631fad1a292118a24f0a2f6fa15e8a46f2fb63",
+      "URI": "10 1 \"https://www.example.lan/\""
     },
     "errors": {
       "owner": "Invalid name, or outside the zone",

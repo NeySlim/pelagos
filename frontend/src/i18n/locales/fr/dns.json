@@ -133,7 +133,107 @@
     "add": "Ajouter un enregistrement",
     "empty": "Aucun enregistrement ne correspond",
     "applied": "Plan appliqué",
-    "rollbackGone": "Le serveur ne détient plus ce plan : il ne peut plus être annulé d'ici"
+    "rollbackGone": "Le serveur ne détient plus ce plan : il ne peut plus être annulé d'ici",
+    "types": {
+      "assisted": "Valeur {{type}}",
+      "addValue": "Ajouter la valeur",
+      "fields": {
+        "algorithm": "Algorithme",
+        "fpType": "Type d'empreinte",
+        "fingerprint": "Empreinte (hex)",
+        "usage": "Usage du certificat",
+        "selector": "Sélecteur",
+        "matching": "Type de correspondance",
+        "data": "Données du certificat (hex)",
+        "priority": "Priorité",
+        "target": "Cible",
+        "params": "Paramètres",
+        "order": "Ordre",
+        "preference": "Préférence",
+        "flags": "Drapeaux",
+        "services": "Services",
+        "regexp": "Expression régulière",
+        "replacement": "Remplacement",
+        "latitude": "Latitude (degrés décimaux)",
+        "longitude": "Longitude (degrés décimaux)",
+        "altitude": "Altitude (m)",
+        "size": "Taille (m)",
+        "keyTag": "Étiquette de clé",
+        "digestType": "Type de condensat",
+        "digest": "Condensat (hex)",
+        "weight": "Poids"
+      },
+      "options": {
+        "SSHFP": {
+          "algorithm": {
+            "1": "1 RSA",
+            "2": "2 DSA",
+            "3": "3 ECDSA",
+            "4": "4 Ed25519",
+            "6": "6 Ed448"
+          },
+          "fpType": {
+            "1": "1 SHA-1",
+            "2": "2 SHA-256"
+          }
+        },
+        "TLSA": {
+          "usage": {
+            "0": "0 PKIX-TA",
+            "1": "1 PKIX-EE",
+            "2": "2 DANE-TA",
+            "3": "3 DANE-EE"
+          },
+          "selector": {
+            "0": "0 Certificat complet",
+            "1": "1 Clé publique"
+          },
+          "matching": {
+            "0": "0 Exact",
+            "1": "1 SHA-256",
+            "2": "2 SHA-512"
+          }
+        },
+        "DS": {
+          "digestType": {
+            "1": "1 SHA-1",
+            "2": "2 SHA-256",
+            "4": "4 SHA-384"
+          }
+        }
+      },
+      "help": {
+        "SSHFP": "Empreinte de clé d'hôte, telle que ssh-keygen -r l'affiche. Nom : celui de l'hôte.",
+        "TLSA": "Association de certificat DANE. Nom : _<port>._<protocole>.<hôte>, par exemple _443._tcp.www.",
+        "HTTPS": "Liaison de service HTTPS : la priorité 0 est un alias vers la cible, sinon des paramètres comme alpn=\"h2,h3\" port=8443.",
+        "SVCB": "Liaison de service : priorité, cible (. pour le nom lui-même) et paramètres comme alpn=\"dot\" port=853. Sous _dns, named exige alpn.",
+        "NAPTR": "Pointeur d'autorité de nommage (SIP, ENUM) : ordre, préférence, drapeaux, services, expression régulière et remplacement.",
+        "LOC": "Position : saisissez des degrés décimaux, négatifs au sud ou à l'ouest ; la valeur est écrite en degrés, minutes et secondes.",
+        "DS": "Signataire de délégation d'une zone fille : seulement à un nom délégué (avec des enregistrements NS), jamais à l'apex de la zone.",
+        "URI": "Enregistrement URI : priorité, poids et URI. Nom : _<service>._<protocole>."
+      },
+      "placeholder": {
+        "HTTPS_target": ".",
+        "SVCB_target": "dot.example.lan.",
+        "HTTPS_params": "alpn=\"h2,h3\"",
+        "SVCB_params": "alpn=\"dot\" port=853",
+        "NAPTR_replacement": "_sip._udp.example.lan.",
+        "LOC_latitude": "52.373",
+        "LOC_longitude": "4.892",
+        "URI_target": "https://www.example.lan/"
+      },
+      "errors": {
+        "SSHFP": "Attendu : algorithme, type d'empreinte, empreinte en hexadécimal (40 caractères en SHA-1, 64 en SHA-256)",
+        "TLSA": "Attendu : usage, sélecteur, type de correspondance, données en hexadécimal (64 caractères en SHA-256, 128 en SHA-512)",
+        "HTTPS": "Attendu : priorité cible [clé=valeur ...] ; la priorité 0 ne prend pas de paramètre",
+        "SVCB": "Attendu : priorité cible [clé=valeur ...] ; la priorité 0 ne prend pas de paramètre",
+        "NAPTR": "Attendu : ordre préférence \"drapeaux\" \"services\" \"regexp\" remplacement",
+        "LOC": "Attendu : d [m [s]] N|S d [m [s]] E|W altitude[m] [taille[m] [ph[m] [pv[m]]]]",
+        "DS": "Attendu : étiquette de clé, algorithme, type de condensat, condensat en hexadécimal (64 caractères en SHA-256)",
+        "URI": "Attendu : priorité poids \"URI\"",
+        "singleton": "Un DNAME n'a qu'une cible"
+      }
+    }
   },
   "editor": {
     "title": {
@@ -162,7 +262,16 @@
       "PTR": "host.example.lan.",
       "NS": "ns1.example.lan.",
       "CAA": "0 issue \"ca.example.lan\"",
-      "DHCID": "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
+      "DHCID": "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA=",
+      "SSHFP": "4 2 d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971",
+      "TLSA": "3 1 1 d2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971",
+      "HTTPS": "1 . alpn=\"h2,h3\"",
+      "SVCB": "1 dot.example.lan. alpn=\"dot\" port=853",
+      "NAPTR": "100 10 \"S\" \"SIP+D2U\" \"\" _sip._udp.example.lan.",
+      "LOC": "52 22 23.000 N 4 53 32.000 E -2.00m",
+      "DNAME": "example.net.",
+      "DS": "60485 13 2 2bb183af5f22588179a53b0a98631fad1a292118a24f0a2f6fa15e8a46f2fb63",
+      "URI": "10 1 \"https://www.example.lan/\""
     },
     "errors": {
       "owner": "Nom invalide ou hors de la zone",

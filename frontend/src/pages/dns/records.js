@@ -4,9 +4,12 @@
 
 // Types the editor offers; SOA and DNSSEC types stay with BIND (design section 4). Must equal
 // ADMIN_UPDATE_TYPES (backend/pelagos/domain/zone_updates.py), the grant the audit installs.
-export const EDITABLE_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'PTR', 'NS', 'CAA', 'DHCID']
+export const EDITABLE_TYPES = [
+  'A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'PTR', 'NS', 'CAA', 'DHCID',
+  'SSHFP', 'TLSA', 'HTTPS', 'SVCB', 'NAPTR', 'LOC', 'DNAME', 'DS', 'URI',
+]
 export const READ_ONLY_TYPES = ['SOA', 'RRSIG', 'NSEC', 'NSEC3', 'NSEC3PARAM', 'DNSKEY', 'CDS', 'CDNSKEY', 'TYPE65534']
-export const SINGLETON_TYPES = ['CNAME']
+export const SINGLETON_TYPES = ['CNAME', 'DNAME']
 export const MAX_TTL = 2147483647
 
 export const absZone = (zone) => {
@@ -114,8 +117,137 @@ export function validateRdata(rtype, rdata) {
       return /^\d{1,3}\s+[a-z0-9]+\s+"[^"]*"$/i.test(v) && Number(parts[0]) <= 255 ? null : 'caa'
     case 'TXT':
       return txtSegmentsOk(v) ? null : 'txt'
+    case 'DNAME':
+      return parts.length === 1 && isHost(v) ? null : 'hostname'
     default:
-      return null
+      return NEW_TYPE_CHECKS[rtype] ? (NEW_TYPE_CHECKS[rtype](v.replace(/\s+/g, ' ')) ? null : `records.types.errors.${rtype}`) : null
+  }
+}
+
+const isUint8 = (v) => /^\d+$/.test(v) && Number(v) <= 255
+const isHex = (v) => /^[0-9a-f]+$/i.test(v) && v.length % 2 === 0
+// Digest lengths in hex by type: SSHFP (RFC 4255, 6594), TLSA matching (RFC 6698), DS (RFC 4509, 6605).
+const SSHFP_HEX = { 1: 40, 2: 64 }
+const TLSA_HEX = { 1: 64, 2: 128 }
+const DS_HEX = { 1: 40, 2: 64, 4: 96 }
+const hexOf = (lengths, kind, hex) => isHex(hex) && (!lengths[Number(kind)] || hex.length === lengths[Number(kind)])
+const SVC_PARAM = /^[a-z0-9-]+(=("[^"]*"|[^\s"]+))?$/i
+const LOC_RE = new RegExp(
+  '^(\\d{1,2})( \\d{1,2}( \\d{1,2}(\\.\\d{1,3})?)?)? [NS] (\\d{1,3})( \\d{1,2}( \\d{1,2}(\\.\\d{1,3})?)?)? [EW]' +
+    ' -?\\d+(\\.\\d{1,2})?m?( \\d+(\\.\\d{1,2})?m?){0,3}$',
+  'i',
+)
+
+// Shape of the B1-RRTYPES types; the server parses each value with dnspython again (400 per field).
+const NEW_TYPE_CHECKS = {
+  SSHFP: (v) => {
+    const [alg, kind, hex, ...rest] = v.split(' ')
+    return !rest.length && isUint8(alg) && isUint8(kind) && hexOf(SSHFP_HEX, kind, (hex || '').toLowerCase())
+  },
+  TLSA: (v) => {
+    const [usage, selector, matching, ...data] = v.split(' ')
+    return isUint8(usage) && isUint8(selector) && isUint8(matching) && data.length > 0 && hexOf(TLSA_HEX, matching, data.join(''))
+  },
+  DS: (v) => {
+    const [tag, alg, kind, ...digest] = v.split(' ')
+    return isUint16(tag) && isUint8(alg) && isUint8(kind) && digest.length > 0 && hexOf(DS_HEX, kind, digest.join(''))
+  },
+  HTTPS: (v) => svcbOk(v),
+  SVCB: (v) => svcbOk(v),
+  NAPTR: (v) => {
+    const m = v.match(/^(\d+) (\d+) "([^"]*)" "([^"]*)" "((?:[^"\\]|\\.)*)" (\S+)$/)
+    return Boolean(m) && isUint16(m[1]) && isUint16(m[2]) && isHost(m[6])
+  },
+  LOC: (v) => LOC_RE.test(v),
+  URI: (v) => {
+    const m = v.match(/^(\d+) (\d+) "([^"]+)"$/)
+    return Boolean(m) && isUint16(m[1]) && isUint16(m[2])
+  },
+}
+
+// "<priority> <target> [key=value ...]"; priority 0 is AliasMode and takes no parameters (RFC 9460).
+function svcbOk(v) {
+  const [priority, target, ...params] = v.split(' ')
+  if (!isUint16(priority) || !target || !isHost(target)) return false
+  if (Number(priority) === 0) return params.length === 0
+  return params.every((p) => SVC_PARAM.test(p))
+}
+
+// Fields of the assisted entry per type: each composes one value line (composeRdata). Lists start
+// on the current practice (Ed25519 and SHA-256 for SSHFP, DANE-EE SPKI SHA-256 for TLSA).
+export const fieldDefaults = (rtype) =>
+  Object.fromEntries((RDATA_FIELDS[rtype] || []).filter((f) => f.default).map((f) => [f.key, f.default]))
+export const RDATA_FIELDS = {
+  SSHFP: [
+    { key: 'algorithm', options: ['1', '2', '3', '4', '6'], default: '4' },
+    { key: 'fpType', options: ['1', '2'], default: '2' },
+    { key: 'fingerprint', wide: true },
+  ],
+  TLSA: [
+    { key: 'usage', options: ['0', '1', '2', '3'], default: '3' },
+    { key: 'selector', options: ['0', '1'], default: '1' },
+    { key: 'matching', options: ['0', '1', '2'], default: '1' },
+    { key: 'data', wide: true },
+  ],
+  HTTPS: [{ key: 'priority' }, { key: 'target' }, { key: 'params', wide: true }],
+  SVCB: [{ key: 'priority' }, { key: 'target' }, { key: 'params', wide: true }],
+  NAPTR: [
+    { key: 'order' },
+    { key: 'preference' },
+    { key: 'flags' },
+    { key: 'services' },
+    { key: 'regexp', wide: true },
+    { key: 'replacement' },
+  ],
+  LOC: [{ key: 'latitude' }, { key: 'longitude' }, { key: 'altitude' }, { key: 'size' }],
+  DS: [{ key: 'keyTag' }, { key: 'algorithm' }, { key: 'digestType', options: ['1', '2', '4'], default: '2' }, { key: 'digest', wide: true }],
+  URI: [{ key: 'priority' }, { key: 'weight' }, { key: 'target', wide: true }],
+}
+
+// Decimal degrees to LOC's "d m s.sss H".
+function dms(value, pos, neg) {
+  const n = Number(value)
+  const hemi = n < 0 ? neg : pos
+  let rest = Math.abs(n)
+  const d = Math.floor(rest)
+  rest = (rest - d) * 60
+  const m = Math.floor(rest)
+  const s = Math.round((rest - m) * 60 * 1000) / 1000
+  return `${d} ${m} ${s.toFixed(3)} ${hemi}`
+}
+
+const quote = (v) => `"${String(v ?? '').replace(/(["\\])/g, '\\$1')}"`
+const meters = (v) => `${String(v).trim().replace(/m$/i, '')}m`
+
+// One value line from the assisted fields; '' while a required field is empty.
+export function composeRdata(rtype, values) {
+  const v = Object.fromEntries(Object.entries(values || {}).map(([k, x]) => [k, String(x ?? '').trim()]))
+  const need = (...keys) => keys.every((k) => v[k] !== undefined && v[k] !== '')
+  switch (rtype) {
+    case 'SSHFP':
+      return need('algorithm', 'fpType', 'fingerprint') ? `${v.algorithm} ${v.fpType} ${v.fingerprint.replace(/[\s:]/g, '').toLowerCase()}` : ''
+    case 'TLSA':
+      return need('usage', 'selector', 'matching', 'data') ? `${v.usage} ${v.selector} ${v.matching} ${v.data.replace(/\s/g, '').toLowerCase()}` : ''
+    case 'DS':
+      return need('keyTag', 'algorithm', 'digestType', 'digest') ? `${v.keyTag} ${v.algorithm} ${v.digestType} ${v.digest.replace(/\s/g, '').toLowerCase()}` : ''
+    case 'HTTPS':
+    case 'SVCB':
+      return need('priority', 'target') ? [v.priority, v.target, v.params].filter(Boolean).join(' ') : ''
+    case 'NAPTR':
+      return need('order', 'preference', 'replacement')
+        ? `${v.order} ${v.preference} ${quote(v.flags)} ${quote(v.services)} ${quote(v.regexp)} ${v.replacement}`
+        : ''
+    case 'LOC': {
+      const lat = Number(v.latitude)
+      const lon = Number(v.longitude)
+      if (!need('latitude', 'longitude') || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return ''
+      const alt = v.altitude ? meters(v.altitude) : '0m'
+      return [dms(lat, 'N', 'S'), dms(lon, 'E', 'W'), alt, v.size ? meters(v.size) : ''].filter(Boolean).join(' ')
+    }
+    case 'URI':
+      return need('priority', 'weight', 'target') ? `${v.priority} ${v.weight} ${quote(v.target)}` : ''
+    default:
+      return ''
   }
 }
 
@@ -132,7 +264,12 @@ function txtSegmentsOk(v) {
 export function normalizeRdata(rtype, rdata) {
   const v = String(rdata || '').trim().replace(/\s+/g, ' ')
   if (rtype === 'TXT' && !v.startsWith('"') && /\s/.test(v)) return `"${v.replace(/"/g, '\\"')}"`
-  if (['CNAME', 'PTR', 'NS'].includes(rtype)) return v.toLowerCase()
+  if (['CNAME', 'PTR', 'NS', 'DNAME'].includes(rtype)) return v.toLowerCase()
+  // Hex digests as the server prints them: lowercase, in one piece.
+  if (['SSHFP', 'TLSA', 'DS'].includes(rtype)) {
+    const parts = v.split(' ')
+    return [...parts.slice(0, rtype === 'SSHFP' ? 2 : 3), parts.slice(rtype === 'SSHFP' ? 2 : 3).join('').toLowerCase()].join(' ')
+  }
   return v
 }
 
@@ -170,7 +307,7 @@ export function validateForm(form, zone) {
   if (String(form.ttl).trim() === '' || !Number.isInteger(ttl) || ttl < 0 || ttl > MAX_TTL) errors.ttl = 'ttl'
   const values = splitRdata(form.rdata)
   if (values.length === 0) errors.rdata = 'rdataEmpty'
-  else if (SINGLETON_TYPES.includes(rtype) && values.length > 1) errors.rdata = 'singleton'
+  else if (SINGLETON_TYPES.includes(rtype) && values.length > 1) errors.rdata = rtype === 'CNAME' ? 'singleton' : 'records.types.errors.singleton'
   else {
     const bad = values.map((v) => validateRdata(rtype, v)).find(Boolean)
     if (bad) errors.rdata = bad

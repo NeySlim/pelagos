@@ -3,6 +3,7 @@
 // plan in PlanPreview (diff, preconditions, apply with the UPDATE response code,
 // rollback). Adding to an existing RRset turns into a replace with merged rdata. For A/AAAA, the
 // PTR option adds the reverse records to the same plan (POST /dns/ptr/coverage says if it can).
+// Structured types (SSHFP, TLSA, HTTPS, ...) get assisted fields that compose one value line.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FormModal } from '../../components/FormModal'
@@ -14,7 +15,7 @@ import { Textarea } from '../../components/Textarea'
 import { Select } from '../../components/ui/Select'
 import { api } from '../../services/api'
 import { errorItemText, errorMessage } from '../../services/apiClient'
-import { EDITABLE_TYPES, absZone, buildChanges, isAddressType, localDiff, ptrOption, relativeName, validateForm } from './records'
+import { EDITABLE_TYPES, RDATA_FIELDS, absZone, buildChanges, composeRdata, fieldDefaults, isAddressType, localDiff, ptrOption, relativeName, validateForm, validateRdata } from './records'
 
 const DEFAULT_TTL = 3600
 const COVERAGE_DELAY_MS = 300
@@ -63,6 +64,68 @@ function PtrOption({ mode, option, checked, onChange, loading }) {
         </p>
       )}
     </div>
+  )
+}
+
+// Assisted entry of one value of a structured type; "Add the value" appends it to the values box.
+function RdataFields({ rtype, onAdd }) {
+  const { t } = useTranslation('dns')
+  const fields = RDATA_FIELDS[rtype]
+  const [values, setValues] = useState(() => fieldDefaults(rtype))
+  useEffect(() => setValues(fieldDefaults(rtype)), [rtype])
+  if (!fields) return null
+  const line = composeRdata(rtype, values)
+  const bad = line ? validateRdata(rtype, line) : null
+  const field = (f) => {
+    const label = t(`records.types.fields.${f.key}`)
+    const onChange = (e) => setValues((v) => ({ ...v, [f.key]: e?.target ? e.target.value : e }))
+    const testId = `record-field-${f.key}`
+    if (f.options) {
+      return (
+        <div key={f.key} data-testid={testId}>
+          <Select
+            label={label}
+            value={values[f.key]}
+            onChange={onChange}
+            options={f.options.map((o) => ({ value: o, label: t(`records.types.options.${rtype}.${f.key}.${o}`, { defaultValue: o }) }))}
+          />
+        </div>
+      )
+    }
+    return (
+      <div key={f.key} className={f.wide ? 'sm:col-span-2' : ''}>
+        <Input
+          label={label}
+          value={values[f.key] ?? ''}
+          onChange={onChange}
+          placeholder={t(`records.types.placeholder.${rtype}_${f.key}`, { defaultValue: '' })}
+          data-testid={testId}
+        />
+      </div>
+    )
+  }
+  return (
+    <fieldset className="rounded-lg border border-border px-3 py-2 space-y-2" data-testid="record-fields">
+      <legend className="px-1 text-xs font-medium text-text-secondary">{t('records.types.assisted', { type: rtype })}</legend>
+      <p className="text-xs text-text-tertiary">{t(`records.types.help.${rtype}`)}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{fields.map(field)}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="text-2xs text-text-secondary break-all" data-testid="record-fields-line">{line}</code>
+        {bad && <span className="text-2xs status-danger-text">{t(bad)}</span>}
+        <button
+          type="button"
+          className="ml-auto text-xs px-2 py-1 rounded border border-border text-text-primary disabled:opacity-50"
+          disabled={!line || Boolean(bad)}
+          onClick={() => {
+            onAdd(line)
+            setValues(fieldDefaults(rtype))
+          }}
+          data-testid="record-fields-add"
+        >
+          {t('records.types.addValue')}
+        </button>
+      </div>
+    </fieldset>
   )
 }
 
@@ -172,7 +235,10 @@ export function RecordEditor({
     const value = e?.target ? e.target.value : e
     setForm((f) => ({ ...f, [field]: value }))
   }
-  const fieldError = (field) => (touched && errors[field] ? t(`editor.errors.${errors[field]}`) : undefined)
+  // Keys of the B1-RRTYPES types are full paths (records.types.errors.<TYPE>), the others short.
+  const errorText = (key) => t(key.includes('.') ? key : `editor.errors.${key}`)
+  const fieldError = (field) => (touched && errors[field] ? errorText(errors[field]) : undefined)
+  const addValue = (line) => setForm((f) => ({ ...f, rdata: [f.rdata.trim(), line].filter(Boolean).join('\n') }))
 
   const submit = async () => {
     setTouched(true)
@@ -288,6 +354,7 @@ export function RecordEditor({
             error={fieldError('rdata')}
             data-testid="record-rdata"
           />
+          <RdataFields rtype={form.rtype} onAdd={addValue} />
         </>
       )}
       {appliedOn && (

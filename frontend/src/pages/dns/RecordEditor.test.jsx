@@ -268,3 +268,62 @@ describe('record editor on a copy', () => {
     expect(screen.queryByTestId('record-applied-on')).toBeNull()
   })
 })
+
+describe('record types', () => {
+  const planFn = () => vi.fn().mockImplementation(async (_zone, changes) => makePlan(changes))
+  const open = (rtype, plan) =>
+    render(<RecordEditor open zone="example.lan." mode="add" defaults={{ rtype }} planFn={plan} lookupFn={vi.fn().mockResolvedValue({ items: [] })} coverageFn={vi.fn()} onClose={vi.fn()} />)
+
+  it('composes an SSHFP value from its fields, then plans it', async () => {
+    const plan = planFn()
+    open('SSHFP', plan)
+    fill('record-owner', 'host')
+    expect(screen.getByTestId('record-fields-add')).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Fingerprint (hex)'), { target: { value: 'D2AB DE24' } })
+    expect(screen.getByTestId('record-fields-line')).toHaveTextContent('4 2 d2abde24')
+    expect(screen.getByText(/64 for SHA-256/)).toBeInTheDocument()
+    expect(screen.getByTestId('record-fields-add')).toBeDisabled()
+    const fp = 'd2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971'
+    fireEvent.change(screen.getByLabelText('Fingerprint (hex)'), { target: { value: fp.toUpperCase() } })
+    fireEvent.click(screen.getByTestId('record-fields-add'))
+    expect(screen.getByTestId('record-rdata')).toHaveValue(`4 2 ${fp}`)
+    expect(screen.getByTestId('record-preview')).toHaveTextContent(`+host.example.lan. 3600 IN SSHFP 4 2 ${fp}`)
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][1][0]).toMatchObject({ op: 'add', target: 'example.lan./host/SSHFP', after: { rdata: [`4 2 ${fp}`] } })
+  })
+
+  it('checks an HTTPS value typed by hand and names the expected form', async () => {
+    const plan = planFn()
+    open('HTTPS', plan)
+    fill('record-owner', 'www')
+    fill('record-rdata', '0 . alpn=h2')
+    submit()
+    expect(await screen.findByText(/priority 0 takes no parameters/)).toBeInTheDocument()
+    expect(plan).not.toHaveBeenCalled()
+    fill('record-rdata', '1 . alpn="h2,h3" port=8443')
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][1][0].after.rdata).toEqual(['1 . alpn="h2,h3" port=8443'])
+  })
+
+  it('assists LOC from decimal degrees', () => {
+    open('LOC', planFn())
+    fireEvent.change(screen.getByLabelText('Latitude (decimal degrees)'), { target: { value: '-33.8568' } })
+    fireEvent.change(screen.getByLabelText('Longitude (decimal degrees)'), { target: { value: '151.2153' } })
+    fireEvent.change(screen.getByLabelText('Altitude (m)'), { target: { value: '5' } })
+    expect(screen.getByTestId('record-fields-line')).toHaveTextContent('33 51 24.480 S 151 12 55.080 E 5m')
+    fireEvent.click(screen.getByTestId('record-fields-add'))
+    expect(screen.getByTestId('record-rdata')).toHaveValue('33 51 24.480 S 151 12 55.080 E 5m')
+  })
+
+  it('a DNAME holds one target', async () => {
+    const plan = planFn()
+    open('DNAME', plan)
+    fill('record-owner', 'old')
+    fill('record-rdata', 'a.example.net.\nb.example.net.')
+    submit()
+    expect(await screen.findByText('A DNAME holds a single target')).toBeInTheDocument()
+    expect(screen.queryByTestId('record-fields')).toBeNull()
+  })
+})

@@ -279,3 +279,44 @@ test('a copy of an external primary is read-only and says why', async ({ page })
   await expect(page.getByTestId('record-add')).toHaveCount(0)
   await expect(page.getByTestId('zone-primary-on')).toHaveCount(0)
 })
+
+test.describe('record types', () => {
+  async function addRecord(page, rtype, owner, fill) {
+    await page.goto('/dns/zones/example.lan')
+    await page.getByTestId('record-add').click()
+    const editor = page.getByTestId('record-editor')
+    await editor.getByRole('combobox', { name: /^Type/ }).click()
+    await page.getByRole('option', { name: rtype, exact: true }).click()
+    await page.getByTestId('record-owner').fill(owner)
+    await fill(editor)
+    await editor.getByRole('button', { name: 'Preview the plan' }).click()
+    await applyPlan(page)
+  }
+
+  test('an SSHFP record is composed from its fields and applied', async ({ page }) => {
+    await signIn(page)
+    const fp = 'd2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971'
+    await addRecord(page, 'SSHFP', 'bastion', async (editor) => {
+      await expect(editor.getByTestId('record-fields')).toBeVisible()
+      await editor.getByLabel('Fingerprint (hex)').fill(fp.toUpperCase())
+      await expect(editor.getByTestId('record-fields-line')).toHaveText(`4 2 ${fp}`)
+      await editor.getByTestId('record-fields-add').click()
+      await expect(editor.getByTestId('record-preview')).toContainText(`IN SSHFP 4 2 ${fp}`)
+    })
+    const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'bastion' })
+    await expect(row).toContainText('SSHFP')
+  })
+
+  test('an HTTPS record is checked as typed, then applied', async ({ page }) => {
+    await signIn(page)
+    await addRecord(page, 'HTTPS', 'svc', async (editor) => {
+      await editor.getByTestId('record-rdata').fill('0 . alpn=h2')
+      await editor.getByRole('button', { name: 'Preview the plan' }).click()
+      await expect(editor).toContainText('priority 0 takes no parameters')
+      await editor.getByTestId('record-rdata').fill('1 . alpn="h2,h3" port=8443')
+      await expect(editor.getByTestId('record-preview')).toContainText('IN HTTPS 1 . alpn="h2,h3" port=8443')
+    })
+    const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'svc.example.lan.' })
+    await expect(row).toContainText('HTTPS')
+  })
+})

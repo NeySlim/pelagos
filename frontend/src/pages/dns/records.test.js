@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   absoluteName, relativeName, validOwner, validDomainName, isIPv4, isIPv6, validateRdata, normalizeRdata,
-  validateForm, buildChanges, localDiff, validForwarder,
+  validateForm, buildChanges, localDiff, validForwarder, composeRdata, fieldDefaults, RDATA_FIELDS, EDITABLE_TYPES,
 } from './records'
 import { laggingNodes, resolverChanges, resynchronizeZone, zoneHref } from './helpers'
 
@@ -179,5 +179,67 @@ describe('DNS helpers', () => {
       ['retransfer', 'partner.example', 'n2', undefined],
       ['notify', 'example.lan', { view: 'internal' }],
     ])
+  })
+})
+
+describe('record types of 0.4.0', () => {
+  const fp = 'd2abde240d7cd3ee6b4b28c54df034b97983a1d16e8a410e4561cb106618e971'
+  it('accepts the documented forms', () => {
+    for (const [rtype, value] of [
+      ['SSHFP', `4 2 ${fp}`],
+      ['SSHFP', '1 1 123456789abcdef67890123456789abcdef67890'],
+      ['TLSA', `3 1 1 ${fp.toUpperCase()}`],
+      ['TLSA', `3 1 2 ${'ab'.repeat(64)}`],
+      ['HTTPS', '1 . alpn="h3,h2" port=8443'],
+      ['HTTPS', '0 cdn.example.net.'],
+      ['SVCB', '1 dot.example.lan. alpn=dot port=853'],
+      ['NAPTR', '100 10 "S" "SIP+D2U" "" _sip._udp.example.lan.'],
+      ['NAPTR', '100 10 "u" "E2U+sip" "!^.*$!sip:info@example.lan!" .'],
+      ['LOC', '52 22 23.000 N 4 53 32.000 E -2.00m 0.00m 10000.00m 10.00m'],
+      ['LOC', '52 N 4 E 3m'],
+      ['DNAME', 'example.net.'],
+      ['DS', `60485 13 2 ${fp}`],
+      ['URI', '10 1 "https://www.example.lan/"'],
+    ]) expect(validateRdata(rtype, value), `${rtype} ${value}`).toBeNull()
+  })
+
+  it('refuses wrong shapes with the type key', () => {
+    for (const [rtype, value] of [
+      ['SSHFP', '4 2 abcd'],
+      ['SSHFP', '4 x ' + fp],
+      ['TLSA', '3 1 1 xyz'],
+      ['TLSA', '3 1 2 ' + fp],
+      ['HTTPS', '0 . alpn=h2'],
+      ['SVCB', 'x svc.example.lan.'],
+      ['NAPTR', '100 10 S SIP "" .'],
+      ['LOC', 'north pole'],
+      ['DS', '70000 13 2 ' + fp],
+      ['DS', '60485 13 1 ' + fp],
+      ['URI', '10 1 https://x'],
+    ]) expect(validateRdata(rtype, value), `${rtype} ${value}`).toBe(`records.types.errors.${rtype}`)
+    expect(validateRdata('DNAME', 'two words')).toBe('hostname')
+  })
+
+  it('composes values from the assisted fields', () => {
+    expect(composeRdata('SSHFP', { ...fieldDefaults('SSHFP'), fingerprint: 'AA:BB' })).toBe('4 2 aabb')
+    expect(composeRdata('TLSA', fieldDefaults('TLSA'))).toBe('')
+    expect(composeRdata('TLSA', { ...fieldDefaults('TLSA'), data: fp })).toBe(`3 1 1 ${fp}`)
+    expect(composeRdata('HTTPS', { priority: '1', target: '.', params: 'alpn="h2"' })).toBe('1 . alpn="h2"')
+    expect(composeRdata('NAPTR', { order: '100', preference: '10', flags: 'S', services: 'SIP+D2U', regexp: '', replacement: '_sip._udp' }))
+      .toBe('100 10 "S" "SIP+D2U" "" _sip._udp')
+    expect(composeRdata('LOC', { latitude: '52.373', longitude: '-4.9', altitude: '2' })).toBe('52 22 22.800 N 4 54 0.000 W 2m')
+    expect(composeRdata('LOC', { latitude: '91', longitude: '0' })).toBe('')
+    expect(composeRdata('DS', { keyTag: '60485', algorithm: '13', digestType: '2', digest: fp.toUpperCase() })).toBe(`60485 13 2 ${fp}`)
+    expect(composeRdata('URI', { priority: '10', weight: '1', target: 'https://a/' })).toBe('10 1 "https://a/"')
+    for (const rtype of Object.keys(RDATA_FIELDS)) expect(EDITABLE_TYPES).toContain(rtype)
+  })
+
+  it('normalizes digests and DNAME targets as the server prints them', () => {
+    expect(normalizeRdata('TLSA', '3 1 1 AB CD')).toBe('3 1 1 abcd')
+    expect(normalizeRdata('DS', '60485 13 2 AB  CD')).toBe('60485 13 2 abcd')
+    expect(normalizeRdata('SSHFP', '4 2 ABCD')).toBe('4 2 abcd')
+    expect(normalizeRdata('DNAME', 'New.Example.Lan.')).toBe('new.example.lan.')
+    const { errors } = validateForm({ owner: 'old', rtype: 'DNAME', ttl: '300', rdata: 'a.\nb.' }, 'example.lan.')
+    expect(errors.rdata).toBe('records.types.errors.singleton')
   })
 })

@@ -305,10 +305,11 @@ def test_config_write_carries_comments_into_user_context(kea_dhcp4, tmp_root):
     assert reads_as_running(backend) == []
     kea_dhcp4.ok("config-reload")
     # Copying again changes nothing: the next write is a plain config-write.
-    again = backend.apply(backend.plan_reservation_change(reservation("aa:bb:cc:dd:ee:44", "192.0.2.44")))
+    second = backend.plan_reservation_change(reservation("aa:bb:cc:dd:ee:44", "192.0.2.44"))
+    again = backend.apply(second)
     assert again.ok and "comments copied" not in again.message
     assert backend.config_get()["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
-    assert backend.rollback(again).ok and backend.rollback(plan).ok
+    assert backend.rollback(second).ok and backend.rollback(plan).ok
     assert "// office LAN" in main.read_text()
 
 

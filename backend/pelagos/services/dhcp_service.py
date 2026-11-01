@@ -1682,9 +1682,10 @@ class DhcpService:
                         "created_by": created_by,
                     },
                 )
-            except ValidationError as exc:
-                # An older peer ignores `shared_from` and asks for a whole configuration.
-                if "config must be an object" not in exc.detail:
+            except ServiceError as exc:
+                # An older peer ignores `shared_from` and asks for a whole configuration; the peer
+                # call re-raises its refusal as a plain ServiceError, not a ValidationError.
+                if exc.code != "validation_error" or "config must be an object" not in exc.detail:
                     raise
                 raise ServiceError(
                     "not_supported", f"node {peer.name} cannot build a reconciliation: upgrade it"

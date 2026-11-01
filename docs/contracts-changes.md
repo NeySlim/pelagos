@@ -2795,3 +2795,6 @@ and refuse an archive past the default caps (total `max(2 GiB, 20 x archive size
 `pelagos restore --max-size SIZE` raise the caps. Behaviour change: an archive that unpacks beyond
 the caps is no longer restorable without `--max-size` (the scheduled test restore has no override
 and reports the failure).
+
+## 2026-11-01, FIX-CUTMINOR (WP-KEA, WP-CORE): durable guard records, old peer on reconcile
+`POST` reconcile toward a peer that predates `shared_from` answers `not_supported` (it used to relay the peer's `validation_error`). Kea applied-plan records, `*.bak` copies and their directories are fsynced; no field changes.

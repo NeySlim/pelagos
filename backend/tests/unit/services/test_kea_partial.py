@@ -300,3 +300,18 @@ def test_narrowable_looks_at_ddns_keys_of_subnets(after, narrows):
         changes=[Change(ChangeOp.ADD, "subnet4/2", after=after)],
     )
     assert kea_files.narrowable(plan) is narrows
+
+
+def test_reconcile_toward_an_old_peer_says_upgrade_it(pair, monkeypatch):
+    _partial(pair)
+    pair.k2.config["valid-lifetime"] = 7200
+
+    def old_peer(peer, name, body):
+        # What a 0.3.x peer answers: it ignores shared_from and wants a whole configuration.
+        raise ServiceError("validation_error", "ns2: config must be an object")
+
+    monkeypatch.setattr(pair.dhcp.peers, "build_plan", old_peer)
+    with pytest.raises(ServiceError) as exc:
+        pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
+    assert exc.value.code == "not_supported"
+    assert "upgrade it" in exc.value.detail

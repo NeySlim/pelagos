@@ -65,6 +65,7 @@ from pelagos.connectors.kea.ha import (
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core import settings_registry as reg
+from pelagos.core.config_store import atomic_write
 from pelagos.core.keadoc import KeaDocument
 from pelagos.domain import (
     Change,
@@ -953,9 +954,8 @@ class KeaBackend(DhcpBackend):
         try:
             d = self._applied_dir()
             d.mkdir(parents=True, exist_ok=True)
-            tmp = d / f".{plan_id}.tmp"
-            tmp.write_text(json.dumps({"after_hash": after, "backup": str(backup) if backup else None}))
-            tmp.replace(d / f"{plan_id}.json")
+            record = json.dumps({"after_hash": after, "backup": str(backup) if backup else None})
+            atomic_write(d / f"{plan_id}.json", record.encode())
             cutoff = time.time() - APPLIED_KEPT_SECONDS
             for old in d.glob("*.json"):
                 if old.stat().st_mtime < cutoff:

@@ -226,3 +226,26 @@ def test_d2_undo_after_a_failed_apply_runs_without_state(tmp_root):
     backend._private.clear()
     assert plan.finished_at is None
     assert backend.rollback(plan).ok and fake.cfg["dns-server-timeout"] == before
+
+
+def test_applied_record_and_backup_are_fsynced(tmp_root, monkeypatch):
+    synced: list[str] = []
+    real = os.fsync
+
+    def spy(fd: int) -> None:
+        synced.append(os.readlink(f"/proc/self/fd/{fd}"))
+        real(fd)
+
+    backend, _ = kea(tmp_root)
+    plan = reservation_plan(backend)
+    monkeypatch.setattr(os, "fsync", spy)
+    assert backend.apply(plan).ok
+    applied = backend._applied_dir()
+    record = applied / f"{plan.id}.json"
+    assert record.stat().st_size > 0
+    assert str(applied) in synced  # directory after the rename
+    assert any(Path(p).parent == applied for p in synced)  # the temp file, before the rename
+    backup = backend._last_backup
+    if backup is not None:
+        assert str(backup / "0.bak") in synced
+        assert str(backup) in synced and str(backup.parent) in synced

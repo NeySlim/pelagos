@@ -185,6 +185,14 @@ def _write_new(path: Path, data: bytes, mode: int = BACKUP_MODE) -> None:
         os.fsync(fh.fileno())
 
 
+def _fsync_file(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def recover_in_place_writes(backups_dir: Path) -> list[str]:
     """At startup: a journal left by a crash names a file rewritten in place. A file that reads as
     neither its old nor its new content is put back to the old bytes. Returns the restored paths."""
@@ -291,6 +299,7 @@ class WritePipeline:
                 shutil.copy2(path, dest)
                 # The manifest keeps the original mode for restore; the copy is the node's only.
                 os.chmod(dest, BACKUP_MODE)
+                _fsync_file(dest)
                 entry.update(
                     {
                         "absent": False,
@@ -306,6 +315,9 @@ class WritePipeline:
         _write_new(
             bdir / "manifest.json", json.dumps({"label": self.label, "files": manifest}, indent=2).encode()
         )
+        # A power cut right after the apply must not leave empty copies or a missing directory entry.
+        fsync_dir(bdir)
+        fsync_dir(self.backup_root)
         return bdir
 
     def restore(self, backup_dir: Path, reload: bool = True) -> PipelineResult:

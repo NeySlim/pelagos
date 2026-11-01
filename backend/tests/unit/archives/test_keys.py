@@ -92,3 +92,24 @@ def test_invalid_entries_ignored_for_encryption() -> None:
     settings = {"archives": {"recipients": [{"recipient": "age1bogus", "kind": "operator"}, "junk"]}}
     assert keys.encryption_recipients(settings) == []
     assert keys.recipients({}) == []
+
+
+def test_key_proof_marks_the_entry_and_survives_toml(box: SecretBox) -> None:
+    from datetime import UTC, datetime
+
+    cfg = ClusterConfig.new("test")
+    keys.generate_cluster_identity(cfg, box, by="u")
+    held = age.generate_identity()
+    operator = age.recipient_of(held)
+    keys.add_operator_recipient(cfg, operator, "safe", by="u")
+    assert keys.verified(cfg.settings) == []
+    assert keys.matching_identity(f"# public key: {operator}\n{held}\n", operator) == held
+    assert keys.matching_identity(age.generate_identity(), operator) is None
+    assert keys.matching_identity("not a key", operator) is None
+    keys.mark_verified(cfg, operator, by="admin", now=datetime(2026, 11, 1, tzinfo=UTC))
+    loaded = ClusterConfig.from_toml(tomllib.loads(cfg.dumps()))
+    [proven] = keys.verified(loaded.settings)
+    assert proven["recipient"] == operator and proven["verified_by"] == "admin"
+    assert proven["verified_at"].startswith("2026-11-01")
+    with pytest.raises(keys.ArchiveKeyError):
+        keys.mark_verified(cfg, "age1unknown", by="admin")

@@ -46,7 +46,7 @@ def _archive(ctx: NodeContext, node_id: str, cluster_text: str, extra: dict[str,
         w.add_bytes("/etc/pelagos/master.key", ctx.paths.master_key.read_bytes(), "pelagos")
         for path, data in extra.items():
             part = "kea4.config" if path.endswith("kea-dhcp4.conf") else "bind.managed"
-            if path.endswith(".jsonl"):
+            if path.endswith((".jsonl", ".seal")):
                 part = "pelagos"
             w.add_bytes(path, data, part)
         text = b"example.lan. 3600 IN SOA ns1.example.lan. h.example.lan. 7 3600 600 86400 300\n"
@@ -143,6 +143,33 @@ def test_cluster_sections_and_audit_apply_and_roll_back(rig) -> None:
     assert ctx.cluster().exceptions == []
     with pytest.raises(ServiceError, match="already matches"):
         service.plan(archive_id, {"parts": ["pelagos.audit"]}, "admin", allow)
+
+
+def test_audit_part_merges_every_segment_and_never_a_seal(rig) -> None:
+    ctx, service, plans = rig
+
+    def line(user: str) -> bytes:
+        entry = AuditEntry(node_id=OLD, user=user, action="dns.rrset.add", target="t", result=AuditResult.OK)
+        return json.dumps(entry.to_dict()).encode()
+
+    folder = "/var/lib/pelagos/audit/"
+    archive_id = _archive(
+        ctx,
+        OLD,
+        _cluster_text(ctx, 1800),
+        {
+            folder + "audit-2025.jsonl": line("carol") + b"\n",
+            folder + "audit-2025.seal": b'{"segment": "audit-2025.jsonl", "chain": "00"}\n',
+            folder + "audit.jsonl": line("dave") + b"\n",
+        },
+    )
+    plan = service.plan(archive_id, {"parts": ["pelagos.audit"]}, "admin", lambda _perm: True)
+    assert "2 audit entries" in plan.diff
+    result = plans.apply(plan, "admin", confirm=True)
+    assert result.state is PlanState.APPLIED, [r.message for r in result.results]
+    users = {e.user for e in ctx.audit_log.read()}
+    assert {"carol", "dave"} <= users
+    assert not list(ctx.paths.audit_log.parent.glob("*.seal"))
 
 
 def test_stale_section_refused(rig) -> None:

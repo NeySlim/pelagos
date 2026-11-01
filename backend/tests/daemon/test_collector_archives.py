@@ -135,4 +135,5 @@ def test_archive_while_updates_arrive(rig):
     assert checks["named-checkzone example.lan (_default)"] is True, result
     assert checks["kea-dhcp4 config-test"] is True, result
     assert checks["kea-dhcp-ddns config-test"] is True, result
+    assert checks["cluster.toml"] is True, result
     assert result["ok"] is True

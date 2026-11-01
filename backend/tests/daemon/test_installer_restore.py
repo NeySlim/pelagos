@@ -19,7 +19,7 @@ import dns.rdataclass
 import dns.rdatatype
 import pytest
 
-from pelagos.archives import keys
+from pelagos.archives import bundle, keys
 from pelagos.collector.archives import ArchiveRunner
 from pelagos.collector.main import Backends
 from pelagos.connectors.base import ConnectorContext
@@ -115,6 +115,22 @@ def _start_kea(kea) -> None:
     wait_for(up, timeout=20, what="restored kea")
 
 
+def _digests(paths: list[str]) -> dict[str, str]:
+    """Mode and content of the files a restore would write, but those the running daemons rewrite on
+    their own (journals, DNSSEC key state, leases)."""
+    import hashlib
+
+    out = {}
+    for name in sorted(paths):
+        p = Path(name)
+        if p.name.endswith((".jnl", ".state", ".csv", ".signed")):
+            continue
+        out[name] = (
+            f"{p.stat().st_mode:o}:{hashlib.sha256(p.read_bytes()).hexdigest()}" if p.exists() else "absent"
+        )
+    return out
+
+
 def _real_checks(kea_root: Path):
     def run(plan) -> list[dict]:
         out = []
@@ -134,7 +150,7 @@ def _real_checks(kea_root: Path):
     return run
 
 
-def test_offline_rebuild_of_a_signed_zone_and_leases(node_ctx, named_server, kea_dhcp4, tmp_root):
+def test_offline_rebuild_of_a_signed_zone_and_leases(node_ctx, named_server, kea_dhcp4, tmp_root, monkeypatch):
     named, kea = named_server, kea_dhcp4
     zones = named.root / "zones"
     (zones / f"{ZONE}.db").write_text(ZONE_TEXT)
@@ -201,6 +217,35 @@ def test_offline_rebuild_of_a_signed_zone_and_leases(node_ctx, named_server, kea
     serial = bind.soa_serial(ZONE)
     key_tags = sorted(dns.dnssec.key_id(k) for k in dnskey)
 
+    # restore --verify on the live node: a green report, not one byte or service touched.
+    env = make_env(tmp_root / "host")
+    env.node_paths = node_ctx.paths
+    watched = [f.path for f in bundle.read_manifest(archive, identity).files]
+    assert str(named.named_conf) in watched and str(node_ctx.paths.cluster_toml) in watched
+    before = _digests(watched)
+    # The check runs with the host's Kea folders, here the fixture's.
+    for name, value in kea_env(kea.root).items():
+        if name.startswith("KEA_"):
+            monkeypatch.setenv(name, value)
+    with OfflineRestore(env, archive, identity, workdir=tmp_root) as check:
+        report = check.verify()
+    assert report["ok"] is True, [c for c in report["checks"] if not c["ok"]]
+    what = {c["what"]: c["ok"] for c in report["checks"]}
+    assert what["named-checkconf"] and what["kea-dhcp4 -T"] and what["cluster.toml"], report["checks"]
+    assert what[f"named-checkzone {ZONE} (_default)"], report["checks"]
+    assert _digests(watched) == before
+    assert send_command(kea.socket_path, "status-get").get("result") == 0
+    assert "server is up and running" in named.rndc("status")
+    damaged = tmp_root / "damaged" / meta.filename
+    damaged.parent.mkdir()
+    data = bytearray(archive.read_bytes())
+    data[len(data) // 2] ^= 0xFF
+    damaged.write_bytes(bytes(data))
+    with OfflineRestore(env, damaged, identity, workdir=tmp_root) as check:
+        report = check.verify()
+    assert report["ok"] is False and report["checks"][-1]["what"] == "decrypt", report["checks"]
+    assert _digests(watched) == before
+
     # The node is lost: daemons gone, zones, keys, journals, Kea files and Pelagos files deleted.
     named.stop()
     kea.stop()
@@ -212,8 +257,6 @@ def test_offline_rebuild_of_a_signed_zone_and_leases(node_ctx, named_server, kea
         p.unlink()
     assert not list(zones.glob(f"K{ZONE}.+*"))
 
-    env = make_env(tmp_root / "host")
-    env.node_paths = paths
     with OfflineRestore(
         env,
         archive,

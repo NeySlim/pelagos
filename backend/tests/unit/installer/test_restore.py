@@ -17,7 +17,7 @@ import pytest
 
 from pelagos import cli
 from pelagos.archives import age, keys
-from pelagos.archives.bundle import ArchiveWriter, sum_path
+from pelagos.archives.bundle import ArchiveWriter, sum_path, write_sum
 from pelagos.installer import cli as icli
 from pelagos.installer.restore import OfflineRestore, RestoreError, group_of, read_identities
 from tests.unit.installer.fakes import make_env
@@ -39,6 +39,10 @@ SIGNED = SNAPSHOT + (
 STATIC = (
     "$TTL 3600\n@ IN SOA ns1.static.lan. hostmaster.static.lan. 7 3600 600 86400 300\n"
     "@ IN NS ns1.static.lan.\nns1 IN A 192.0.2.2\n"
+)
+CLUSTER_TOML = (
+    f'schema_version = 1\n[[nodes]]\nid = "{NODE_ID}"\nname = "ns2"\nurl = "https://ns2.example.lan:8444"\n'
+    'cert_fingerprint = "sha256:00"\n'
 )
 UNITS = {
     "named.service",
@@ -84,7 +88,7 @@ def _host(tmp: Path) -> dict[str, Path]:
         ),
         "node": _write(env.node_paths.node_toml, f'[node]\nid = "{NODE_ID}"\nname = "ns2"\n', 0o640),
         "master": _write(env.node_paths.master_key, "c2VjcmV0\n", 0o600),
-        "cluster": _write(env.node_paths.cluster_toml, "schema_version = 1\n", 0o640),
+        "cluster": _write(env.node_paths.cluster_toml, CLUSTER_TOML, 0o640),
     }
     f["audit"] = _write(env.node_paths.audit_log, "", 0o640)
     return f
@@ -323,6 +327,97 @@ def test_group_of():
     ]
 
 
+# Restore check (--verify) -------------------------------------------------------------------
+
+
+def _tree(root: Path) -> dict[str, tuple[int, bytes]]:
+    return {
+        str(p.relative_to(root)): (p.stat().st_mode, p.read_bytes() if p.is_file() else b"")
+        for p in sorted(root.rglob("*"))
+    }
+
+
+def test_verify_reports_green_and_leaves_the_host_alone(rig):
+    assert sum_path(rig["archive"]).exists()
+    before = _tree(rig["host"])
+    with _restore(rig) as r:
+        report = r.verify()
+        workdir = r.workdir
+        assert workdir is not None and workdir.is_dir()
+    assert not workdir.exists()
+    assert report["ok"] is True, report
+    what = {c["what"]: c["ok"] for c in report["checks"]}
+    assert what["sha256"] and what["decrypt"] and what["node.toml"] and what["cluster.toml"]
+    assert what["named-checkconf"] and what["named-checkzone example.lan (_default)"]
+    assert "kea-dhcp4 -T" in what or "kea-dhcp4 -t" in what
+    assert report["manifest"]["node_id"] == NODE_ID and report["manifest"]["node_name"] == "ns2"
+    assert _tree(rig["host"]) == before
+    assert rig["env"].service_manager.calls == []
+
+
+def test_verify_without_sum_warns_and_checks_the_payload(rig):
+    sum_path(rig["archive"]).unlink()
+    with _restore(rig, identity=rig["operator_id"]) as r:
+        report = r.verify()
+    assert report["ok"] is True, report
+    assert any(".sha256" in w for w in report["warnings"])
+    assert "sha256" not in {c["what"] for c in report["checks"]}
+
+
+def test_verify_red_on_a_damaged_archive(rig):
+    sum_path(rig["archive"]).unlink()
+    data = bytearray(rig["archive"].read_bytes())
+    data[-40] ^= 0xFF
+    rig["archive"].write_bytes(bytes(data))
+    with _restore(rig) as r:
+        report = r.verify()
+    assert report["ok"] is False and report["manifest"] is None
+    [check] = report["checks"]
+    assert check["what"] == "decrypt" and check["ok"] is False and "damaged" in check["output"]
+    write_sum(rig["archive"])
+    data[-40] ^= 0xFF
+    rig["archive"].write_bytes(bytes(data))
+    with _restore(rig) as r:
+        report = r.verify()
+    assert report["ok"] is False and report["checks"][0]["what"] == "sha256"
+
+
+def test_verify_red_with_a_foreign_identity_or_none(rig):
+    with _restore(rig, identity=age.generate_identity()) as r:
+        report = r.verify()
+    assert report["ok"] is False and "none of the identities" in report["checks"][-1]["output"]
+    with OfflineRestore(rig["env"], rig["archive"], [], workdir=rig["tmp"]) as r:
+        report = r.verify()
+    assert report["ok"] is False and "--identity" in report["checks"][-1]["output"]
+
+
+def test_verify_red_on_a_cluster_toml_without_its_node(rig, tmp_path):
+    files = _host(tmp_path / "other")
+    files["cluster"].write_text("schema_version = 1\n[settings.archives]\ninterval_hours = 0\n")
+    with ArchiveWriter(
+        tmp_path / "out2", node_id=NODE_ID, node_name="ns2", recipients=[age.recipient_of(rig["cluster_id"])]
+    ) as w:
+        for name in ("node", "cluster", "master"):
+            w.add_file(files[name], "pelagos")
+        meta = w.finish(["local"])
+    with OfflineRestore(
+        rig["env"], tmp_path / "out2" / meta.filename, [rig["cluster_id"]], workdir=tmp_path
+    ) as r:
+        report = r.verify()
+    check = next(c for c in report["checks"] if c["what"] == "cluster.toml")
+    assert check["ok"] is False and "not in [[nodes]]" in check["output"]
+    assert "archives.interval_hours" in check["output"] and report["ok"] is False
+
+
+def test_cluster_toml_check_notes_settings_of_a_newer_version():
+    from pelagos.collector.archives import check_cluster_toml
+
+    check = check_cluster_toml(CLUSTER_TOML + "[settings.archives]\nfuture_knob = 3\n", NODE_ID)
+    assert check["ok"] is True and "archives.future_knob" in check["output"]
+    assert check_cluster_toml("schema_version = 999\n", NODE_ID)["ok"] is False
+    assert check_cluster_toml("not = [toml", NODE_ID)["ok"] is False
+
+
 # Command line -------------------------------------------------------------------------------
 
 
@@ -342,6 +437,25 @@ def test_restore_command_dry_run_json(rig, monkeypatch, capsys, tmp_path):
     if os.geteuid() != 0:
         assert cli.main(argv) == 2
         assert "needs root" in capsys.readouterr().err
+
+
+def test_restore_command_verify(rig, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(icli, "_env", lambda args: rig["env"])
+    ident = tmp_path / "id.txt"
+    ident.write_text(rig["cluster_id"] + "\n")
+    argv = ["restore", "--verify", str(rig["archive"]), "--identity", str(ident), "--workdir", str(tmp_path)]
+    assert cli.main([*argv, "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["ok"] is True and report["manifest"]["archive_id"]
+    assert cli.main(argv) == 0
+    assert "restorable" in capsys.readouterr().out
+    other = tmp_path / "other.txt"
+    other.write_text(age.generate_identity() + "\n")
+    bad = ["restore", "--verify", "--archive", str(rig["archive"]), "--identity", str(other)]
+    assert cli.main([*bad, "--workdir", str(tmp_path)]) == 1
+    assert "NOT restorable" in capsys.readouterr().out
+    assert cli.main(["restore", "--verify", "--dry-run", "--archive", str(rig["archive"])]) == 2
+    assert cli.main(["restore", "--verify"]) == 2
 
 
 def test_backup_command_output_and_list(node_paths, monkeypatch, capsys, tmp_path):

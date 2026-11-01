@@ -89,6 +89,13 @@ def test_identity_once_with_password_and_schedule_guard(admin, node_ctx):
     assert overview["identity"]["recipient"] == age.recipient_of(identity)
     assert generate(admin).status_code == 409
     r = admin.put(f"{A}/settings", json={"schedule_enabled": True, "start_time": "02:30"})
+    assert r.status_code == 409 and r.get_json()["code"] == "archive_key_unverified"
+    assert r.get_json()["errors"][0]["field"] == "schedule_enabled"
+    r = admin.put("/api/v1/admin/settings", json={"archives": {"schedule_enabled": True}})
+    assert r.status_code == 409 and r.get_json()["errors"][0]["field"] == "archives.schedule_enabled"
+    r = admin.post(f"{A}/keys/{age.recipient_of(identity)}/verify", json={"identity": identity})
+    assert r.status_code == 200, r.get_json()
+    r = admin.put(f"{A}/settings", json={"schedule_enabled": True, "start_time": "02:30"})
     assert r.status_code == 200 and r.get_json()["settings"]["start_time"] == "02:30"
     assert admin.put(f"{A}/settings", json={"start_time": "25:00"}).status_code == 400
     assert admin.put(f"{A}/settings", json={"destinations": []}).status_code == 400
@@ -96,8 +103,10 @@ def test_identity_once_with_password_and_schedule_guard(admin, node_ctx):
     r = admin.post(f"{A}/identity", json={"op": "remove_recipient", "recipient": recipient})
     assert r.status_code == 409 and keys.recipients(node_ctx.settings())
     ops = [e.request.get("op") for e in node_ctx.audit_log.read() if e.action == "admin.archive.op"]
-    assert ops.count("generate") == 2 and identity not in json.dumps(
-        [e.to_dict() for e in node_ctx.audit_log.read()]
+    assert (
+        ops.count("generate") == 2
+        and ops.count("verify_key") == 1
+        and identity not in json.dumps([e.to_dict() for e in node_ctx.audit_log.read()])
     )
 
 
@@ -331,3 +340,53 @@ def test_peer_action_helpers(node_ctx):
     probe = probe_local(node_ctx)
     assert probe["ok"] and probe["max_bytes"] == 512 * 1024 * 1024
     assert not [p for p in (node_ctx.paths.archives_dir / ".incoming").iterdir() if "probe" in p.name]
+
+
+def test_key_proof_never_keeps_the_key(admin, node_ctx, role_client, caplog):
+    assert generate(admin).status_code == 200
+    held = age.generate_identity()
+    operator = age.recipient_of(held)
+    assert admin.post(f"{A}/identity", json={"op": "add_recipient", "recipient": operator}).status_code == 200
+    meta = write_archive(node_ctx)
+    url = f"{A}/keys/{operator}/verify"
+    assert role_client("viewer").post(url, json={"identity": held}).status_code == 403
+    assert admin.post(f"{A}/keys/age1unknown/verify", json={"identity": held}).status_code == 404
+    assert admin.post(url, json={}).status_code == 400
+    r = admin.post(url, json={"identity": age.generate_identity()})
+    assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "identity"
+    assert not keys.verified(node_ctx.settings())
+    r = admin.post(url, json={"identity": f"# created: 2026-11-01\n# public key: {operator}\n{held}\n"})
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body["recipient"]["verified_at"] and body["recipient"]["verified_by"] == "admin"
+    assert [c["what"] for c in body["checks"]] == ["test archive", f"archive {meta.filename}"]
+    assert all(c["ok"] for c in body["checks"])
+    [proven] = keys.verified(node_ctx.settings())
+    assert proven["recipient"] == operator
+    trail = json.dumps([e.to_dict() for e in node_ctx.audit_log.read()])
+    assert (
+        held not in trail and held not in node_ctx.paths.cluster_toml.read_text() and held not in caplog.text
+    )
+    results = [e.result.value for e in node_ctx.audit_log.read() if e.request.get("op") == "verify_key"]
+    assert results == ["error", "ok"]
+
+
+def test_key_proof_rate_limited(admin, node_ctx):
+    assert generate(admin).status_code == 200
+    recipient = keys.encryption_recipients(node_ctx.settings())[0]
+    codes = [
+        admin.post(f"{A}/keys/{recipient}/verify", json={"identity": age.generate_identity()}).status_code
+        for _ in range(7)
+    ]
+    assert codes[:6] == [400] * 6 and codes[6] == 429
+
+
+def test_schedule_already_on_keeps_working_without_proof(admin, node_ctx):
+    assert generate(admin).status_code == 200
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("archives", {}).update(schedule_enabled=True), updated_by="test"
+    )
+    r = admin.put(f"{A}/settings", json={"schedule_enabled": True, "interval_hours": 12})
+    assert r.status_code == 200 and r.get_json()["settings"]["interval_hours"] == 12
+    assert admin.put(f"{A}/settings", json={"schedule_enabled": False}).status_code == 200
+    assert admin.put(f"{A}/settings", json={"schedule_enabled": True}).status_code == 409

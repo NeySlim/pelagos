@@ -509,7 +509,7 @@ def test_kea_check_falls_back_to_dash_t(node_ctx, runner, engines) -> None:
     engines.kea4.config_test = down
     runner.run()
     what = {c["what"]: c["ok"] for c in runner.store.load_state().test_restore["checks"]}
-    assert what["kea-dhcp4 -t"] is None and what["kea-dhcp-ddns config-test"] is True
+    assert what["kea-dhcp4 -T"] is None and what["kea-dhcp-ddns config-test"] is True
 
 
 def test_kea_dash_t_denied_by_apparmor_is_not_a_failure(
@@ -537,13 +537,13 @@ def test_kea_dash_t_denied_by_apparmor_is_not_a_failure(
     monkeypatch.setattr(archives_mod, "APPARMOR", str(tmp_path))
     runner.run()
     result = runner.store.load_state().test_restore
-    check = next(c for c in result["checks"] if c["what"] == "kea-dhcp4 -t")
+    check = next(c for c in result["checks"] if c["what"] == "kea-dhcp4 -T")
     assert check["ok"] is None and "AppArmor" in check["output"]
     assert result["ok"] is True
     monkeypatch.setattr(archives_mod, "APPARMOR", str(tmp_path / "absent"))
     runner.clock_.advance(hours=24 * 8)
     runner.run()
-    check = next(c for c in runner.store.load_state().test_restore["checks"] if c["what"] == "kea-dhcp4 -t")
+    check = next(c for c in runner.store.load_state().test_restore["checks"] if c["what"] == "kea-dhcp4 -T")
     assert check["ok"] is False
 
 
@@ -574,3 +574,41 @@ def test_kea_tls_files_are_archived_with_the_configuration():
         "/etc/kea/tls/api.key",
     ]
     assert tls_files({}) == []
+
+
+def test_key_alert_until_a_key_is_proven_then_as_a_reminder(node_ctx) -> None:
+    from pelagos.archives.store import RunState
+
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    held = keys.generate_cluster_identity
+    node_ctx.config_store.update_cluster(lambda c: held(c, node_ctx.secrets, by="t"), updated_by="t")
+
+    def kinds(first_node: bool = True) -> list:
+        alerts = archives_mod.archive_alerts(
+            node_ctx.node.id, RunState(), node_ctx.settings(), now, first_node
+        )
+        return [a for a in alerts if a.kind is AlertKind.ARCHIVE_KEY_UNVERIFIED]
+
+    assert kinds() == []  # not scheduled
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("archives", {}).update(schedule_enabled=True), updated_by="t"
+    )
+    [alert] = kinds()
+    assert alert.severity is Severity.WARNING and alert.subject == "archive:key"
+    assert alert.details["verified_at"] is None
+    assert kinds(first_node=False) == []
+    recipient = keys.encryption_recipients(node_ctx.settings())[0]
+    node_ctx.config_store.update_cluster(
+        lambda c: keys.mark_verified(c, recipient, by="admin", now=now - timedelta(days=10)), updated_by="t"
+    )
+    assert kinds() == []
+    node_ctx.config_store.update_cluster(
+        lambda c: keys.mark_verified(c, recipient, by="admin", now=now - timedelta(days=91)), updated_by="t"
+    )
+    [alert] = kinds()
+    assert alert.details["days"] == 91 and alert.details["reminder_days"] == 90
+    assert "91" in alert.title
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings["archives"].update(key_reminder_days=0), updated_by="t"
+    )
+    assert kinds() == []

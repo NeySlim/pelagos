@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pelagos: DNS and DHCP management for BIND 9 and Kea."""
 
-__version__ = "0.3.6.dev0"
+__version__ = "0.4.0"
 API_VERSION = "v1"

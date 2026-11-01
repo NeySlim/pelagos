@@ -390,16 +390,17 @@ class AdminService:
         new = clean_site(site)
         if new is None and site is not None and site.strip():
             raise ValidationError(
-                "invalid site", [field_error("site", "1 to 64 characters without control characters")]
+                "invalid site",
+                [field_error("site", "1 to 64 characters without control or format characters")],
             )
-        peer = self.ctx.cluster().peer(node_id)
-        if peer is None:
-            raise NotFound(f"node {node_id}")
+        seen: dict[str, Any] = {}
 
         def mutate(c: ClusterConfig) -> None:
             target = c.peer(node_id)
-            if target is not None:
-                target.site = new
+            if target is None:
+                raise NotFound(f"node {node_id}")
+            seen["name"], seen["before"] = target.name, target.site
+            target.site = new
 
         self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
         self.ctx.audit_log.append(
@@ -409,9 +410,9 @@ class AdminService:
                 action="admin.node.replace",
                 target=f"node:{node_id}",
                 request={"site": new},
-                response={"site": {"before": peer.site, "after": new}},
+                response={"site": {"before": seen["before"], "after": new}},
                 result=AuditResult.OK,
-                message=f"site of node {peer.name}: {peer.site or '(none)'} -> {new or '(none)'}",
+                message=f"site of node {seen['name']}: {seen['before'] or '(none)'} -> {new or '(none)'}",
                 client_ip=client_ip,
             )
         )

@@ -38,6 +38,7 @@ def test_a_bad_site_is_refused(admin, body):
 
 def test_unknown_node_is_not_found(admin):
     assert admin.patch(f"{P}/nope", json={"site": "a"}).status_code == 404
+    assert admin.get("/api/v1/audit?action=admin.node.replace").get_json()["total"] == 0
 
 
 def test_only_admin_nodes_may_patch(role_client, admin):

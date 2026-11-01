@@ -96,7 +96,9 @@ class OneNode(Resource):
         if set(body) != {"site"}:
             raise ApiError("validation_error", 'body must be {"site": string or null}')
         services().admin.set_node_site(node_id, body["site"], username(), client_ip())
-        node = next(n for n in _nodes() if n.peer.id == node_id)
+        node = next((n for n in _nodes() if n.peer.id == node_id), None)
+        if node is None:
+            raise ApiError("not_found", f"node {node_id}")
         return node.to_dict()
 
     @require("admin:nodes")

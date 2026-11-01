@@ -239,6 +239,7 @@
     "applied": "Applied",
     "failed": "Failed",
     "rolled_back": "Rolled back",
+    "rolling_back": "Rolling back",
     "expired": "Expired",
     "queued": "Queued",
     "running": "Running",

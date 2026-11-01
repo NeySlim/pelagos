@@ -239,6 +239,7 @@
     "applied": "Appliqué",
     "failed": "Échec",
     "rolled_back": "Annulé",
+    "rolling_back": "Annulation en cours",
     "expired": "Expiré",
     "queued": "En attente",
     "running": "En cours",

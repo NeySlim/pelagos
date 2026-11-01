@@ -59,8 +59,10 @@ Dependency on the audit log (B1-AUDIT, not merged): `Revocations` rebuilds from 
 last `auth.session_ttl_seconds` with `AuditLog.query(since=, action=)` (one function,
 `Revocations._recent`) at process start and whenever the live file changes inode or shrinks, and
 follows it with `AuditLog.scan(offset, inode, needle)` otherwise; never a scan from offset 0. When
-B1-AUDIT lands (sealed yearly segments), `_recent` switches to `AuditLog.tail(since=now - TTL)`;
-`query` already covers segments in its contract, so the rebuild stays correct across a rotation.
+B1-AUDIT lands (sealed yearly segments), the rule is: Revocations rebuild with
+`AuditLog.tail(since=now - TTL, needle='"action":"a')` (cursor taken with the read), then follow with
+`scan`; the lot merged second makes the switch in `_recent` (B1-AUDIT if B1-SESSIONS merges first).
+Revocation entries (`auth.logout`, `auth.op`, `admin.user.*`, `admin.role.replace`) keep their shape.
 WP-FRONTEND: nothing required (the CSRF token from login or `GET /auth/session` stays valid on every
 node; a `401` already leads to the login page). Optional hardening: on `403 csrf_failed`, read
 `GET /auth/session` once and replay (the token changes when the secret was replaced).

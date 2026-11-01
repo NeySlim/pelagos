@@ -3107,9 +3107,12 @@ are appended out of `ts` order), then follows the file with
 new inode or smaller size, triggers the same rebuild rather than a scan from
 the start), needle `"action":"a` (the
 fixed key order of section 11 makes it select `auth.*`, `admin.*`,
-`alert.*`, `archive.*` in one pass; then filtered by action). The rebuild is
-one function (`Revocations._recent`); once the log rotates into sealed
-segments (B1-AUDIT) it reads `AuditLog.tail(since=now - TTL)`. It applies
+`alert.*`, `archive.*` in one pass; then filtered by action). Target rule
+once B1-AUDIT lands: Revocations rebuild with `AuditLog.tail(since=now - TTL,
+needle)`, whose cursor is taken at the same instant as the read, then follow
+with `scan`; until then the rebuild, one function (`Revocations._recent`),
+uses `query(since)` and the size read just before it. Revocation entries keep
+their shape. It applies
 `REVOCATION_RULES`:
 
 | Entry | Effect |

@@ -143,6 +143,42 @@ archive holds `master.key`: never store its key next to it.
 `age -d -i key.txt ns2-20261028T031500Z.tar.gz.age | tar tz` lists an
 archive without Pelagos.
 
+### Testing the archive key
+
+Scheduled archives stay off until an operator proves a private key opens
+them: under **Administration > Backups**, **Test my key** on the cluster key
+or an operator key, paste its private key (`AGE-SECRET-KEY-1...`). The server
+opens a test archive with it, and the newest archive of that node encrypted to
+it, in memory; the key is never stored nor logged. The key list then shows
+when each one was tested. Turning the schedule on before that answers
+`409 archive_key_unverified`. A cluster that was already scheduled before
+0.4.0 keeps archiving and shows the `archive_key_unverified` warning until a
+key is tested, then again when the last test is older than
+`archives.key_reminder_days` (90 days, 0 turns the reminder off). After a
+rotation, the new cluster key needs its own test.
+
+### Checking an archive without restoring
+
+`pelagos restore --verify` opens an archive in a private folder and checks
+it with the engine tools, without root and without touching the host: the
+`.sha256`, the decryption and every member's sum, `node.toml`,
+`cluster.toml` (it loads in this version and lists the node, its settings are
+valid), then `named-checkconf`, `named-checkzone` for each archived zone,
+`kea-dhcp4 -T` and `kea-dhcp6 -T` (hooks loaded, no socket opened) and
+`kea-dhcp-ddns -t` on copies whose includes point at the extracted files.
+Nothing outside the folder is written, no service is stopped, no audit entry
+is added. It exits 0 when the archive is restorable, 1 otherwise; `--json`
+gives the report:
+
+```sh
+pelagos restore --verify ns2-20261028T031500Z.tar.gz.age --identity cluster-key.txt
+```
+
+It also notes what a real restore on this host would refuse (another node
+already installed, a missing engine). The scheduled test restore
+(`archives.test_restore_days`) runs the same checks on each node's newest
+archive.
+
 ### Rebuilding a lost node
 
 The node comes back with its identity, its zones, its DNSSEC keys and its
@@ -163,12 +199,16 @@ leases; its peers need not be running.
    sudo pelagos restore --archive ns2-20261028T031500Z.tar.gz.age --identity cluster-key.txt
    ```
 
+   `--verify` (above) checks the archive first without root.
 5. The services start on the restored files. Kea HA synchronizes the leases
    with the partner and the pair goes back to `hot-standby`; the node
    catches up on the cluster changes made since the archive; secondary zones
    transfer again. The restore also deletes `cluster.bases.json` (the
 conflict detection data kept beside `cluster.toml`, never archived); it
 starts again empty.
+   The audit directory comes back as it was archived, sealed yearly segments
+   included: they still verify on the rebuilt node. The lease history of the
+   collector is not archived.
 
 Changes the node received after the archive (DNS updates on its primary
 zones, leases it alone handed out) are lost: archive often enough. A zone

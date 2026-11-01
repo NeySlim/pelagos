@@ -685,7 +685,7 @@ be deleted: remove it from those users first (the error names them).
 - **Sidebar**: the arrow at the foot of the sidebar folds it to icons (names
   stay in the tooltips and for screen readers). The choice is kept in the
   browser. On a phone the menu groups fold, and DHCPv6 entries carry a "v6" badge.
-- **Search**: `Ctrl+K` (`Cmd+K`) or `/` opens the global search, also the
+- **Search**: `Ctrl+K` (`Cmd+K` on a Mac) or `/` opens the global search, also the
   magnifier of the sidebar and of the phone header. It finds hosts, zones,
   records, leases, reservations, alerts and nodes by name, address, MAC or
   DUID (digits with or without separators); arrows move, Enter opens, Escape

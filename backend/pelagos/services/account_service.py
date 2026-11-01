@@ -13,11 +13,11 @@ from pelagos.core import settings_registry as reg
 from pelagos.core.config_store import ClusterConfig
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, User, utcnow
+from pelagos.notify import catalog
 from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
 
 PENDING_TOTP_SECONDS = 600
 THEME_MODES = ("system", "dark", "light")
-LANGUAGES = ("en", "fr")
 ANIMATIONS = ("full", "reduced", "off")
 AMBIENT = ("on", "off")
 PREFERENCE_KEYS = ("theme_family", "theme_mode", "language", "animations", "ambient", "dashboard_layout")
@@ -184,8 +184,8 @@ class AccountService:
                 errors.append(field_error(key, f"one of {', '.join(ANIMATIONS)}"))
             elif key == "ambient" and value not in AMBIENT:
                 errors.append(field_error(key, f"one of {', '.join(AMBIENT)}"))
-            elif key == "language" and value not in LANGUAGES:
-                errors.append(field_error(key, f"one of {', '.join(LANGUAGES)}"))
+            elif key == "language" and value not in catalog.LANGUAGES:
+                errors.append(field_error(key, f"one of {', '.join(catalog.LANGUAGES)}"))
             elif key == "theme_family" and (
                 not isinstance(value, str) or not value.strip() or len(value) > 40
             ):

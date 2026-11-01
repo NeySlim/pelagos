@@ -19,6 +19,7 @@ from flask_restx import Model, fields
 
 from pelagos import domain
 from pelagos.domain import Model as DomainModel
+from pelagos.notify import catalog
 
 _REGISTRY: dict[str, Model] = {}
 
@@ -314,7 +315,7 @@ Preferences = model(
     {
         "theme_family": fields.String,
         "theme_mode": fields.String(enum=["system", "dark", "light"]),
-        "language": fields.String(enum=["en", "fr"]),
+        "language": fields.String(enum=list(catalog.LANGUAGES)),
         "animations": fields.String(enum=["full", "reduced", "off"]),
         "ambient": fields.String(enum=["on", "off"]),
         "dashboard_layout": fields.List(fields.Raw),

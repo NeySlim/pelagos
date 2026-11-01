@@ -130,6 +130,10 @@ def test_languages_follow_the_locale_folders():
     assert catalog.LANGUAGES[0] == "en"
 
 
+def test_only_language_tags_count():
+    assert catalog._codes(["fr", "en", "pt-BR", "_cache", "README", "de"]) == ("en", "de", "fr", "pt-BR")
+
+
 def test_catalog_fallbacks():
     assert catalog.text("fr", "event.opened") == "Ouverte"
     assert catalog.text("fr", "no.such.key") == "no.such.key"

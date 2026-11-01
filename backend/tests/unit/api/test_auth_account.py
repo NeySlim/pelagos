@@ -166,3 +166,13 @@ def test_replication_syncing_refuses_writes(login, node_ctx):
         assert c.get("/api/v1/health").get_json()["status"] == "degraded"
     finally:
         node_ctx.replication_state = "ready"
+
+
+def test_a_language_of_the_catalog_is_accepted(login, monkeypatch):
+    from pelagos.notify import catalog
+
+    c = login("vera")
+    assert c.put("/api/v1/account/preferences", json={"language": "de"}).status_code == 400
+    monkeypatch.setattr(catalog, "LANGUAGES", (*catalog.LANGUAGES, "de"))
+    r = c.put("/api/v1/account/preferences", json={"language": "de"})
+    assert r.status_code == 200 and r.get_json()["language"] == "de"

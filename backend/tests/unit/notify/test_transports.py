@@ -384,3 +384,12 @@ def test_validate_email():
     assert ("params.to.0", "error") in issues({"type": "email", "params": {**good, "to": ["nope"]}})
     assert ("params.username", "error") in issues({"type": "email", "params": good}, ["password"])
     assert ("params.port", "error") in issues({"type": "email", "params": {**good, "port": 70000}})
+
+
+def test_channel_language_follows_the_catalog(monkeypatch):
+    from pelagos.notify import catalog
+
+    channel = {"type": "email", "language": "de", "params": {}}
+    assert any(i.field == "language" for i in validate(channel, set()))
+    monkeypatch.setattr(catalog, "LANGUAGES", (*catalog.LANGUAGES, "de"))
+    assert not any(i.field == "language" for i in validate(channel, set()))

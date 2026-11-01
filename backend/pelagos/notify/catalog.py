@@ -20,9 +20,12 @@ NAMESPACES = ("messages", "notify")
 DATA = Path(__file__).resolve().parents[1] / "data" / "i18n"
 
 
+_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+
+
 def _codes(names: list[str]) -> tuple[str, ...]:
-    """English first (the fallback), then the other languages in alphabetical order."""
-    return tuple(sorted(names, key=lambda code: (code != "en", code)))
+    """Language tags only (`de`, `pt-BR`), English first (the fallback), then alphabetical."""
+    return tuple(sorted((n for n in names if _CODE.match(n)), key=lambda code: (code != "en", code)))
 
 
 # One language per generated file: adding a language adds its folder in the frontend locales.
@@ -67,7 +70,7 @@ def _template(lang: str, ns: str, key: str, count: Any) -> str | None:
     for code in (lang, "en") if lang != "en" else ("en",):
         table = load(code).get(ns) or {}
         if isinstance(count, int) and not isinstance(count, bool):
-            # i18next plural forms: French uses "one" for 0 and 1, English for 1 only.
+            # i18next plurals: French "one" is 0 and 1; every other language follows the English rule.
             form = "one" if (count in (0, 1) if code == "fr" else count == 1) else "other"
             found = _lookup(table, f"{key}_{form}", flat)
             if found is not None:

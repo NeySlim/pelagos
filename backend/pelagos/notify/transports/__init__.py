@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from pelagos import __version__
+from pelagos.notify import catalog
 from pelagos.notify import http as nhttp
 from pelagos.notify.model import Batch, Channel, ChannelType, SendError, SendResult
 from pelagos.notify.render import Rendered, render
@@ -115,8 +116,8 @@ def validate(channel: Mapping[str, Any], secrets: set[str]) -> list[Issue]:
     if kind not in set(ChannelType):
         return [Issue("type", "one of " + ", ".join(ChannelType))]
     issues: list[Issue] = []
-    if channel.get("language", "en") not in ("en", "fr"):
-        issues.append(Issue("language", "en or fr"))
+    if channel.get("language", "en") not in catalog.LANGUAGES:
+        issues.append(Issue("language", " or ".join(catalog.LANGUAGES)))
     params = channel.get("params") or {}
     if not isinstance(params, Mapping):
         return [*issues, Issue("params", "object expected")]

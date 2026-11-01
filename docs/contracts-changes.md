@@ -14,25 +14,38 @@ What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
 ## 2026-11-01, B1-AUDIT (WP-CORE, WP-COLLECTOR, WP-API-AUTH): sealed audit segments, token reads not audited
-Section 11 "Sealed segments": the live `audit.jsonl` (name and format unchanged) is renamed once a
-year to `audit-<year>.jsonl` (`-<n>` for a second one in a year) with a seal `audit-<year>.seal`
-(SHA-256 chain over the raw lines, length, range, node, time); `core.audit_segments` (`rotate`,
-`seal`, `verify`, `purge`, `Segment`); collector task `audit_rotation` (section 15); CLI
-`pelagos audit-log segments|rotate|verify` (`pelagos audit` stays the security audit). Every
-`AuditLog` read (`read`, `query`, `get`, `get_many`, `ids`, `sorted_ids`, `head`, `export_lines`)
-and `merge` work over segments plus live file; appends and merges always go to the live file (no
-`.late.jsonl`). `AuditLog.scan` returns each entry once across a rotation (it finds the renamed
-file by inode); new `AuditLog.tail(since, needle)` for followers that rebuild at start, then
-`scan`; new `AuditLog.segments()`. Audit actions `audit.rotate`, `audit.purge`. API:
-`GET /audit/segments`, `POST /audit/segments/{name}/verify` (`read:audit`); `GET /audit/export`
-streams segments then the live file (a time range exports the same bytes before and after a
-rotation). Settings: `retention.audit_sealed_years` (default 0, keep); `auth.api_token_audit_reads_enabled`
-default `false`, migrated in `settings_registry.migrate` (a stored `true` nobody chose becomes
-`false` with the deterministic stamp `<c>@~defaults`; a value an operator wrote is kept; section 10
-"Changed defaults"). Replication protocol unchanged; a 0.3.x node keeps reading `audit.jsonl` and
-adopts the new default at the next merge. B1-SESSIONS: `Revocations` rebuilds with `tail` and
-follows with `scan`. F0-PLANS, F0-REPL, notifications: `query` already covers the segments.
-B1-ARCHIVES: archives already take the whole audit directory. WP-FRONTEND: nothing required
+Section 11 "Sealed segments": once a year the live `audit.jsonl` (name and format unchanged) gets a
+second name `audit-<year>.jsonl` by hard link (`-<n>` for a further one in a year, ordered
+numerically) and a fresh empty live file is renamed over it, so the live path always exists; a
+seal `audit-<year>.seal` (SHA-256 chain over the raw lines, length, min and max `ts`, node, time)
+anchored in a replicated `audit.rotate` entry. `core.audit_segments` (`rotate`, `seal`, `verify`,
+`purge`, `Segment`); idempotent collector task `audit_rotation` (section 15), due by the live
+file's opening date; CLI `pelagos audit-log segments|rotate|verify` (`pelagos audit` stays the
+security audit). Every `AuditLog` read (`read`, `query`, `get`, `get_many`, `ids`, `sorted_ids`,
+`head`, `export_lines`, deduplicated) and `merge` work over segments plus live file; appends and
+merges always go to the live file (no `.late.jsonl`). `AuditLog.scan` returns each entry once
+across rotations (it finds the old file by inode) and keeps its cursor while the live file is
+missing; new `AuditLog.tail(since, needle)` (entries since a date over every file, plus the live
+cursor the index read) for followers that rebuild, then `scan`; new `AuditLog.segments()`. Audit
+actions `audit.rotate`, `audit.purge`. API: `GET /audit/segments`, `POST
+/audit/segments/{name}/verify` (`read:audit`, anchor compared with reachable peers,
+`peers_checked`, reason `missing_segment`); `GET /audit/export` streams the files in order (a time
+range exports the same bytes before and after a rotation). Settings: `retention.audit_sealed_years`
+(default 0, keep; a purge waits until every peer runs 0.4.0, then `merge` and
+`_exchange_audit_ids` drop entries under the horizon `purged-before`);
+`auth.api_token_audit_reads_enabled` default `false`, migrated in `settings_registry.migrate`
+(a `true` stamped at the creation counter `c0`, unstamped, or absent becomes `false` with the
+deterministic stamp `c0@~defaults`; a later write is kept; section 10 "Changed defaults").
+`audit_growth` gains `details.segments_bytes`. Replication protocol unchanged; a 0.3.x node keeps
+reading `audit.jsonl` and adopts the new default at the next merge. Files outside the lot's block,
+approved in review: `collector/notify.py` (`Ledger` rebuilt by `tail`, one block),
+`pelagos/cli.py` (one line), `docs/user/configuration.md`, `docs/user/upgrade.md` (compare
+`audit_count`, not file lines), `frontend/mock/b1-audit.mjs`, `admin.json` (en, fr).
+B1-SESSIONS: `Revocations` rebuilds with `tail(now - ttl, needle)` and follows with `scan`.
+B1-EVENTS: `collector.notify.Ledger` now rebuilds with `tail(now - LEDGER_DAYS)`; keep it when
+touching the file. B1-ARCHIVES: archives carry segments and seals, a restore merges the entries
+of every `audit*.jsonl` and does not restore seals (no "verifiable archive" from them). F0-PLANS,
+F0-REPL, notifications: `query` covers the segments. WP-FRONTEND: nothing required
 (`/audit/segments` is in the mock; a segments view is left to a later lot).
 
 ## 2026-11-01, FIX-PEERROLLBACK (WP-CORE, WP-REPL): peer rollback pre-check, parts finished_at

@@ -2156,30 +2156,33 @@ Changed defaults. A default that changes is a value migration in
 `settings_registry.migrate`, beside the renames: a stored value equal to the
 former default that nobody chose is moved to the new default, a value an
 operator wrote is kept. `cluster.toml` stores every setting (defaults
-included), so "nobody chose it" is read from the stamps (section 13): the
-entry's stamp is not newer than the oldest stamp of the `settings` entries,
-which is the write that created the cluster (`init_cluster`) or first
-stamped a pre-merge file; a setting added by a later release and filled
-from its default has no stamp. Any write of that entry by an operator
-stamps it with a later counter. A pre-merge file (no stamps) counts as never
-chosen.
+included), so "nobody chose it" is read from the stamps (section 13). `c0`
+is the smallest non-zero counter among the file's stamps: the write that
+created the cluster (`1` from `init_cluster`) or first stamped a pre-merge
+file (its version then). The entry is migrated when its value is the former
+default and it has no stamp or a stamp with counter `c0`; any later write
+has a strictly greater counter (`record_write`: `max(clock, floor) + 1`) and
+is kept. A pre-merge file (no `[replication]` table) has its value moved
+without a stamp. A key absent from a stamped file (a cluster created before
+the setting existed and not written since, or a 0.3.x file that never
+stored it) is inserted with the new default, so 0.3.x peers read it too.
 
 | Setting | Former default | New default | Since |
 | --- | --- | --- | --- |
 | `auth.api_token_audit_reads_enabled` | `true` | `false` | 0.4.0 (decision D5): an API token's reads (GET, HEAD, OPTIONS) are not audited unless chosen; writes always are |
 
-The migrated entry gets the stamp `<counter of that oldest stamp>@~defaults`
-(`~` sorts after every node id): the same on every node, so upgraded nodes
-agree on entries and digest without a write; newer than the old default, so
-a 0.3.x peer adopts the new value at the next merge (the whole cluster stops
-auditing token reads once one node is upgraded, as the release notes say);
-older than any later write, so an operator's choice made anywhere afterwards
-wins. `migrate` returns `(key, key)` for a migrated value, and
-`migrate_settings` writes it once and audits it in the same
-`admin.settings.op` entry (`renamed` maps the key to itself, the existing
-form of the `dns.update_types_admin` value migration). Kept: `false`
-anywhere; `true` written after the cluster was created (an operator who
-turned it off then on again).
+The migrated or inserted entry gets the stamp `c0@~defaults` (`~` sorts
+after every node id): the same on every node, so upgraded nodes agree on
+entries and digest without a write or a version bump; newer than the old
+default, so a 0.3.x peer adopts the new value at the next merge once
+`migrate_settings` has written the file (the whole cluster stops auditing
+token reads once one node is upgraded, as the release notes say); older
+than any later write, so an operator's choice made anywhere afterwards wins.
+`migrate` is idempotent (a migrated file migrates to nothing). It returns
+`(key, key)` for a migrated value, `migrate_settings` writes the file once,
+and the `admin.settings.op` entry keeps its form (`renamed` maps the key to
+itself) with the message "settings migrated to the current names and
+defaults".
 
 ### Generic collections
 
@@ -2349,65 +2352,96 @@ The live file `audit.jsonl` is bounded by a yearly rotation; what it held
 before is kept in sealed segments next to it, never purged unless the
 operator asks, always read, exported and replicated with the live file.
 
-Files, in `/var/lib/pelagos/audit/` (`pelagos`, 0640):
+Files, in `/var/lib/pelagos/audit/` (owner, group and mode of the live file):
 
 | File | Content |
 | --- | --- |
 | `audit.jsonl` | the live file: every append and every merge, as before 0.4.0 |
-| `audit-<year>.jsonl` | a segment: the live file as it was when it was rotated, renamed, never written again |
+| `audit-<year>.jsonl` | a segment: the live file as it was when it was rotated, never written again |
 | `audit-<year>-<n>.jsonl` | a further segment for the same year (`n` from 2): an on-demand rotation in that year |
 | `audit-<year>[-<n>].seal` | the seal of the segment of the same stem (JSON, below) |
+| `purged-before` | after a purge only: the RFC 3339 date under which entries were purged (Retention) |
+
+Segment order is numeric on `(year, n)`, `n = 1` for the name without a
+suffix (`audit-2026-10.jsonl` comes after `audit-2026-2.jsonl`); exports,
+`scan`, `segments()` and the API list use that order, the live file last.
+
+Invariant: no writer keeps a descriptor open on the live file between two
+calls (`_write` opens, writes, fsyncs and closes under the audit lock), so
+a segment is never written after its rotation and step 2 needs no lock.
 
 Rotation (`core.audit_segments.rotate`, collector task and `pelagos audit-log rotate`):
 
-1. Under the audit lock: `audit.jsonl` is renamed to the segment name, an
-   empty `audit.jsonl` is created (same owner and mode). Nothing else is
-   done under the lock, so an append waits for two renames at most.
+1. Under the audit lock: the due check is made again (two processes may
+   race, the collector and the CLI), the free segment name is chosen,
+   `link(audit.jsonl, <segment>)` gives the live file a second name (same
+   inode), then an empty `audit.jsonl.tmp` with the owner, group and mode of
+   the live file is created, fsynced and renamed over `audit.jsonl`. The live
+   path exists at every instant; the segment keeps the bytes, line order and
+   inode of the file it was.
 2. Outside the lock: the seal is computed by streaming the segment, written
-   to `<stem>.seal.tmp`, fsynced and renamed.
-3. An entry `audit.rotate` is appended to the new live file (below).
+   to `<stem>.seal.tmp` (owner, group and mode of the live file), fsynced and
+   renamed.
+3. An entry `audit.rotate` is appended to the live file (below).
 
-The live file is renamed whole: the segment keeps the bytes, the line order
-and the inode of the file it was. The year in the name is the year closed:
-the scheduled rotation names it `<UTC year of now> - 1`, an on-demand rotation
-`<UTC year of now>`; a name already taken gets the next `-<n>`. The segment
-holds whatever the live file held, so a segment may hold a few entries of
-the following year (written between midnight and the task) and entries of
-older years merged late; its seal records the first and last `ts`.
+Due. The live file has an opening date: the `ts` of the last `audit.rotate`
+entry this node wrote, or, without one, the `ts` of its first line in file
+order. The scheduled rotation is due when the UTC year of that date is lower
+than the current UTC year and the live file holds at least one entry; it
+names the segment `<UTC year of now> - 1`. A late merge (an entry dated in
+a closed year) never makes a rotation due. An on-demand rotation names it
+`<UTC year of now>` and is refused on a live file without entries ("nothing
+to rotate"). A name already taken gets the next `-<n>`.
 
-Scheduled rotation: the collector checks once an hour (and at start) and
-rotates when the oldest entry of the live file has a UTC year lower than the
-current UTC year. Each node rotates its own files; nodes are not
-coordinated and need not be (replication works on entry ids, not files).
-
-Crash safety: a crash after step 1 leaves a segment without a seal; it is
-read like any segment and the next run of the task seals it (step 2 is
-idempotent). A crash before step 1 leaves nothing. The rename is the only
-change of the live file; no line is ever rewritten or moved.
+Recovery. The collector task is idempotent and runs, in order, at start and
+every hour: (a) a segment whose inode is the live file's is an interrupted
+step 1: the task replaces the live path with a fresh empty file (end of
+step 1); a segment is never sealed while it shares the live file's inode;
+(b) a segment without seal is sealed (step 2); (c) a sealed segment without
+an `audit.rotate` entry of this node is anchored (step 3, `on_demand:
+false`); (d) the scheduled rotation if due; (e) the purge (Retention).
 
 Seal, `audit-<year>[-<n>].seal`:
 
 ```json
 {"format":1,"segment":"audit-2026.jsonl","year":2026,"node_id":"01JB0ZK4Q9X3M5N7P8R2T4V6W8",
  "sealed_at":"2027-01-01T00:00:41Z","version":"0.4.0","algorithm":"sha256-chain",
- "bytes":48211533,"lines":120345,"entries":120344,"first_ts":"2026-01-01T00:00:07Z",
+ "bytes":48211533,"lines":120345,"entries":120344,"first_ts":"2025-12-30T08:12:01Z",
  "last_ts":"2027-01-01T00:00:12Z","first_id":"01J...","last_id":"01K...","chain":"<64 hex>"}
 ```
 
 `chain` is `h_n` with `h_0 = SHA-256("pelagos-audit-seal-v1\n" + segment)`
 and `h_i = SHA-256(h_(i-1) || line_i)`, `line_i` the raw bytes of line `i`
 with its `\n` (damaged lines included: the seal covers bytes, not entries).
-`lines` counts lines, `entries` the lines that decode. Verification
-(`core.audit_segments.verify`) recomputes the chain over the first `bytes`
-bytes and fails with a reason: `missing_seal`, `seal_damaged` (not JSON, or
-another `segment`), `length` (the file is shorter or longer than `bytes`),
-`chain` (a byte changed). It also looks for the `audit.rotate` entry of that
-segment written by the seal's `node_id` (replicated: every node holds a copy)
-and fails with `anchor` when its `chain` differs; no entry (a rotation
-interrupted before step 3) is reported, not a failure. The seal proves the segment unchanged
-since rotation against an edit of the segment, or of the segment and its
-seal; changing a segment, its seal and the `audit.rotate` entry on every
-node is outside what it guards (no signing key).
+`lines` counts lines, `entries` the lines that decode; `first_ts` and
+`last_ts` are the minimum and maximum `ts` of the decoded entries (not the
+first and last lines), `first_id` and `last_id` the minimum and maximum id.
+A segment's name does not bound its content (late merges, the first minutes
+of the next year): only its seal does, and a segment without a seal is never
+skipped by a time range.
+
+Verification (`core.audit_segments.verify`) recomputes the chain over the
+first `bytes` bytes and fails with a reason: `missing_seal`, `seal_damaged`
+(not JSON, or another `segment`), `length` (the file is shorter or longer
+than `bytes`), `chain` (a byte changed), `anchor` (the `chain` of the
+`audit.rotate` entry for that segment written by the seal's `node_id`
+differs), `missing_segment` (an `audit.rotate` entry of this node names a
+segment absent from disk and no `audit.purge` entry names it; reported by
+`verify` without argument and by the task). No anchor entry yet (a crash
+before step 3, until the task writes it) is a note, not a failure. The CLI
+compares the local copy of the anchor (`anchor: local`); `POST
+/audit/segments/{name}/verify` also fetches the copy of each reachable peer
+by `POST /repl/v1/audit/fetch` with the anchor's id (existing protocol) and
+fails with `anchor` when one differs (`peers_checked` in the answer).
+
+What a verified seal proves: this file has not changed on this disk since
+its rotation (an edit of the segment, of the segment and its seal, or of
+those and the local copy of the anchor when a peer is reachable). It proves
+nothing about what was written before the rotation: an entry forged by a
+node with a valid certificate is sealed like the others. Each node seals its
+own files; two nodes hold the same year in different orders and contents
+(merge order, late entries), so seals do not compare across nodes: the only
+invariant across nodes is the set of ids.
 
 Audit entries (section 11 vocabulary: scope `audit`, verbs `rotate`, `purge`):
 
@@ -2416,53 +2450,70 @@ Audit entries (section 11 vocabulary: scope `audit`, verbs `rotate`, `purge`):
 | `audit.rotate` | `audit:<segment>` | `{segment, year, entries, bytes, first_id, last_id, chain, on_demand}` |
 | `audit.purge` | `audit:<segment>` | `{segment, year, entries, chain, years}` (`retention.audit_sealed_years`) |
 
-User `system` (or the Unix user of the CLI as `local:<name>`), node the
-rotating node, result `ok`. A 0.3.x node stores and replicates them like any
-unknown action.
+User `system` (or `local:<unix user>` from the CLI), node the rotating node,
+result `ok`. A 0.3.x node stores and replicates them like any unknown action.
 
 Reads over the union. `read`, `query`, `get`, `get_many`, `ids`,
 `sorted_ids`, `head`, `export_lines` and `merge` see the segments and the
 live file as one log:
 
-- The in-memory index covers every file. A segment's part is built once per
-  process the first time it is needed and never refreshed (a segment does
-  not change); index items point to a file by inode, so the rotation (a
-  rename) leaves every item valid and the next refresh only adds the new
-  live file. The audit directory is listed again only when its mtime
-  changes. Memory is what one file of the same size costs before 0.4.0.
-- An id present in two files (a crash during a restore, a hand copy) counts
-  once; the first file in order wins.
-- `export_lines(since, until)` streams the segments in name order
-  (`audit-2025.jsonl`, `audit-2026.jsonl`, `audit-2026-2.jsonl`), then the live
-  file, each in file order, filtered by `ts`; a segment whose seal range
-  is outside `[since, until]` is skipped without being read. The export of
-  a time range is byte for byte what it was before the rotation, since the
-  segment is the old live file unchanged.
+- The in-memory index covers every file; items point to a file by inode and
+  `_load_at` groups offsets by file. A segment's part is built once per
+  process the first time it is needed and never refreshed. When a reader
+  sees the live path's inode change, it finds the segment with the old
+  inode, reads that file's end from its own offset (entries written after
+  its last refresh and before the rotation), closes that part, then indexes
+  the new live file from byte 0: nothing is rebuilt. When no segment has
+  the old inode (a restore, a hand edit) it rebuilds the whole index, as
+  before. The audit directory is listed again only when its mtime changes.
+  Memory is about 250 bytes per entry per process (web and collector each),
+  the same as one file of that size before 0.4.0; the seal carries
+  `entries`, `first_id` and `last_id` so a persisted per-segment index can
+  be validated later (not in 0.4.0).
+- An id present in two files (a downgrade then an upgrade: the id exchange
+  brought back into the live file what segments hold) counts once: the
+  first file in order wins for `get`, `head`, `ids` and `query`, and the
+  export skips its other occurrences (the index keeps the small set of ids
+  seen in more than one file).
+- `export_lines(since, until)` streams the files in order, each in file
+  order, filtered by `ts`; a sealed segment whose `[first_ts, last_ts]` is
+  outside `[since, until]` is skipped without being read. Each line is
+  re-serialised from the entry (`json.dumps` of `to_dict`), and the rotation
+  keeps the order: the export of a time range is byte for byte what it was
+  before the rotation.
 - `query(plan_id=...)` (F0-PLANS) and `query(action=..., since=...)` (the
   `replication_conflict` check, notifications) work across the segments.
 
 Writes. `append` and `merge` always write the live file, whatever the `ts`
 of the entry: an entry of a year already rotated (a peer back from a long
-partition) lands in the live file and goes to the next segment. No file
-but the live one is ever written outside a rotation, so the plan's
+partition) lands in the live file and goes to the next segment. No file but
+the live one is ever written outside a rotation, so the plan's
 `audit-<year>.late.jsonl` is not needed.
 
 Following the log (`scan`). A follower keeps `(offset, inode)` of the live
-file. When the live file's inode is not `inode` any more, `scan` looks for a
-segment with that inode, returns its lines after `offset`, then the new live
-file from byte 0: across a rotation every entry is returned once, no entry is
-missed and none is returned twice. When no file has that inode (a restore,
-a purge, a hand edit) it reads the live file from byte 0 as before (entries
-may be returned again: followers stay idempotent). Merged entries are
-appended to the live file, so a follower sees them too, rotated year or not.
+file. When the live file's inode is not `inode` any more, `scan` looks for
+the segment with that inode, returns its lines after `offset`, then every
+later segment in order, then the new live file from byte 0: across one or
+several rotations every entry is returned once. When no file has that inode
+(a restore, a purge, a hand edit) it reads the live file from byte 0 as
+before (entries may be returned again: followers stay idempotent). When the
+live file is missing (`FileNotFoundError`) it returns `([], offset, inode)`,
+cursor unchanged. Merged entries are appended to the live file, so a
+follower sees them too, rotated year or not.
 
 `tail(since, needle)`: the entries with `ts >= since` across every file
-(segments skipped by their seal range), then the `(offset, inode)` of the
-live file at the moment of the read, to hand to `scan`. Every follower that
-rebuilds state at start uses `tail` and then `scan` (B1-SESSIONS
-`Revocations`: the entries of the last `auth.session_ttl_seconds`, which
-can sit in the segment of the year before on the 1st of January); a
-follower that starts with `scan(0, None)` sees only the live file.
+(sealed segments skipped by their seal range), in file order, deduplicated,
+and the `(offset, inode)` of the live file as the index read it to serve
+that call (after its refresh): handed to `scan`, nothing is lost and
+nothing is returned twice. Every follower that rebuilds state at start uses
+`tail` then `scan`; a follower that starts with `scan(0, None)` sees only the
+live file. Followers in 0.4.0:
+
+| Follower | Rebuild | Follow |
+| --- | --- | --- |
+| `collector.notify.Ledger` (`notify.sent`, `notify.failed`) | `tail(now - LEDGER_DAYS, AUDIT_NEEDLE)` | `scan` |
+| `Collector.apply_acks` without a stored cursor (`--rebuild`, first start) | `tail(oldest first_seen of the open alerts, else now, ACK_NEEDLE)` | `scan`, cursor in `series.sqlite` |
+| B1-SESSIONS `Revocations` | `tail(now - auth.session_ttl_seconds, needle)` | `scan` |
 
 `AuditLog.segments()` and `GET /audit/segments` describe each segment:
 
@@ -2471,36 +2522,56 @@ follower that starts with `scan(0, None)` sees only the live file.
 class Segment:
     name: str                 # "audit-2026.jsonl"
     year: int
+    n: int                    # 1 for the name without suffix
     bytes: int
     sealed: bool              # a seal file exists (not verified: verify does that)
     seal: dict | None         # the seal's content
 ```
 
 Retention. `retention.audit_sealed_years` (integer, default 0 = keep every
-segment): when N > 0, the rotation task deletes each segment and its seal
-whose year is lower than `<UTC year of now> - N`, after an `audit.purge`
-entry; `merge` then drops incoming entries with `ts` before 1 January of
-that year, so a peer cannot bring them back through replication. The live
-file is never purged. Purge needs every node on 0.4.0 or later: a 0.3.x
-peer still holds the entries and the id exchange of `_sync_audit` runs at
-every pass while counts differ (documented in `configuration.md`).
+segment). When N > 0, the task step (e) purges each segment and its seal
+whose year is lower than `<UTC year of now> - N`, one `audit.purge` entry
+before each, then writes the horizon (1 January of `<UTC year of now> - N`)
+to `purged-before`; N = 0 removes `purged-before`. Rules:
+
+- The purge waits until every peer of `cluster.toml` announced 0.4.0 or
+  later at its last successful status (`PeerStatus.version`; a peer never
+  seen since the upgrade blocks it), and logs once why it waits.
+- `merge` drops entries whose `ts` is before the horizon, so replication or
+  an archive restore cannot bring them back (a restore reports them
+  dropped).
+- `_exchange_audit_ids` (section 13) drops from both directions the ids whose
+  ULID time (first 48 bits) is before the horizon, before any fetch or push;
+  when nothing is left to move it remembers the peer's `(audit_count,
+  audit_head)` and does not exchange again until they change. Without this,
+  differing counts would move the full id list and the purged entries at
+  every pass.
+- The purge removes what the segments named under the horizon hold: an old
+  entry merged late lives in a newer segment until that one is purged. The
+  live file is never purged.
 
 Disk alert. `checks.audit_max_mb` (`audit_growth`) watches the live file
-only; the segments are listed in `GET /audit/segments` with their size.
+only, and its `details.segments_bytes` gives the segments' total; the
+volume is covered by `disk_space`, the segments are listed in
+`GET /audit/segments`.
+
+Verification in the web process (one gevent worker): the segment is read by
+1 MiB blocks with `gevent.sleep(0)` between them, and one verification runs
+at a time per process (the next waits).
 
 Replication. The protocol does not change: `GET /audit`, `/audit/ids`,
 `POST /audit/fetch` and `head()` work over the union, so a node that rotated
-and one that did not exchange the same entries and reach the same count
-and head. A 0.3.x node reads `audit.jsonl` (same name, same format) and
-never sees the segments of a 0.4.0 peer, only its entries through the
-protocol. A node downgraded to 0.3.x after a rotation sees only its live
-file; the id exchange pulls the rest back from its peers into that file
-(the segments stay on disk, untouched). Archives (section 23) take the whole
-audit directory, so segments and seals; a restore merges the entries of
-every `audit*.jsonl` file of the archive into the live file.
+and one that did not exchange the same entries and reach the same count and
+head. A 0.3.x node reads `audit.jsonl` (same name, same format) and never
+sees the segments of a 0.4.0 peer, only its entries through the protocol. A
+node downgraded to 0.3.x after a rotation sees only its live file; the id
+exchange pulls the rest back from its peers into that file (the segments
+stay on disk, untouched). Archives (section 23) take the whole audit
+directory, so segments and seals; a restore merges the entries of every
+`audit*.jsonl` file of the archive into the live file, and the archive's
+seals are not restored (they describe the other node's files).
 
-CLI (`pelagos audit` is the security audit, section 17, so the log has its own
-command):
+CLI (`pelagos audit` is the security audit, so the log has its own command):
 
 ```
 pelagos audit-log segments             # one line per file: name, year, bytes, entries, sealed
@@ -2508,9 +2579,9 @@ pelagos audit-log rotate               # on-demand rotation (named after the cur
 pelagos audit-log verify [SEGMENT]     # every segment, or one; exit 1 on any failure
 ```
 
-They run as root or `pelagos`, take the audit lock like the processes, and
-print the reason of a failed seal. A rotation from the CLI writes its
-`audit.rotate` entry with `on_demand: true`.
+They run as root or `pelagos`, take the audit lock like the processes, keep
+the files' owner and mode, and print the reason of a failed seal. A rotation
+from the CLI writes its `audit.rotate` entry with `on_demand: true`.
 
 ## 12. Secrets at rest
 
@@ -2552,7 +2623,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml","bases"?}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
 | `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
 | `POST /repl/v1/audit` | `{"entries":[...]}` | `{"added": n}` | merge by id |
-| `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ |
+| `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ; the caller drops the ids under its purge horizon before fetching or pushing, and skips the exchange while the peer's `(audit_count, audit_head)` is the one of the last exchange that left nothing to move (0.4.0, section 11 Retention) |
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
@@ -3143,10 +3214,12 @@ aggregated into `series_pool_hourly` and deleted; hourly rows older than
 `lease_history_days` (90) are deleted, 10000 rows per statement and at most
 2 s per run (the rest at the next run); the audit log is never purged by default (sealed segments: section 11, `retention.audit_sealed_years`).
 The collector task `audit_rotation` (hourly and at start, a `Task` of its own,
-never on the `live` pass) seals a segment left unsealed by a crash, rotates
-the live audit file once its oldest entry is from an earlier UTC year, and purges segments
-when `audit_sealed_years` is above 0 (section 11). It streams the segment to
-compute the seal outside the audit lock.
+never on the `live` pass) is idempotent and runs in order: end an
+interrupted step 1, seal an unsealed segment, anchor a sealed one without
+its `audit.rotate` entry, rotate the live audit file when due (by its
+opening date), then purge when `audit_sealed_years` is above 0 and every
+peer runs 0.4.0 (section 11). It streams the segment to compute the seal
+outside the audit lock.
 `pelagos collector --rebuild` drops and recreates the cache: everything in
 it is derived, except `lease_events`, which nothing can rebuild (it is lost
 with the cache and is not part of the archives).
@@ -4188,7 +4261,7 @@ picks raw or hourly data accordingly.
 | `GET /audit/{id}` | `read:audit` | `AuditEntry` |
 | `GET /audit/export?from=&to=` | `read:audit` | `application/x-ndjson` stream, segments then live file (section 11) |
 | `GET /audit/segments` | `read:audit` | `{"segments": [{name, year, bytes, sealed, seal}], "live": {name, bytes, entries, first_ts}, "retention_years": int}` (0.4.0) |
-| `POST /audit/segments/{name}/verify` | `read:audit` | `{name, ok, reason, lines, entries, checked_at}`; `reason` `null`, `missing_seal`, `seal_damaged`, `length`, `chain` or `anchor`; `404 not_found` for an unknown name; not audited (a read) (0.4.0) |
+| `POST /audit/segments/{name}/verify` | `read:audit` | `{name, ok, reason, note, lines, entries, peers_checked, checked_at}`; `reason` `null`, `missing_seal`, `seal_damaged`, `length`, `chain`, `anchor` or `missing_segment`; the anchor is compared with each reachable peer's copy; one verification at a time per process; `404 not_found` for an unknown name; not audited (a read) (0.4.0) |
 
 ### Advanced configuration
 
@@ -5291,7 +5364,9 @@ command line, B6 API and screen, B7 lab.
   `admin:notifications`), `rpz` (the RPZ screen entries, `write:dns.config`), change
   `cluster:<section>` with before and after `{"value","sealed"}`, refused when the section changed
   since the plan; `pelagos.audit` (`audit/merge`): the archived entries this node lacks, merged by
-  id; its rollback keeps them. Whole files in changes are masked like diffs in the API and left
+  id (from every `audit*.jsonl` of the archive: live file and sealed segments, section 11); its
+  rollback keeps them. The archive's seals are not restored and do not make an archive
+  verifiable; entries under the purge horizon (`purged-before`) are dropped and counted. Whole files in changes are masked like diffs in the API and left
   out of the audit summary (`text_bytes`). Restoring onto another node (mode 2): `warnings` and
   `restore` validations name the parts that still carry the old node's name or address (from the
   archive's `cluster.toml`) until `substitute` maps them.

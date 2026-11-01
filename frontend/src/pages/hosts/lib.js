@@ -38,3 +38,18 @@ export function hostFacts(host) {
     inconsistent: (host.alerts || []).length > 0,
   }
 }
+
+// Chips of the "Found in" column: one per part the host has. A forward or PTR record that a
+// named, addressed host lacks is listed as an expected absence (drawn struck through).
+export function presenceChips(host) {
+  const f = hostFacts(host)
+  const expected = Boolean(host.hostname) && (f.hasLease || f.hasReservation)
+  const chips = []
+  if (f.hasLease) chips.push({ key: 'lease', variant: 'purple' })
+  if (f.hasReservation) chips.push({ key: 'reservation', variant: 'purple' })
+  if (f.hasForward) chips.push({ key: 'forward', variant: 'primary', label: f.forwardTypes.join('/') })
+  else if (expected) chips.push({ key: 'forward', absent: true, label: 'A' })
+  if (f.hasPtr) chips.push({ key: 'ptr', variant: 'teal', label: 'PTR' })
+  else if (expected) chips.push({ key: 'ptr', absent: true, label: 'PTR' })
+  return chips
+}

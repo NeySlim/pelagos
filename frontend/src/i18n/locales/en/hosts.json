@@ -30,7 +30,14 @@
     "noName": "no name",
     "reservation": "reservation",
     "search": "Name, IP or MAC...",
-    "total": "Hosts: {{n}}"
+    "total": "Hosts: {{n}}",
+    "expectedMissing": "Expected but missing: {{what}}",
+    "chip": {
+      "lease": "Lease",
+      "reservation": "Reservation",
+      "forward": "Forward record",
+      "ptr": "Reverse record"
+    }
   },
   "card": {
     "alerts": "Inconsistencies",
@@ -68,7 +75,8 @@
     "subnetAuto": "Automatic: {{subnet}}",
     "subnetPick": "Pick a subnet",
     "title": "New host",
-    "withReservation": "Also create a DHCP reservation"
+    "withReservation": "Also create a DHCP reservation",
+    "subtitle": "A/PTR record + reservation"
   },
   "tabs": {
     "hosts": "Hosts",

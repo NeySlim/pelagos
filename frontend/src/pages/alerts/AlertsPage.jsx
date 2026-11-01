@@ -13,6 +13,7 @@ import { useMessage } from '../../i18n/message'
 import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut, EyeSlash, SpeakerSlash, PaperPlaneTilt } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, Modal, JsonTree } from '../../components'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { useApi, usePaginatedApi, useWsTopic } from '../../hooks'
 import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
@@ -202,7 +203,7 @@ function AlertPressure({ alert }) {
   )
 }
 
-function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
+function AlertDetail({ alert, nodeName, canAck, onAck, ignoring, onIgnore, onIgnoreDone, onClose }) {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
   const msg = useMessage()
   const navigate = useNavigate()
@@ -246,12 +247,22 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
               <p className="text-xs text-text-tertiary">{t('detail.noDetails')}</p>
             )}
           </div>
+          {!canAck && alert.state !== 'resolved' && <ReadOnlyNote permission="write:alerts" />}
+          {ignoring ? (
+            <IgnoreDialog
+              inline
+              open
+              items={exceptionItems(alert, msg(alert.title_message, alert.title))}
+              onClose={() => onIgnore(null)}
+              onDone={onIgnoreDone}
+            />
+          ) : (
           <div className="flex flex-wrap justify-end gap-2">
             <FileAdoptActions alert={alert} />
             {link && (
               <Button variant="secondary" size="sm" onClick={() => navigate(link.to)} data-testid="alert-open-subject">
                 <ArrowSquareOut size={14} />
-                {link.label ? t(`actions.${link.label}`) : alert.subject}
+                {link.label ? t(`actions.${link.label}`, link.params) : alert.subject}
               </Button>
             )}
             {canAck && alert.state !== 'resolved' && exceptionItems(alert).length > 0 && (
@@ -267,6 +278,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
               </Button>
             )}
           </div>
+          )}
         </div>
       )}
     </Modal>
@@ -328,6 +340,7 @@ export default function AlertsPage() {
     }
   }, [linkedId, linkedInList, list.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const closeDetail = () => {
+    setIgnoring(null)
     setSelectedId(null)
     setLinked(null)
     if (params.has('alert')) {
@@ -403,13 +416,13 @@ export default function AlertsPage() {
       label: t('columns.title'),
       render: (a) => (
         <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[24rem]" title={msg(a.title_message, a.title)}>
-          <span className="truncate text-text-primary">{msg(a.title_message, a.title)}</span>
+          <span className="line-clamp-2 text-text-primary">{msg(a.title_message, a.title)}</span>
           {INCONSISTENCY_KINDS.has(a.kind) && <Badge variant="purple" size="sm" className="shrink-0">{t('inconsistency')}</Badge>}
         </span>
       ),
     },
     { key: 'kind', label: t('columns.kind'), render: (a) => <span className="text-xs text-text-secondary">{t(`dashboard:kinds.${a.kind}`, { defaultValue: a.kind })}</span> },
-    { key: 'subject', label: t('columns.subject'), mono: true, truncate: true },
+    { key: 'subject', label: t('columns.subject'), render: (a) => <span className="block min-w-[14rem] break-all font-mono text-xs" title={a.subject}>{a.subject}</span> },
     { key: 'node_id', label: t('columns.node'), render: (a) => <AlertOrigin alert={a} nodeName={nodeName} /> },
     { key: 'last_seen', label: t('columns.lastSeen'), render: (a) => <span className="whitespace-nowrap text-xs">{formatDate(a.last_seen)}</span> },
     { key: 'state', label: t('columns.state'), render: (a) => <StatusBadge status={a.state} dot={false} /> },
@@ -485,6 +498,19 @@ export default function AlertsPage() {
           selectedKey={selectedId || undefined}
           filters={selectFilters}
           search={{ value: filters.q, onChange: (v) => setFilter('q', v.trim()), placeholder: t('filters.search') }}
+          mobileCard={{
+            title: (a) => <span className="block whitespace-normal break-words line-clamp-2" title={msg(a.title_message, a.title)}>{msg(a.title_message, a.title)}</span>,
+            subtitle: (a) => <span className="font-mono break-all">{a.subject}</span>,
+            status: (a) => <StatusBadge status={a.severity} />,
+            fields: ['kind', 'last_seen'],
+            primaryAction: (a) =>
+              canWrite && a.state === 'open' ? (
+                <Button variant="secondary" size="xs" onClick={() => ack(a)} data-testid="alert-row-ack">
+                  <CheckCircle size={14} />
+                  {t('actions.ack')}
+                </Button>
+              ) : null,
+          }}
           rowClassName={(a) => (a.severity === 'critical' && a.state === 'open' ? 'border-l-2 border-l-accent-danger' : undefined)}
           emptyTitle={filters.state === 'open' ? t('emptyOpen') : t('empty')}
           emptyDescription={t('emptyHelp')}
@@ -493,16 +519,19 @@ export default function AlertsPage() {
           testId="alerts-table"
         />
       </div>
-      <AlertDetail alert={selected} nodeName={nodeName} canAck={canWrite} onAck={ack} onIgnore={(a) => setIgnoring(a)} onClose={closeDetail} />
-      <IgnoreDialog
-        open={Boolean(ignoring)}
-        items={ignoring ? exceptionItems(ignoring, msg(ignoring.title_message, ignoring.title)) : []}
-        onClose={() => setIgnoring(null)}
-        onDone={() => {
+      <AlertDetail
+        alert={selected}
+        nodeName={nodeName}
+        canAck={canWrite}
+        onAck={ack}
+        ignoring={Boolean(ignoring) && ignoring === selected?.id}
+        onIgnore={(a) => setIgnoring(a ? a.id : null)}
+        onIgnoreDone={() => {
           showSuccess(t('ignore.done'))
           closeDetail()
           reload()
         }}
+        onClose={closeDetail}
       />
     </PageLayout>
   )

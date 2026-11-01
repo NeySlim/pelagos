@@ -64,9 +64,14 @@ export function subjectLink(alert, { canProposeFallback = true, canUpdateEngines
     const path = `/dns/zones/${zoneSegment(zone)}`
     return { to: view ? `${path}?view=${encodeURIComponent(view)}` : path, label: 'openZone' }
   }
-  if ((kind === 'kea4' || kind === 'kea6') && rest[0] === 'subnet') return { to: `/dhcp/${kind === 'kea6' ? 'v6' : 'v4'}/subnets`, label: null }
-  if ((kind === 'ha' || kind === 'ha-backup') && value) return { to: `/dhcp/${value === 'kea6' ? 'v6' : 'v4'}/ha`, label: null }
-  if (kind === 'peer' || kind === 'clock' || kind === 'ntp') return { to: '/nodes', label: null }
+  if ((kind === 'kea4' || kind === 'kea6') && rest[0] === 'subnet') {
+    return { to: `/dhcp/${kind === 'kea6' ? 'v6' : 'v4'}/subnets`, label: rest[1] ? 'openSubnet' : null, ...(rest[1] ? { params: { id: rest[1] } } : {}) }
+  }
+  if ((kind === 'ha' || kind === 'ha-backup') && value) {
+    const v6 = value === 'kea6'
+    return { to: `/dhcp/${v6 ? 'v6' : 'v4'}/ha`, label: 'openHa', params: { family: v6 ? 'DHCPv6' : 'DHCPv4' } }
+  }
+  if (kind === 'peer' || kind === 'clock' || kind === 'ntp') return { to: '/nodes', label: 'openNodes' }
   // DDNS failover: "ddns:<view>/<zone>" (outage), "ddns:stale:<view>/<zone>", "ddns:replay";
   // the D2 advice "d2:dns-servers" proposes the prepare plan there.
   if (kind === 'ddns') {
@@ -74,7 +79,7 @@ export function subjectLink(alert, { canProposeFallback = true, canUpdateEngines
     return { to: failoverPath(rest[0] === 'stale' ? rest.slice(1).join(':') : value), label: 'openFailover' }
   }
   if (subject === 'd2:dns-servers') return { to: failoverPath(), label: 'openFailover' }
-  if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: null }
+  if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: 'openDdns' }
   if (subject === 'kea:series') return { to: '/install/kea-migration', label: 'openKeaMigration' }
   // path_not_writable "path:<path>": the Permissions card of the security page, for the node.
   if (kind === 'path') return { to: `/install/security${alert?.node_id ? `?node=${encodeURIComponent(alert.node_id)}` : ''}`, label: 'openPermissions' }

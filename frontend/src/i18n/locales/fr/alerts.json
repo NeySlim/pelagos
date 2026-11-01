@@ -42,7 +42,7 @@
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
     "adoptOn": "Sur {{node}}, le nœud qui porte le fichier",
-    "ignore": "Ignorer : choix de l'admin",
+    "ignore": "Ignorer (exception)",
     "openCertificates": "Ouvrir les certificats",
     "openChannel": "Ouvrir le canal",
     "openFailover": "Ouvrir la reprise DDNS",
@@ -53,7 +53,11 @@
     "openResolver": "Ouvrir la santé du résolveur",
     "openIpv6": "Ouvrir les hôtes IPv6",
     "openOrphans": "Ouvrir les PTR périmés",
-    "openHosts": "Ouvrir les hôtes incohérents"
+    "openHosts": "Ouvrir les hôtes incohérents",
+    "openSubnet": "Ouvrir le sous-réseau {{id}}",
+    "openHa": "Ouvrir la HA {{family}}",
+    "openNodes": "Ouvrir les nœuds",
+    "openDdns": "Ouvrir le DDNS"
   },
   "ack": {
     "title": "Acquitter l'alerte",
@@ -86,7 +90,7 @@
   "emptyHelp": "Le collecteur lève des alertes sur les pools, les zones, la HA, le DDNS, les nœuds et les écarts DNS/DHCP.",
   "fresh": "Les alertes ont changé : recharger",
   "ignore": {
-    "title": "Ignorer : choix de l'admin",
+    "title": "Ignorer (exception)",
     "body_one": "Cet objet reste tel quel : le contrôle ne lève plus d'alerte pour lui tant que l'exception existe. Une alerte de contrôle de santé n'est ignorée que sur son propre nœud.",
     "body_other": "Ces {{count}} objets restent tels quels : le contrôle ne lève plus d'alerte pour eux tant que les exceptions existent. Une alerte de contrôle de santé n'est ignorée que sur son propre nœud.",
     "comment": "Pourquoi",

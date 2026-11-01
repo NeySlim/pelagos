@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { Desktop, Plus, Warning, BookmarkSimple, Clock, Globe } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { Button } from '../../components/Button'
 import { DataTable } from '../../components/DataTable'
 import { Modal } from '../../components/Modal'
@@ -23,9 +24,11 @@ import { AreaPage } from '../dhcp/ui'
 import { usePlanFlow } from '../dhcp/hooks'
 import { HostCard } from './HostCard'
 import { CreateHostModal } from './CreateHostModal'
-import { hostFacts } from './lib'
+import { presenceChips } from './lib'
 import { Ipv6Panel } from './Ipv6Panel'
 import { IPV6_TAB } from './ipv6'
+
+const ICONS = { lease: Clock, reservation: BookmarkSimple }
 
 function Chip({ active, onClick, children, testId }) {
   return (
@@ -95,21 +98,21 @@ export default function HostsPage() {
     {
       key: 'join',
       label: t('list.join'),
-      render: (h) => {
-        const f = hostFacts(h)
-        return (
-          <span className="inline-flex gap-1" data-testid="host-join">
-            <Badge variant={f.hasLease ? 'purple' : 'gray'} size="sm" icon={Clock} title={t('card.lease')}>
-              {t('list.lease')}
-            </Badge>
-            <Badge variant={f.hasReservation ? 'purple' : 'gray'} size="sm" icon={BookmarkSimple} title={t('card.reservation')}>
-              {t('list.reservation')}
-            </Badge>
-            <Badge variant={f.hasForward ? 'primary' : 'gray'} size="sm">{f.forwardTypes.join('/') || 'A'}</Badge>
-            <Badge variant={f.hasPtr ? 'teal' : 'gray'} size="sm">PTR</Badge>
-          </span>
-        )
-      },
+      render: (h) => (
+        <span className="inline-flex flex-wrap gap-1" data-testid="host-join">
+          {presenceChips(h).map((c) =>
+            c.absent ? (
+              <Badge key={c.key} variant="gray" size="sm" className="line-through opacity-70" title={t('list.expectedMissing', { what: c.label })} data-absent="true">
+                {c.label}
+              </Badge>
+            ) : (
+              <Badge key={c.key} variant={c.variant} size="sm" icon={ICONS[c.key]} title={t(`list.chip.${c.key}`)}>
+                {c.key === 'lease' || c.key === 'reservation' ? t(`list.${c.key}`) : c.label}
+              </Badge>
+            ),
+          )}
+        </span>
+      ),
     },
     {
       key: 'alerts',
@@ -165,6 +168,7 @@ export default function HostsPage() {
               <Warning size={12} />
               {t('list.inconsistent')}
             </Chip>
+            {!hasPermission('write:hosts') && <ReadOnlyNote permission="write:hosts" />}
             <span className="ml-auto text-xs text-text-tertiary" data-testid="host-total">
               {t('list.total', { n: hosts.total })}
             </span>
@@ -187,6 +191,17 @@ export default function HostsPage() {
               ...(zoneOptions.length ? [{ key: 'zone', label: t('fields.zone'), value: zone, onChange: setZone, options: zoneOptions, placeholder: t('list.allZones') }] : []),
             ]}
             onRowClick={open}
+            mobileCard={{
+              title: (h) => h.hostname || <span className="text-text-tertiary italic">{t('list.noName')}</span>,
+              subtitle: (h) => <span className="font-mono">{h.ips.join(', ') || '-'}</span>,
+              status: (h) =>
+                h.alerts.length ? (
+                  <Badge variant={h.alerts.some((a) => a.severity === 'critical') ? 'danger' : 'warning'} size="sm" icon={Warning} title={t('card.alerts')} data-testid="host-card-alerts">
+                    {h.alerts.length}
+                  </Badge>
+                ) : null,
+              fields: ['mac'],
+            }}
             rowClassName={(h) => (h.alerts.length ? 'border-l-2 border-l-accent-warning' : undefined)}
             pagination={{ page: hosts.page, perPage: hosts.perPage, total: hosts.total, onPageChange: hosts.setPage, onPerPageChange: hosts.setPerPage }}
             emptyTitle={onlyInconsistent ? t('list.emptyInconsistent') : t('list.empty')}

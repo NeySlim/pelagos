@@ -30,7 +30,14 @@
     "noName": "sans nom",
     "reservation": "réservation",
     "search": "Nom, IP ou MAC...",
-    "total": "Hôtes : {{n}}"
+    "total": "Hôtes : {{n}}",
+    "expectedMissing": "Attendu mais absent : {{what}}",
+    "chip": {
+      "lease": "Bail",
+      "reservation": "Réservation",
+      "forward": "Enregistrement direct",
+      "ptr": "Enregistrement inverse"
+    }
   },
   "card": {
     "alerts": "Incohérences",
@@ -68,7 +75,8 @@
     "subnetAuto": "Automatique : {{subnet}}",
     "subnetPick": "Choisir un sous-réseau",
     "title": "Nouvel hôte",
-    "withReservation": "Créer aussi une réservation DHCP"
+    "withReservation": "Créer aussi une réservation DHCP",
+    "subtitle": "enregistrement A/PTR + réservation"
   },
   "tabs": {
     "hosts": "Hôtes",

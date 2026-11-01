@@ -94,6 +94,7 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
       loading={flow.building}
       testId="host-form"
     >
+      <p className="text-xs text-text-tertiary" data-testid="host-form-subtitle">{t('create.subtitle')}</p>
       {hasViews && (
         <div className="grid gap-3 sm:grid-cols-2">
           <NativeSelect label={t('fields.view')} value={form.view} onChange={setView} options={views.map((v) => ({ value: v, label: v }))} testId="host-view" />

@@ -3,14 +3,16 @@
 // (POST /alerts/exceptions per key), with the mandatory comment kept in cluster.toml and the audit.
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from '../../components/Button'
 import { FormModal } from '../../components/FormModal'
 import { Textarea } from '../../components/Textarea'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 
 // items: [{ kind, key, summary? }]
-export function IgnoreDialog({ open, items = [], onClose, onDone, addFn = (body) => api.alerts.addException(body) }) {
-  const { t } = useTranslation('alerts')
+// `inline` draws the form in place (inside the alert detail) instead of over it in a second modal.
+export function IgnoreDialog({ open, items = [], onClose, onDone, inline = false, addFn = (body) => api.alerts.addException(body) }) {
+  const { t } = useTranslation(['alerts', 'common'])
   const [comment, setComment] = useState('')
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -44,8 +46,8 @@ export function IgnoreDialog({ open, items = [], onClose, onDone, addFn = (body)
     }
   }
 
-  return (
-    <FormModal open={open} onClose={onClose} title={t('ignore.title')} onSubmit={submit} loading={busy} submitLabel={t('ignore.submit')} testId="ignore-dialog">
+  const fields = (
+    <>
       <p className="text-sm text-text-secondary">{t('ignore.body', { count: items.length })}</p>
       <ul className="text-xs font-mono text-text-primary max-h-32 overflow-auto space-y-0.5" data-testid="ignore-keys">
         {items.map((item) => (
@@ -70,6 +72,37 @@ export function IgnoreDialog({ open, items = [], onClose, onDone, addFn = (body)
           {error}
         </p>
       )}
+    </>
+  )
+
+  if (inline) {
+    if (!open) return null
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+        className="space-y-3 rounded-lg border border-border p-3"
+        data-testid="ignore-dialog"
+      >
+        <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary">{t('ignore.title')}</h4>
+        {fields}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={onClose} disabled={busy}>
+            {t('common:actions.cancel')}
+          </Button>
+          <Button type="submit" size="sm" loading={busy} disabled={busy}>
+            {t('ignore.submit')}
+          </Button>
+        </div>
+      </form>
+    )
+  }
+
+  return (
+    <FormModal open={open} onClose={onClose} title={t('ignore.title')} onSubmit={submit} loading={busy} submitLabel={t('ignore.submit')} testId="ignore-dialog">
+      {fields}
     </FormModal>
   )
 }

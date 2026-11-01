@@ -10,6 +10,7 @@ import {
   Desktop, Clock, BookmarkSimple, Globe, GlobeHemisphereWest, Warning, Trash, Plus, ArrowSquareOut, Copy, Check, PencilSimple,
 } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { Button } from '../../components/Button'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { StatusBadge } from '../../components/StatusBadge'
@@ -26,6 +27,9 @@ import { absName, reservationTarget, zoneOf } from '../dhcp/lib'
 import { hostFacts, reservedIps } from './lib'
 import { HostIpv6Section } from './HostIpv6Section'
 import { zoneSegment } from '../../lib/zonePath'
+
+// What the card's actions need: with none of them the card is read only, said once at the top.
+const CARD_WRITES = ['write:hosts', 'write:dhcp.reservations', 'ops:dhcp.leases']
 
 function Section({ icon: Icon, title, badge, actions, children, testId }) {
   return (
@@ -146,6 +150,7 @@ export function HostCard({ hostKey, onChanged }) {
           </Badge>
         )}
       </div>
+      {!CARD_WRITES.some((p) => hasPermission(p)) && <ReadOnlyNote permission={CARD_WRITES} />}
       <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs">
         <Field label={t('hosts:fields.key')}>{h.key}</Field>
         <Field label={t('dhcp:fields.mac')}>

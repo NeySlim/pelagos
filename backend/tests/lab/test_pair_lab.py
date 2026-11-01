@@ -18,9 +18,12 @@ from __future__ import annotations
 import json
 import re
 import time
+from pathlib import Path
 
 import pytest
 
+from pelagos.collector import kea_shared
+from pelagos.core.keadoc import KeaDocument
 from pelagos.installer import keaconf
 from tests.lab.labkit import (
     CLIENT,
@@ -138,6 +141,30 @@ def hand_edit_kea(host: str, old: int, new: int) -> None:
     ssh(host, f"sudo tee {KEA4_CONF} >/dev/null", data=edited.encode())
 
 
+# B1-KEACOMMENTS: comments added before the import; ns1 takes the include tree, ns2 keeps one file.
+KEA4_HEADER = "// lab pair: DHCPv4 written by hand"
+KEA4_SUBNET_NOTE = "// the lab client subnet"
+
+
+def comment_kea(host: str) -> None:
+    text = sudo_cat(host, KEA4_CONF)
+    if text.startswith(KEA4_HEADER):
+        return
+    edited = re.sub(r'("subnet4"\s*:\s*\[)', rf"\1\n      {KEA4_SUBNET_NOTE}", text, count=1)
+    assert edited != text, "no subnet4 list in the Kea file"
+    ssh(host, f"sudo tee {KEA4_CONF} >/dev/null", data=f"{KEA4_HEADER}\n{edited}".encode())
+    kea_command(host, "config-reload")
+
+
+def kea4_tree(host: str) -> KeaDocument:
+    """The Kea file of `host` with its includes, read over ssh."""
+    return KeaDocument(Path(KEA4_CONF), reader=lambda p: sudo_cat(host, str(p)))
+
+
+def kea4_file(host: str) -> dict:
+    return kea4_tree(host).value
+
+
 def file_diverged(address: str) -> bool:
     me = node_id(address)
     items = api(address).get("/dhcp/v4/config/file")["items"]
@@ -228,12 +255,23 @@ class TestReferencePair:
 
     def test_04_import_both_configurations(self):
         for address in (A1, A2):
-            plan = api(address).post("/install/import/plan", {"engines": ["bind", "kea4", "d2"]})
+            comment_kea(address)
+            body: dict = {"engines": ["bind", "kea4", "d2"]}
+            if address == A2:
+                body["kea_include_tree"] = False
+            plan = api(address).post("/install/import/plan", body)
             assert plan["scope"] == "import" and not plan.get("error"), plan
+            tree = [c for c in plan["changes"] if c["target"] == "import/kea4/include-tree"]
+            assert len(tree) == (1 if address == A1 else 0), plan["changes"]
             job = api(address).apply(plan)
             verify = next(s for s in job["steps"] if s["name"] == "import/verify")["output"]
             assert "bind.unchanged=ok" in verify and "kea4.unchanged=ok" in verify, verify
             assert "d2.unchanged=ok" in verify
+        # ns1 runs from the include tree, comments in place; ns2 still has one file.
+        doc = kea4_tree(A1)
+        assert doc.has_includes and sudo_cat(A1, KEA4_CONF).startswith(KEA4_HEADER)
+        assert KEA4_SUBNET_NOTE[3:] in [c.text for c in doc.comments]
+        assert not kea4_tree(A2).has_includes
         full = {"bind": True, "kea4": True, "kea6": False, "d2": True}
 
         def modules_everywhere() -> bool:
@@ -351,12 +389,23 @@ class TestReferencePair:
         assert sorted(plan["target_node_ids"]) == sorted([node_id(A1), node_id(A2)])
         result = api(A1).apply(plan)
         assert result["state"] == "applied", result
-        # Both Kea of the HA pair carry the reservation (config-set and config-write on Kea 2.6).
+        # Both Kea of the HA pair carry the reservation: config-set, then the tree patched on ns1,
+        # config-write on ns2 after its comments went into user-context.
         for address in (A1, A2):
             res = api(address).get("/dhcp/v4/reservations?subnet_id=1")["items"]
             assert any(r["identifier"] == mac and r["ip_address"] == "10.99.1.50" for r in res), address
-            conf = sudo_cat(address, "/etc/kea/kea-dhcp4.conf")
-            assert "10.99.1.50" in conf
+            subnets = kea4_file(address)["Dhcp4"]["subnet4"]
+            filed = [r.get("ip-address") for s in subnets for r in s.get("reservations", [])]
+            assert "10.99.1.50" in filed, address
+        doc = kea4_tree(A1)
+        assert doc.has_includes and KEA4_SUBNET_NOTE[3:] in [c.text for c in doc.comments]
+        running2 = kea_command(A2, "config-get")["arguments"]["Dhcp4"]
+        assert running2["user-context"]["pelagos"]["comment"] == KEA4_HEADER[3:]
+        assert running2["subnet4"][0]["user-context"]["pelagos"]["comment"] == KEA4_SUBNET_NOTE[3:]
+        assert '"comment"' in sudo_cat(A2, KEA4_CONF)
+        # What the partners hand out is the same; comments live outside the shared view.
+        running1 = kea_command(A1, "config-get")["arguments"]["Dhcp4"]
+        assert kea_shared.shared_view(running1) == kea_shared.shared_view(running2)
         renew_client()
         wait_for("lab-client gets its reserved address", lambda: client_address() == "10.99.1.50", timeout=90)
 
@@ -511,7 +560,7 @@ class TestReferencePair:
         assert api(A1).apply(plan)["state"] == "applied"
         text = sudo_cat(A1, KEA4_CONF)
         assert text.startswith(HAND_COMMENT), text[:200]
-        assert keaconf.loads(text)["Dhcp4"][PROBATION] == old
+        assert kea4_file(A1)["Dhcp4"][PROBATION] == old
         assert not file_diverged(A1)
         wait_for("the file alert resolved", lambda: not file_alerts(A1), timeout=120, interval=5)
 
@@ -527,7 +576,7 @@ class TestReferencePair:
         assert api(A1).apply(plan)["state"] == "applied"
         for host in (A1, A2):
             assert kea_command(host, "config-get")["arguments"]["Dhcp4"][PROBATION] == old
-            assert keaconf.loads(sudo_cat(host, KEA4_CONF))["Dhcp4"][PROBATION] == old
+            assert kea4_file(host)["Dhcp4"][PROBATION] == old
         wait_for(
             "no file alert left", lambda: not file_alerts(A1) and not file_alerts(A2), timeout=120, interval=5
         )

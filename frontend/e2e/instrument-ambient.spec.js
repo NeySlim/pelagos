@@ -96,7 +96,7 @@ test('ambient layers stay behind tile content at 1440x900', async ({ page }) => 
 
 test('ambient off removes every layer', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   const setAmbient = async (name) => {
     await page.getByTestId('pref-ambient').getByRole('combobox').click()
     await page.getByRole('option', { name }).click()
@@ -113,14 +113,14 @@ test('ambient off removes every layer', async ({ page }) => {
     }
   } finally {
     // The mock keeps preferences for the whole run: put the default back.
-    await page.goto('/account')
+    await page.goto('/account#preferences')
     await setAmbient('On')
   }
 })
 
 test('animations off: layers hold one still frame, no ping, no sweep, no loop', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   const setMotion = async (name, value) => {
     await page.getByTestId('pref-animations').getByRole('combobox').click()
     await page.getByRole('option', { name }).click()
@@ -137,7 +137,7 @@ test('animations off: layers hold one still frame, no ping, no sweep, no loop', 
     expect((await page.evaluate(() => window.__pelagosLoop())).active).toBe(0)
     await expect(page.locator('.fx-sweep.is-go, .fx-regs.is-ping')).toHaveCount(0)
   } finally {
-    await page.goto('/account')
+    await page.goto('/account#preferences')
     await setMotion('Full', 'full')
   }
 })

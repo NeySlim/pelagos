@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import AccountPage from './AccountPage'
 import { api } from '../../services/api'
 
@@ -8,16 +9,19 @@ const updateUser = vi.fn()
 const checkSession = vi.fn()
 const setThemeFamily = vi.fn()
 let user
-vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user, updateUser, checkSession, node: { peer: { name: 'ns1' } } }) }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user, updateUser, checkSession, node: { peer: { id: 'n1', name: 'ns1' } } }) }))
 vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ themeFamily: 'pelagic', setThemeFamily, mode: 'system', setMode: vi.fn(), themes: [{ id: 'pelagic', name: 'Pelagic', accent: '#2DD4BF' }, { id: 'sunset', name: 'Sunset', accent: '#F97316' }] }),
 }))
 vi.mock('../../contexts/NotificationContext', () => ({ useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
 vi.mock('../../stores/preferencesStore', () => ({ persistPreference: vi.fn() }))
 vi.mock('../../services/api', () => {
-  const api = { auth: { changePassword: vi.fn(), totpEnroll: vi.fn(), totpConfirm: vi.fn(), totpDisable: vi.fn(), keys: vi.fn(() => Promise.resolve({ items: [], available: false, reason: 'ip_address' })) } }
+  const api = { nodes: { list: vi.fn(() => Promise.resolve({ items: [{ peer: { id: 'n1', name: 'ns1' } }, { peer: { id: 'n2', name: 'ns2', web_url: 'https://ns2.example.lan:8443' } }] })) }, auth: { changePassword: vi.fn(), totpEnroll: vi.fn(), totpConfirm: vi.fn(), totpDisable: vi.fn(), keys: vi.fn(() => Promise.resolve({ items: [], available: false, reason: 'ip_address' })), tokens: vi.fn(() => Promise.resolve({ items: [], meta: {} })) } }
   return { api, default: api }
 })
+
+const renderPage = (hash = '') => render(<MemoryRouter initialEntries={[`/account${hash}`]}><AccountPage /></MemoryRouter>)
+const openTab = (name) => fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0 })
 
 describe('AccountPage', () => {
   beforeEach(() => {
@@ -28,7 +32,7 @@ describe('AccountPage', () => {
   it('enrolls an authenticator with a QR code and a confirmation code', async () => {
     api.auth.totpEnroll.mockResolvedValue({ secret: 'JBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/Pelagos:alice?secret=JBSWY3DPEHPK3PXP&issuer=Pelagos' })
     api.auth.totpConfirm.mockResolvedValue(null)
-    render(<AccountPage />)
+    renderPage('#securite')
     fireEvent.click(screen.getByTestId('totp-enroll'))
     expect(await screen.findByTestId('totp-secret')).toHaveTextContent('JBSWY3DPEHPK3PXP')
     const qr = await screen.findByTestId('totp-qr')
@@ -46,7 +50,7 @@ describe('AccountPage', () => {
   it('turns two-factor off with the password', async () => {
     user = { ...user, has_totp: true }
     api.auth.totpDisable.mockResolvedValue(null)
-    render(<AccountPage />)
+    renderPage('#securite')
     fireEvent.change(screen.getByTestId('totp-password'), { target: { value: 'secret' } })
     fireEvent.click(screen.getByTestId('totp-disable'))
     await waitFor(() => expect(api.auth.totpDisable).toHaveBeenCalledWith('secret'))
@@ -55,7 +59,7 @@ describe('AccountPage', () => {
 
   it('checks the password policy before changing the password', async () => {
     api.auth.changePassword.mockResolvedValue(null)
-    render(<AccountPage />)
+    renderPage('#securite')
     fireEvent.change(screen.getByTestId('password-current'), { target: { value: 'old' } })
     fireEvent.change(screen.getByTestId('password-new'), { target: { value: 'short' } })
     fireEvent.change(screen.getByTestId('password-confirm'), { target: { value: 'short' } })
@@ -68,8 +72,26 @@ describe('AccountPage', () => {
   })
 
   it('switches the theme family from the swatches', () => {
-    render(<AccountPage />)
+    renderPage('#preferences')
     fireEvent.click(screen.getByText('Sunset'))
     expect(setThemeFamily).toHaveBeenCalledWith('sunset')
+  })
+
+  it('opens on the profile and lists the other nodes', async () => {
+    renderPage()
+    expect(screen.getByTestId('profile-node')).toHaveTextContent('ns1')
+    const others = await screen.findByTestId('profile-other-nodes')
+    expect(others).toHaveTextContent('ns2')
+    expect(others).not.toHaveTextContent('ns1')
+    expect(screen.getByTestId('profile-other-node')).toHaveAttribute('href', 'https://ns2.example.lan:8443')
+    expect(screen.queryByTestId('account-password')).toBeNull()
+  })
+
+  it('moves from the token tab to the security tab when a second factor is missing', async () => {
+    user = { ...user, webauthn_count: 0 }
+    renderPage()
+    openTab('API tokens')
+    fireEvent.click(await screen.findByTestId('token-go-security'))
+    expect(await screen.findByTestId('account-totp')).toBeInTheDocument()
   })
 })

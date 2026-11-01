@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next'
 import { Code, Copy, Plus, Trash } from '@phosphor-icons/react'
 import { Badge, Button, ConfirmDialog, Input, Modal, Select } from '../../components'
 import { useApi } from '../../hooks'
+import { useAuth } from '../../contexts/AuthContext'
+import { ErrorNotice } from '../../components/ErrorNotice'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
@@ -73,8 +75,11 @@ function CreatedToken({ created, onClose }) {
   )
 }
 
-export function ApiTokensSection({ Section }) {
+export function ApiTokensSection({ Section, onGoSecurity }) {
   const { t } = useTranslation(['account', 'common'])
+  const { user } = useAuth()
+  // Creating a token needs a second factor: say so before showing a form that cannot work.
+  const hasFactor = Boolean(user?.has_totp || user?.webauthn_count > 0)
   const { showSuccess, showError } = useNotification()
   const tokensQ = useApi(() => api.auth.tokens(), [])
   const [form, setForm] = useState({ name: '', role: 'viewer', days: null, cidrs: '' })
@@ -152,23 +157,31 @@ export function ApiTokensSection({ Section }) {
           {items.map((item) => <TokenRow key={item.id} item={item} onRevoke={setRevoking} />)}
         </ul>
       )}
-      {!tokensQ.loading && items.length === 0 && <p className="text-xs text-text-tertiary" data-testid="token-empty">{t('tokens.none')}</p>}
+      {tokensQ.error && <ErrorNotice error={tokensQ.error} onRetry={tokensQ.refetch} />}
+      {!tokensQ.loading && !tokensQ.error && items.length === 0 && <p className="text-xs text-text-tertiary" data-testid="token-empty">{t('tokens.none')}</p>}
       {unavailable.length > 0 && <p className="text-xs status-warning-text" role="status">{t('tokens.unavailable', { nodes: unavailable.join(', ') })}</p>}
-      <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl" data-testid="token-add">
-        <Input label={t('tokens.name')} value={form.name} onChange={set('name')} placeholder={t('tokens.namePlaceholder')} maxLength={64} data-testid="token-name-input" />
-        <Select label={t('tokens.role')} options={ROLES.map((r) => ({ value: r, label: t(`tokens.roles.${r}`) }))} value={form.role} onChange={set('role')} />
-        <Input label={t('tokens.expiresDays')} type="number" min={1} max={maxDays} value={days} onChange={set('days')} data-testid="token-days-input" />
-        <Input label={t('tokens.cidrs')} value={form.cidrs} onChange={set('cidrs')} placeholder="192.0.2.0/24" helperText={t('tokens.cidrsHelp')} data-testid="token-cidrs-input" />
-        {needCode && (
-          <Input label={t('tokens.code')} value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} helperText={t('tokens.codeHelp')} data-testid="token-code-input" />
-        )}
-        <div className="md:col-span-2 flex items-center gap-2">
-          <Button type="submit" size="sm" loading={busy} data-testid="token-add-submit">
-            <Plus size={14} />
-            {needCode ? t('tokens.confirm') : t('tokens.create')}
-          </Button>
+      {hasFactor ? (
+        <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl" data-testid="token-add">
+          <Input label={t('tokens.name')} value={form.name} onChange={set('name')} placeholder={t('tokens.namePlaceholder')} maxLength={64} data-testid="token-name-input" />
+          <Select label={t('tokens.role')} options={ROLES.map((r) => ({ value: r, label: t(`tokens.roles.${r}`) }))} value={form.role} onChange={set('role')} />
+          <Input label={t('tokens.expiresDays')} type="number" min={1} max={maxDays} value={days} onChange={set('days')} data-testid="token-days-input" />
+          <Input label={t('tokens.cidrs')} value={form.cidrs} onChange={set('cidrs')} placeholder="192.0.2.0/24" helperText={t('tokens.cidrsHelp')} data-testid="token-cidrs-input" />
+          {needCode && (
+            <Input label={t('tokens.code')} value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} helperText={t('tokens.codeHelp')} data-testid="token-code-input" />
+          )}
+          <div className="md:col-span-2 flex items-center gap-2">
+            <Button type="submit" size="sm" loading={busy} data-testid="token-add-submit">
+              <Plus size={14} />
+              {needCode ? t('tokens.confirm') : t('tokens.create')}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="rounded-lg border status-warning-border status-warning-bg px-3 py-2 text-sm status-warning-text" role="status" data-testid="token-no-factor">
+          {t('tokens.needFactor')}{' '}
+          {onGoSecurity && <button type="button" className="underline font-medium" onClick={onGoSecurity} data-testid="token-go-security">{t('tokens.goSecurity')}</button>}
         </div>
-      </form>
+      )}
       {error && <p className="text-sm status-danger-text" role="alert" data-testid="token-error">{error}</p>}
       {created && <CreatedToken created={created} onClose={() => setCreated(null)} />}
       <ConfirmDialog

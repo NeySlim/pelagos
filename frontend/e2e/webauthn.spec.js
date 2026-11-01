@@ -46,7 +46,7 @@ test('registers a passkey, signs in with it twice, removes it', async ({ page, b
   await page.getByTestId('login-submit').click()
   await expect(page.getByTestId('sidebar')).toBeVisible()
 
-  await page.goto(local(baseURL, '/account'))
+  await page.goto(local(baseURL, '/account#securite'))
   const section = page.getByTestId('account-keys')
   await expect(section.getByTestId('key-empty')).toBeVisible()
   await section.getByTestId('key-name-input').fill('Laptop')
@@ -73,7 +73,7 @@ test('registers a passkey, signs in with it twice, removes it', async ({ page, b
   after = await cdp.send('WebAuthn.getCredentials', { authenticatorId })
   expect(after.credentials[0].signCount).toBeGreaterThan(credentials[0].signCount + 1)
 
-  await page.goto(local(baseURL, '/account'))
+  await page.goto(local(baseURL, '/account#securite'))
   await section.getByTestId('key-remove-open').click()
   await page.getByTestId('key-remove-password').fill(USER)
   await page.getByRole('button', { name: 'Remove', exact: true }).click()

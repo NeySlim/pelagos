@@ -11,7 +11,8 @@
     "roles": "Roles",
     "lastLogin": "Last sign-in",
     "node": "Signed in on",
-    "sessionNote": "Sessions belong to one node: switching node asks you to sign in again."
+    "sessionNote": "Sessions belong to one node: switching node asks you to sign in again.",
+    "otherNodes": "Other nodes:"
   },
   "password": {
     "title": "Password",
@@ -129,6 +130,14 @@
       "noFactor": "Register a security key or enable TOTP first: creating a token needs a second factor.",
       "cancelled": "The security key prompt was closed.",
       "code": "Enter the 6-digit code"
-    }
+    },
+    "needFactor": "Creating a token needs a second factor. Register a security key or enable TOTP first.",
+    "goSecurity": "Go to Security"
+  },
+  "tabs": {
+    "profile": "Profile",
+    "security": "Security",
+    "tokens": "API tokens",
+    "preferences": "Preferences"
   }
 }

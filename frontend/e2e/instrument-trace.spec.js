@@ -139,7 +139,7 @@ test('the latest leases land as DORA ticks and the hottest pool has its pressure
 
 test('motion off: the trace draws on data only and nothing loops', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await page.goto('/')
@@ -156,7 +156,7 @@ test('motion off: the trace draws on data only and nothing loops', async ({ page
     await page.mouse.move(box.x + box.width - 40, box.y + 30)
     await expect(page.getByTestId('cluster-trace-readout')).toHaveClass(/is-on/)
   } finally {
-    await page.goto('/account')
+    await page.goto('/account#preferences')
     await page.getByTestId('pref-animations').getByRole('combobox').click()
     await page.getByRole('option', { name: 'Full' }).click()
   }

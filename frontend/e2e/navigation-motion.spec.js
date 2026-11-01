@@ -143,7 +143,7 @@ test.describe('reduced motion from the system', () => {
 
 test('with animations off a navigation starts no transition', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await expect.poll(() => rootData(page, 'motion')).toBe('off')
@@ -155,7 +155,7 @@ test('with animations off a navigation starts no transition', async ({ page }) =
   await page.waitForTimeout(400)
   expect((await seen(page)).pseudo).toEqual([])
   expect(await rootData(page, 'vt')).toBeUndefined()
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Full' }).click()
   await expect.poll(() => rootData(page, 'motion')).toBe('full')

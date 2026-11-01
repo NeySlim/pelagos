@@ -3,9 +3,11 @@
 // manual secret, confirmation code) or removal, security keys and passkeys, and
 // preferences (theme family, mode, language, animations) saved to the server.
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { UserCircle, Key, ShieldCheck, Palette } from '@phosphor-icons/react'
-import { PageLayout, Card, Button, Badge, Input, Select } from '../../components'
+import { PageLayout, Card, Button, Badge, Input, Select, Tabs, NodeLink } from '../../components'
+import { useApi } from '../../hooks'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useMotion } from '../../contexts/MotionContext'
@@ -19,6 +21,8 @@ import { passwordProblem } from '../../lib/password'
 import { TotpQr } from './TotpQr'
 import { SecurityKeysSection } from './SecurityKeysSection'
 import { ApiTokensSection } from './ApiTokensSection'
+
+const TAB_OF_HASH = { profil: 'profile', jetons: 'tokens', tokens: 'tokens', preferences: 'preferences' }
 
 function Section({ icon: Icon, title, children, testId }) {
   return (
@@ -223,11 +227,56 @@ function PreferencesSection() {
   )
 }
 
+function ProfileSection({ user, node, others }) {
+  const { t } = useTranslation('account')
+  return (
+    <Section icon={UserCircle} title={t('profile.title')} testId="account-profile">
+      <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div>
+          <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.username')}</dt>
+          <dd className="font-medium text-text-primary">{user?.username}</dd>
+        </div>
+        <div>
+          <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.roles')}</dt>
+          <dd className="flex flex-wrap gap-1">{(user?.roles || []).map((r) => <Badge key={r} size="sm" variant="secondary">{r}</Badge>)}</dd>
+        </div>
+        <div>
+          <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.lastLogin')}</dt>
+          <dd className="text-text-primary">{formatDate(user?.last_login)}</dd>
+        </div>
+        <div>
+          <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.node')}</dt>
+          <dd className="text-text-primary" data-testid="profile-node">{node?.peer?.name || '-'}</dd>
+        </div>
+      </dl>
+      {others.length > 0 && (
+        <p className="text-xs text-text-secondary" data-testid="profile-other-nodes">
+          {t('profile.otherNodes')}{' '}
+          {others.map((p, i) => <span key={p.id}>{i > 0 && ', '}<NodeLink nodeId={p.id} name={p.name} testId="profile-other-node" /></span>)}
+        </p>
+      )}
+      <p className="text-xs text-text-tertiary">{t('profile.sessionNote')}</p>
+    </Section>
+  )
+}
+
 export default function AccountPage() {
   const { t } = useTranslation(['account', 'common'])
   const { user, node, restriction } = useAuth()
+  const location = useLocation()
+  const [forced, setForced] = useState(0)
+  const [chosen, setChosen] = useState(null)
+  const nodesQ = useApi(() => api.nodes.list().catch(() => ({ items: [] })), [])
+  const others = (nodesQ.data?.items || []).map((n) => n.peer).filter((p) => p?.id && p.id !== node?.peer?.id)
   const mustChange = Boolean(user?.must_change_password)
   const enroll = restriction === 'webauthn_enrollment' || restriction === 'totp_enrollment' ? restriction : null
+  // Enrollment lands on the security tab; the old #securite anchor still opens it.
+  const hash = location.hash.replace('#', '')
+  const initial = enroll || mustChange || hash === 'securite' || hash === 'security' ? 'security' : TAB_OF_HASH[hash] || 'profile'
+  const goSecurity = () => {
+    setChosen('security')
+    setForced((n) => n + 1)
+  }
 
   return (
     <PageLayout icon={UserCircle} title={t('pages.account.title')} subtitle={t('pages.account.subtitle')} testId="page-account-account">
@@ -242,32 +291,26 @@ export default function AccountPage() {
             {t(enroll === 'webauthn_enrollment' ? 'keys.mustEnroll' : 'totp.mustEnroll')}
           </div>
         )}
-        <Section icon={UserCircle} title={t('profile.title')} testId="account-profile">
-          <dl className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            <div>
-              <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.username')}</dt>
-              <dd className="font-medium text-text-primary">{user?.username}</dd>
-            </div>
-            <div>
-              <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.roles')}</dt>
-              <dd className="flex flex-wrap gap-1">{(user?.roles || []).map((r) => <Badge key={r} size="sm" variant="secondary">{r}</Badge>)}</dd>
-            </div>
-            <div>
-              <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.lastLogin')}</dt>
-              <dd className="text-text-primary">{formatDate(user?.last_login)}</dd>
-            </div>
-            <div>
-              <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('profile.node')}</dt>
-              <dd className="text-text-primary">{node?.peer?.name || '-'}</dd>
-            </div>
-          </dl>
-          <p className="text-xs text-text-tertiary">{t('profile.sessionNote')}</p>
-        </Section>
-        <PasswordSection />
-        <TotpSection />
-        <SecurityKeysSection Section={Section} />
-        {!restriction && <ApiTokensSection Section={Section} />}
-        <PreferencesSection />
+        <Tabs
+          key={`${forced}-${initial}`}
+          defaultTab={chosen || initial}
+          tabs={[
+            { id: 'profile', label: t('tabs.profile'), content: <ProfileSection user={user} node={node} others={others} /> },
+            {
+              id: 'security',
+              label: t('tabs.security'),
+              content: (
+                <div className="space-y-4" id="securite">
+                  <PasswordSection />
+                  <TotpSection />
+                  <SecurityKeysSection Section={Section} />
+                </div>
+              ),
+            },
+            ...(restriction ? [] : [{ id: 'tokens', label: t('tabs.tokens'), content: <ApiTokensSection Section={Section} onGoSecurity={goSecurity} /> }]),
+            { id: 'preferences', label: t('tabs.preferences'), content: <PreferencesSection /> },
+          ]}
+        />
       </div>
     </PageLayout>
   )

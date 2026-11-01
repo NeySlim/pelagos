@@ -73,7 +73,7 @@ test('the ambient preference switches the graticule off and is kept', async ({ p
   const grid = page.locator('.fx-ambient-grid')
   expect(await style(grid, 'animationPlayState')).toContain('running')
   expect(await style(grid, 'animationName')).toContain('fx-paper-drift')
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-ambient').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await expect.poll(() => rootData(page, 'ambient')).toBe('off')
@@ -150,7 +150,7 @@ test('the dashboard draws the cluster trace, and a hidden page pauses every loop
 
 test('motion off removes every transition, the cursor jumps', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await expect.poll(() => rootData(page, 'motion')).toBe('off')

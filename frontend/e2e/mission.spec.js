@@ -103,7 +103,7 @@ test('another family turns the effects layer off', async ({ page }) => {
 test('the animations preference sets the motion level and is kept', async ({ page }) => {
   await signIn(page)
   expect(await rootData(page, 'motion')).toBe('full')
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await expect.poll(() => rootData(page, 'motion')).toBe('off')

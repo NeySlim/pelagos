@@ -5,6 +5,8 @@ import { ApiTokensSection } from './ApiTokensSection'
 import { api } from '../../services/api'
 import { getCredential } from '../../lib/webauthn'
 
+let user
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user }) }))
 vi.mock('../../contexts/NotificationContext', () => ({ useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
 vi.mock('../../lib/webauthn', async (orig) => ({ ...(await orig()), getCredential: vi.fn() }))
 vi.mock('../../services/api', () => {
@@ -18,6 +20,7 @@ const TOKEN = { id: 't1', name: 'monitor', role: 'viewer', permissions: ['read:d
 describe('ApiTokensSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    user = { id: 'u1', has_totp: false, webauthn_count: 1 }
     api.auth.tokens.mockResolvedValue({ items: [TOKEN], meta: { unavailable: [] } })
   })
 
@@ -65,6 +68,27 @@ describe('ApiTokensSection', () => {
     fireEvent.change(await screen.findByTestId('token-name-input'), { target: { value: 'ci' } })
     fireEvent.click(screen.getByTestId('token-add-submit'))
     expect(await screen.findByTestId('token-error')).toHaveTextContent('Register a security key or enable TOTP first')
+  })
+
+  it('says a second factor is missing before showing the form', async () => {
+    user = { id: 'u1', has_totp: false, webauthn_count: 0 }
+    const onGoSecurity = vi.fn()
+    render(<ApiTokensSection Section={Section} onGoSecurity={onGoSecurity} />)
+    expect(await screen.findByTestId('token-no-factor')).toHaveTextContent('needs a second factor')
+    expect(screen.queryByTestId('token-add')).toBeNull()
+    fireEvent.click(screen.getByTestId('token-go-security'))
+    expect(onGoSecurity).toHaveBeenCalled()
+    user = { id: 'u1', has_totp: true, webauthn_count: 0 }
+    render(<ApiTokensSection Section={Section} />)
+    expect(await screen.findByTestId('token-add')).toBeInTheDocument()
+  })
+
+  it('shows a translated notice when the list cannot be read', async () => {
+    api.auth.tokens.mockRejectedValue(Object.assign(new TypeError('Cannot read properties of undefined'), { status: 500 }))
+    render(<ApiTokensSection Section={Section} />)
+    const notice = await screen.findByTestId('error-notice')
+    expect(screen.getByTestId('error-notice-title')).not.toHaveTextContent('Cannot read properties')
+    expect(notice).toBeInTheDocument()
   })
 
   it('uses the expiry bounds of the settings', async () => {

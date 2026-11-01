@@ -251,7 +251,7 @@ test.describe('reduced motion', () => {
 
 test('motion off: checks are drawn at once and nothing traces', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#preferences')
   await page.getByTestId('pref-animations').getByRole('combobox').click()
   await page.getByRole('option', { name: 'Off' }).click()
   await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe('off')
@@ -265,7 +265,7 @@ test('motion off: checks are drawn at once and nothing traces', async ({ page })
     await expect.poll(async () => Number(await beat.getAttribute('data-beats')), { timeout: 12000 }).toBeGreaterThan(0)
     await expect(page.locator('.fx-ecg-qrs.is-beat')).toHaveCount(0)
   } finally {
-    await page.goto('/account')
+    await page.goto('/account#preferences')
     await page.getByTestId('pref-animations').getByRole('combobox').click()
     await page.getByRole('option', { name: 'Full' }).click()
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.motion)).toBe('full')

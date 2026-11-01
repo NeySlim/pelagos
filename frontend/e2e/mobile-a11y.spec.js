@@ -34,8 +34,9 @@ test.describe('at 400px', () => {
 
 test('form fields and selects are named', async ({ page }) => {
   await signIn(page)
-  await page.goto('/account')
+  await page.goto('/account#securite')
   await expect(page.getByLabel('Current password')).toHaveAttribute('data-testid', 'password-current')
+  await page.goto('/account#preferences')
   await expect(page.getByRole('combobox', { name: /Theme/ })).toBeVisible()
   await page.goto('/dns/zones')
   await expect(page.getByTestId('zones-table')).toBeVisible()

@@ -74,13 +74,17 @@ def bulk_zone(zone: Zone | Mapping[str, Any]) -> bool:
     return zone_role(zone) is not None
 
 
-# RFC 2317 classless delegations ("0/25.2.0.192.in-addr.arpa") are the only zone names with "/".
-CLASSLESS_ZONE = re.compile(r"^\d+[/-]\d+\.")
+# RFC 2317 classless delegations ("0/25.2.0.192.in-addr.arpa"): the only zone names with "/",
+# and only in the first label.
+CLASSLESS_LABEL = re.compile(r"\d+[/-]\d+")
 
 
 def slash_in_zone_name(name: str) -> bool:
-    """True for a "/" outside the RFC 2317 form: a path to another endpoint, never a zone."""
-    return "/" in name and not CLASSLESS_ZONE.match(name.strip())
+    """True for a "/" outside the first label in RFC 2317 form: a path to another endpoint, never a zone."""
+    first, dot, rest = name.strip().partition(".")
+    if "/" not in name:
+        return False
+    return not (dot and CLASSLESS_LABEL.fullmatch(first) and "/" not in rest)
 
 
 def normalize_name(name: str) -> str:

@@ -136,7 +136,14 @@ def test_zone_name_is_checked_first(role_client):
 
 
 @pytest.mark.parametrize(
-    "target", ["_default/example.lan/records", "_default/example.lan/dnssec", "_default/a/b."]
+    "target",
+    [
+        "_default/example.lan/records",
+        "_default/example.lan/dnssec",
+        "_default/a/b.",
+        "_default/0/25.example.lan/records",
+        "_default/0/25/26.x.",
+    ],
 )
 @pytest.mark.parametrize("op", ["add", "replace", "delete"])
 def test_zone_plan_refuses_a_slash_in_the_name(role_client, op, target):
@@ -150,10 +157,14 @@ def test_zone_plan_refuses_a_slash_in_the_name(role_client, op, target):
 
 def test_check_zone_name_keeps_rfc2317_names():
     from pelagos.services.dns_service import check_zone_name
+    from pelagos.services.errors import ValidationError
 
     check_zone_name("0/25.2.0.192.in-addr.arpa.")
     check_zone_name("0-25.2.0.192.in-addr.arpa")
     check_zone_name("example.lan.")
+    for bad in ("0/25.example.lan/records", "0/25/26.x.", "a/b.example.lan."):
+        with pytest.raises(ValidationError):
+            check_zone_name(bad)
 
 
 def test_ddns_record_delete_says_kea_writes_it_again(role_client):

@@ -1168,8 +1168,12 @@ two possible refusals when the state moved since the apply:
   implement it. Peers are not asked before: their part is guarded inside their `rollback`.
 - Inside the connector's `rollback` (a peer's part, or a connector without the hook): `200
   ApplyResult` with state `failed`, the plan `FAILED` and terminal. There the hash, digest and
-  backup guards hold, but a missing Kea or D2 record does not refuse: the rollback that follows
-  a failed apply (a node whose outcome was unknown) must still run on a node that never recorded.
+  backup guards hold, and a missing Kea or D2 record refuses a user rollback, told by the
+  plan's `finished_at` (set by `PlanStore.finish` before any user rollback, sent to peers). The
+  undo that follows a failed apply has no `finished_at` and still runs without a record (a node
+  whose outcome was unknown may have failed before recording); so does a plan from 0.3.x. The
+  parts of a composite plan carry no `finished_at` today: on a peer they still take that path
+  (FIX-PEERROLLBACK).
 
 Guards per scope today:
 
@@ -1179,8 +1183,10 @@ Guards per scope today:
   requires the plan's backup set (`<backups>/bind/<stamp>-<plan id>`) and that every file the
   plan wrote still has the digest recorded at apply (`pelagos-written.json`). The backup purge
   keeps every set at least `ceil(rollback_window_seconds / 86400)` days, whatever
-  `settings.retention.backups_days` says; a set removed anyway (by hand, or a longer window
-  set after the apply) refuses with "no backup found for plan <id>".
+  `settings.retention.backups_days` says (the collector's retention pass and the replication
+  housekeeping alike); a set removed anyway (by hand, or a shorter window set after the apply,
+  which lets the purge reach sets still inside an earlier plan's window) refuses with "no backup
+  found for plan <id>".
 - `dhcp.*` (except `dhcp.lease` and `dhcp.ha`): `check_rollback` compares Kea's
   `config-hash-get` with the hash recorded right after the apply (`<backups>/<engine>/applied/
   <plan id>.json`, kept 7 days, the longest window the setting allows; the newest 256 also in
@@ -1192,8 +1198,11 @@ Guards per scope today:
 - `d2.config`: the plan's private state (its `before` when it holds clear secrets, its backup
   set and the hash that guards it) lives in the memory of the process that applied it (the web
   process, or the collector for a peer's part) for `settings.plans.rollback_window_seconds`
-  after the apply (`plans.ttl_seconds` before it). `check_rollback` refuses when it is gone (a
-  restart drops it: "the rollback state of plan <id> is no longer held") or when D2's
+  plus `peers.plan_timeout_seconds` after its own apply (the window counts from the end of the
+  whole plan), `plans.ttl_seconds` before it. A `before` holding clear TSIG secrets therefore
+  stays in memory up to that long (7 days at most), no longer only the preview TTL; it is never
+  written to disk. `check_rollback`, and `rollback` for a finished plan, refuse when the state is
+  gone (a restart drops it: "the rollback state of plan <id> is no longer held") or when D2's
   `config-hash-get` moved since the apply.
 - `update`: the rollback removes a rollout no node has started; once started, finished or
   replaced, `check_rollback` refuses it (the Updates screen's actions take over).

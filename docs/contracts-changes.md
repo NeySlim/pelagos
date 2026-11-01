@@ -18,8 +18,10 @@ Additive. `BindBackend`, `KeaBackend` and `D2Backend` implement `check_rollback(
 reads only (a backup set and a few digests, one `config-hash-get`), raises `PreconditionFailed`.
 Kea refuses a `dhcp.*` rollback without its record
 ("rollback guard lost") and keeps records 7 days (`APPLIED_KEPT_SECONDS`) instead of the newest
-256. D2 keeps a plan's private state for `plans.rollback_window_seconds` after the apply (memory
-only). The collector's backup purge keeps at least `ceil(window / 86400)` days. No API shape change:
+256; its `rollback` (what a peer runs) also refuses a plan with `finished_at` and no record. D2
+keeps a plan's private state for `plans.rollback_window_seconds` plus `peers.plan_timeout_seconds`
+after the apply (memory only), same `finished_at` rule. The collector's backup purge and the
+replication housekeeping keep at least `ceil(window / 86400)` days. No API shape change:
 these refusals now answer `409 precondition_failed` instead of a `200` with state `failed`.
 
 ## 2026-11-01, B1-SITE (WP-CORE, WP-API-AUTH, WP-FRONTEND): site label on a node

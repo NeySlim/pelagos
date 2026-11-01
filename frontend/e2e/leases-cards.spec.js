@@ -24,7 +24,7 @@ test('desktop: prefix, two DNS icons and a lease card that closes after its dele
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/dhcp/v4/leases?q=192.0.2.157')
   const row = page.getByTestId('data-table-row').first()
-  await expect(row).toContainText('192.0.2.0/24')
+  await expect(row).toContainText('192.0.2.128/26')
   await expect(row.getByTestId('lease-dns-fwd')).toHaveAttribute('title', /forward/i)
   await expect(row.getByTestId('lease-dns-rev')).toHaveAttribute('title', /reverse/i)
   await row.click()

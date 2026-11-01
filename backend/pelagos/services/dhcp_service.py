@@ -1499,10 +1499,10 @@ class DhcpService:
 
     def partner_state(self, node_id: str) -> str:
         """`lost` when this node's Kea sees every partner on `node_id` lost (or the two share no HA
-        relationship), else `in_touch`. Unknown mapping or an unreadable state count as in touch."""
+        relationship), else `in_touch`. No local Kea, or an unreadable state, count as in touch."""
         local = self.local
         if local is None:
-            return "lost"
+            return "in_touch"  # no local Kea to ask: never skip on one channel only
         try:
             if not local.capabilities().ha:
                 return "lost"

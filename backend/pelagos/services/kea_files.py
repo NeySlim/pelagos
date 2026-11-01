@@ -197,9 +197,37 @@ def waits_for_reconcile(plan: Plan) -> bool:
     return plan.engine in KEA_ENGINES and plan.scope in NARROWABLE_SCOPES
 
 
+def _ddns_values(value: Any, out: dict[str, Any], path: str = "") -> dict[str, Any]:
+    """Every DDNS key under `value` ({path: value}): `ddns-*` keys and a domain object's `ddns`."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            here = f"{path}/{key}"
+            if str(key).startswith("ddns") or key == "dhcp-ddns":
+                out[here] = item
+            else:
+                _ddns_values(item, out, here)
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            _ddns_values(item, out, f"{path}/{i}")
+    return out
+
+
+def _changes_ddns(change: Any) -> bool:
+    """The change writes a DDNS key (a subnet's or shared network's `ddns-*`, `Subnet.ddns`)."""
+    before, after = _ddns_values(change.before, {}), _ddns_values(change.after, {})
+    keys = set(before) | set(after)
+    return any(
+        before.get(k) != after.get(k) and not (before.get(k) in (None, {}) and after.get(k) in (None, {}))
+        for k in keys
+    )
+
+
 def narrowable(plan: Plan) -> bool:
-    """A part a partial apply may narrow: what the reconciliation can copy afterwards."""
-    return waits_for_reconcile(plan) and not any(_uncopied(c.target) for c in plan.changes)
+    """A part a partial apply may narrow: what the reconciliation can copy afterwards. DDNS keys
+    and hooks are outside the shared view (section 15): a change to them never narrows."""
+    return waits_for_reconcile(plan) and not any(
+        _uncopied(c.target) or _changes_ddns(c) for c in plan.changes
+    )
 
 
 def record_id(engine: Engine | str, source: str, target: str) -> str:
@@ -301,15 +329,19 @@ def record_partial(
     store.update_collection(COLLECTION, mutate, updated_by)
 
 
-def lists_plan(cluster: Any, plan_id: str, engine: Engine, source: str, skipped: list[str]) -> bool:
-    """True when every skipped node's record is unsettled and lists the plan (its rollback is allowed)."""
+def rollback_refusal(
+    cluster: Any, plan_id: str, engine: Engine, source: str, skipped: list[str]
+) -> str | None:
+    """Why a partial plan may no longer roll back: `settled` (a skipped node was reconciled, or
+    its record is gone), `evicted` (its record kept only the newest MAX_PLAN_REFS plans); None
+    while every skipped node's record is unsettled and lists the plan."""
     for target in skipped:
         row = cluster.record(COLLECTION, record_id(engine, source, target))
         if row is None or row.get("settled_by"):
-            return False
+            return "settled"
         if plan_id not in {p.get("plan_id") for p in row.get("plans") or []}:
-            return False
-    return True
+            return "evicted"
+    return None
 
 
 def forget_plan(
@@ -328,6 +360,9 @@ def forget_plan(
     store.update_collection(COLLECTION, mutate, updated_by)
 
 
+# settle, forget_plan and drop do not ask peers_missing (section 10): they only change or remove
+# records that exist, which a partial apply created once every reachable node knew the collection;
+# an older node joining later drops the section on read and never tombstones it (F0-REPL).
 def settle(store: Any, engine: Engine, source: str, target: str, plan_id: str, updated_by: str) -> None:
     """An applied reconcile plan settles the record of its couple (writes unblock despite a residue)."""
     rid = record_id(engine, source, target)

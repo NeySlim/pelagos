@@ -80,24 +80,33 @@ E2-SSO-OIDC: opens its sessions through `_open_session`; with `SameSite=Strict` 
 sent on the cross-site redirect to the callback, so the OIDC state and PKCE verifier cannot depend
 on it. E3-KEYROT: re-seals the secret and adds `pelagos secrets rotate auth/session_signing`.
 
-## 2026-11-01, B1-KEAOFFLINE (WP-API-AUTH, WP-COLLECTOR, WP-FRONTEND): partial apply of Kea plans
-Additive. `domain.plan.Plan` gains `partial` (`false`) and `skipped_node_ids` (`[]`), also in
-`PlanSummary`; `ConfirmationReason` gains `partial_apply` and `reconcile`. `POST /plans/{id}/apply`
-accepts `"partial": true` (with `"confirm": true`): unreachable peers of a Kea configuration part
-are dropped from its targets at the preflight, the rest applies (section 6, "Partial apply"). New
-code `409 node_unreachable` (`node_ids`, `node_names`, `partial_allowed`) where such a plan answered
-`409 preflight_failed` before; every other preflight refusal is unchanged. The expected divergence
-lives in `/var/lib/pelagos/kea_partial.json` (`services.kea_files`), the `<engine>:config-hash`
-`config_divergence` alert opens at once with details `expected_from_plan` and `reconcile`, merged
-across copies by `core.cluster_alerts.merge_copies`; Kea plans to a reachable node still waiting for
-reconciliation answer `409 config_divergence` with `reconcile`. New route `POST
-/dhcp/{family}/config/reconcile/plan` (`write:dhcp.config`), a whole-configuration replace of the
-target built with `collector.kea_shared.shared_overlay` (section 9). `plan_service.JOB_SCOPES` is now
-`core.plans.NO_ROLLBACK_SCOPES`. `PlanPreview` handles `409 node_unreachable` itself (its own
-"apply only on the reachable nodes" box when the caller passes no `partialOption`) and sends
-`{partial: true}` through `applyFn(id, confirm, extra)`. Older peers drop the new plan fields; an
-older UI shows `node_unreachable` as a generic refusal. WP-FRONTEND: the Alerts page offers
-"Reconcile from <node>" when `details.reconcile` is present.
+## 2026-11-01, B1-KEAOFFLINE (WP-API-AUTH, WP-CORE, WP-COLLECTOR, WP-KEA, WP-FRONTEND): partial apply of Kea plans
+Additive. `domain.plan.Plan` gains `partial` (`false`), `skipped` (`[{"node_id","reason"}]`) and
+`skipped_node_ids` (`[]`); `PlanSummary` gains `partial` and `skipped_node_ids`;
+`ConfirmationReason` gains `partial_apply` and `reconcile`. `POST /plans/{id}/apply` accepts
+`"partial": true` (with `"confirm": true`): offline peers of a Kea configuration part are dropped
+from its targets at the preflight (section 6, "Partial apply"). Offline needs two channels: the
+Pelagos status fails or the peer's preflight answers `engine_down`, and this node's Kea sees the HA
+partner lost (or no common relationship). New codes: `409 node_unreachable` (`node_ids`,
+`node_names`, `nodes[].reason` among `unreachable`, `engine_down`, `ha_partner_in_touch`,
+`partial_allowed`) where such a plan answered `409 preflight_failed` before, and `409
+reconcile_required` (in `peers.ACTION_CODES`). `/repl/v1/plans/preflight` answers gain `code`
+(`engine_down`, `reconcile_required`; absent from a 0.3.x peer, which keeps `preflight_failed`).
+New replicated collection `kea_partials` (section 10, natural key `<engine>/<source>/<target>`):
+a partial apply needs 0.4.0 on every reachable node (`409 collection_unavailable` otherwise). The
+`<engine>:config-hash` `config_divergence` alert opens at once from an unsettled record, details
+`expected_from_plan` and `reconcile`, `critical` once the skipped node is back unreconciled; copies
+merge with the union of both members (`core.cluster_alerts.merge_copies`). Rollback of a partial
+plan is refused (`409 plan_state`) once its record is settled. New route `POST
+/dhcp/{family}/config/reconcile/plan` (`write:dhcp.config`): the overlay is computed on the target
+(`collector.kea_shared.shared_overlay`, the peer action `dhcp.config.plan` gains the additive member
+`shared_from`; an older peer answers `not_supported`), impacts `reconcile_overwrites` and
+`reconcile_residual`, `501 not_supported` across Kea major versions. `KeaBackend.preflight` reports
+a stopped Kea. `plan_service.JOB_SCOPES` is now `core.plans.NO_ROLLBACK_SCOPES`. `PlanPreview`
+handles `409 node_unreachable` itself (its own "apply only on the reachable nodes" box when the
+caller passes no `partialOption`, only when `partial_allowed`) and sends `{partial: true}` through
+`applyFn(id, confirm, extra)`. Desired state verbs never apply in part. WP-FRONTEND: the Alerts page
+offers "Reconcile from <node>" when `details.reconcile` is present.
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains

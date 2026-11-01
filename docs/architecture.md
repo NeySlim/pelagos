@@ -811,7 +811,8 @@ class Plan(Model):
     finished_at: datetime | None = None      # last apply or rollback ended (section 6)
     rollback_until: datetime | None = None   # set only while the plan can be rolled back (section 6)
     partial: bool = False                    # applied on the reachable targets only (section 6, "Partial apply")
-    skipped_node_ids: list[str] = []         # the targets a partial apply left out
+    skipped: list[dict] = []                 # [{"node_id","reason"}]: targets a partial apply left out, and why
+    skipped_node_ids: list[str] = []         # their ids, sorted
 
 class ConfirmationReason(str, Enum): DELETE="delete"; PREFIX_CHANGE="prefix_change"; POOL_SHRINK="pool_shrink"; LEASES_LOST="leases_lost"; LEASE_CONFLICT="lease_conflict"; MULTI_NODE="multi_node"; OPERATION="operation"; PARTIAL_APPLY="partial_apply"; RECONCILE="reconcile"
 class ImpactSeverity(str, Enum): INFO="info"; WARNING="warning"
@@ -1225,39 +1226,93 @@ shows the plans of the node it is connected to. Every plan the code builds carri
 `NodeApplyResult` that `PlanService` returns for a failure carries `message_message`.
 
 Partial apply (B1-KEAOFFLINE). A Kea configuration plan goes to every node running the engine
-(both servers of an HA pair). When a peer target does not answer, the user may apply it on the
-nodes that answer and leave an explicit, reconcilable divergence instead of being blocked:
+(both servers of an HA pair). When a peer target is offline, the user may apply it on the other
+nodes and leave an explicit, replicated, reconcilable divergence instead of being blocked:
 
 - Narrowable part: engine `kea4` or `kea6` and scope `dhcp.subnet`, `dhcp.shared_network`,
-  `dhcp.reservation`, `dhcp.class` or `dhcp.options` (the `dhcp.reservation` part of a `host`
-  composite included). Never `dhcp.config` (one node already), `dhcp.lease`, `dhcp.ha`, `d2.config`,
-  DNS parts or job scopes. This node is never skipped: a local problem stays `preflight_failed`.
-- Unreachable target: a peer whose preflight call fails, and whose status exchange made right
-  after (cache forgotten, `PeerGateway.status`) says `reachable` false. A peer that answers, even
-  with a refusal or an engine error, is reachable and its problem stays `preflight_failed`.
-- `POST /plans/{id}/apply` without `partial`: when every preflight problem is an unreachable target
-  of a narrowable part, the answer is `409 node_unreachable` with members `node_ids`, `node_names`
-  and `partial_allowed: true`; nothing is applied and the plan stays as it was. Any other problem,
-  or an unreachable target of a part that is not narrowable, is `409 preflight_failed` as before.
+  `dhcp.reservation`, `dhcp.class`, or `dhcp.options` whose changes touch neither `ddns-*`,
+  `dhcp-ddns` nor `hooks-libraries` (the `dhcp.reservation` part of a `host` composite included).
+  The exclusions are what the reconciliation cannot copy: `ddns-*` and `dhcp-ddns` are outside the
+  shared view (section 15), hooks are per server. Never `dhcp.config`, `dhcp.lease`, `dhcp.ha`,
+  `dhcp.ddns`, `d2.config`, DNS parts or job scopes. This node is never skipped: a local problem stays
+  `preflight_failed`.
+- Offline, decided by the applying node from two channels, both required:
+  1. Pelagos: a status exchange with the peer (cache forgotten, the `status` timeout, never the 60 s
+     of `preflight_plan`) fails; or it answers and the peer's preflight answers code `engine_down`
+     (its Kea does not run: `KeaBackend.preflight` checks `capabilities().running`). The status comes
+     first and the preflight is not called on a peer that does not answer, so a powered-off node
+     costs one status timeout under `PlanService`'s lock, not a connect timeout of 60 s.
+  2. Kea: for every HA relationship this node's Kea shares with the peer's servers
+     (`DhcpService.relationships`, the server-to-node map of `_ha_nodes`), the local `ha-status`
+     sees the partner lost (`connectors.kea.ha.partner_lost`: not `in_touch`, or
+     `communication-interrupted`; or the local state `partner-down`); or the two nodes share no
+     relationship (independent servers).
+  A peer that fails channel 1 while its Kea is still in touch with this one is not skippable: a
+  subnet or pool on one live partner only makes it reject the lease updates ("No IPv4 subnet with
+  subnet-id"), and past `max-rejected-lease-updates` (default 10, Kea 2.3.1 and later) the
+  relationship goes `terminated` (Kea ARM 3.2.1, "High Availability", load-balancing parameters).
+  Any other answer (a refusal, an older peer's preflight problem without `code`) stays
+  `preflight_failed`.
+- `POST /plans/{id}/apply` without `partial`: when every preflight problem is an offline peer target
+  of a narrowable part, `409 node_unreachable` with members `node_ids`, `node_names`,
+  `partial_allowed` and, per node, `nodes: [{"node_id","reason"}]` where `reason` is `unreachable`,
+  `engine_down` or `ha_partner_in_touch` (channel 1 failed, channel 2 did not: "the Pelagos service
+  of ns2 does not answer but its Kea still serves: restart Pelagos on ns2"). `partial_allowed` is
+  true only when every listed node is skippable. Nothing is applied, the plan stays as it was. Any
+  other problem, or an offline target of a part that does not narrow, is `409 preflight_failed` as
+  before. With `partial: true` and a node not skippable, the same `409 node_unreachable`.
 - With `{"partial": true}` (which needs `"confirm": true`, else `428 confirmation_required`): under
   `PlanService`'s lock, after the preflight and before `APPLYING`, each narrowable part drops its
-  unreachable targets from `target_node_ids` and from every change's `node_ids`; the top plan gets
-  `partial = true`, `skipped_node_ids` (the union, sorted), `requires_confirmation = true`, reason
-  `partial_apply` and an impact item `skipped_nodes` (warning, the nodes named). Targets are
-  decided once, at that preflight: a node that comes back during the apply stays skipped. With every
-  target reachable, `partial` changes nothing (the plan applies everywhere, `partial` stays false).
-- Apply, failure rollback, late rollback, guards and the rollback window are unchanged and work on
-  the narrowed `target_node_ids`. The summary audit entry carries `request.partial` and
-  `request.skipped_node_ids`; skipped nodes get no node entry. A peer receives the narrowed plan
-  (an older peer drops the two fields, `Model.from_dict`).
-- Once the plan is `APPLIED`, `services.kea_files.record_partial` writes the expected divergence
-  (section 9) and the collector of this node opens the `config_divergence` alert at its next pass.
-  A successful rollback of the plan removes its entry.
-- Kea reloads the HA hook on `config-set`: the surviving server goes back to `waiting` (it does not
-  serve DHCP) until it declares its partner down (`max-response-delay`, Kea ARM "High Availability").
-  The partial plan states it as an impact item `ha_restart` (warning) on each HA server it writes.
+  skippable targets from `target_node_ids` and from every change's `node_ids`; the top plan gets
+  `partial = true`, `skipped = [{"node_id","reason"}]`, `skipped_node_ids` (sorted ids),
+  `requires_confirmation = true`, reason `partial_apply`, and the impact items below appended to
+  `plan.impact` directly (deduplicated by kind, never a second `PlanImpact.annotate`, which reads
+  leases). The narrowed plan is saved (`plan_store.update`) before `APPLYING`: `target_node_ids`
+  plus `skipped_node_ids` is the target list the plan was built with. Targets are decided once, at
+  that preflight: a node that comes back during the apply stays skipped. With every target
+  reachable, `partial` changes nothing (the plan applies everywhere, `partial` false, `skipped`
+  empty); the summary audit entry still records the request.
+- The partial needs every reachable node to know the `kea_partials` collection (section 10): a
+  reachable 0.3.x node answers `409 collection_unavailable` (unreachable ones do not block).
+- Apply, failure rollback, guards and the window work on the narrowed `target_node_ids`. The summary
+  audit entry carries `request.partial` (what was asked), `request.skipped` and
+  `request.skipped_node_ids` (what happened, maybe empty); skipped nodes get no node entry. A peer
+  receives the narrowed plan (an older peer drops the new fields, `Model.from_dict`).
+- Once the plan is `APPLIED`, the web process writes the `kea_partials` record of each
+  (source, skipped node) couple (section 9); every collector then raises the `config_divergence`
+  alert from the replicated record.
+- Rollback of a partial plan: allowed while, for every skipped node, the record of the couple is
+  unsettled (section 9) and lists the plan; the rollback then removes the plan from the record
+  (and the record when it was its only plan). Refused `409 plan_state` ("reconciled to ns2: undo it
+  with a new plan") once a record is settled or gone: the reconciliation wrote the target only, the
+  source's hash guard would let the rollback through and recreate the divergence the other way. When
+  the reconciliation went the other way (ns2 to ns1), the source's Kea hash guard refuses it
+  (`409 precondition_failed`).
+- DHCP service on the survivor. Two write paths (section 9 and `connectors/kea/commands.py`):
+  - Object commands (Kea 3.x with `subnet_cmds`, `host_cmds`, `class_cmds` loaded,
+    `command_path_available(changes, caps)`): nothing is reloaded, the HA state does not move, no
+    gap. Most partial reservations and subnets on 3.x take this path.
+  - `config-set` (Kea 2.6, a hook missing, options and global keys, a whole configuration replace):
+    Kea reloads its hooks, the HA service starts again in `waiting` with the DHCP service disabled
+    (ARM, "Server States"). With the partner gone, communication counts as interrupted after
+    `max-response-delay` (default 60 s), and since the service is disabled the server cannot count
+    unacked clients: it goes to `partner-down` at once, without the `max-unacked-clients` and
+    `max-ack-delay` criterion (Kea 3.2.1 `HAService::shouldPartnerDown`, `ha_service.cc`). The
+    `max-unacked-clients` criterion applies only to a server that keeps serving (load-balancing, or
+    the standby of hot-standby: section 15, `ha_partner_down`).
+  The impact item `ha_restart` (warning) is set only for each HA target that takes the
+  `config-set` path (capabilities of a peer from its `summary` snapshot), with the values read from
+  that server's HA configuration: "ns1 stops serving DHCP for about `max-response-delay` +
+  `heartbeat-delay` (70 s) after the apply". The lab measures it from a client that retries and
+  `docs/user/dhcp.md` gives the figure. No refusal by threshold: the gap is not known before the
+  apply and the alternative is not writing at all.
+- A partial `dhcp.subnet` or `dhcp.shared_network` also gets the impact item `reconcile_soon`
+  (warning): when the skipped partner comes back, it synchronizes the leases of a subnet it does not
+  have, then rejects their updates and may terminate the relationship (`max-rejected-lease-updates`);
+  reconcile as soon as it is back, and repair a terminated relationship with the HA repair plan.
 
-`Plan.partial` and `Plan.skipped_node_ids` are additive (`false`, `[]`); `PlanSummary` gains both.
+`Plan.partial` (`false`), `Plan.skipped` (`[]`) and `Plan.skipped_node_ids` (`[]`) are additive;
+`PlanSummary` gains `partial` and `skipped_node_ids` (the reasons stay in `Plan` and the audit).
 `plan_service.JOB_SCOPES` is `core.plans.NO_ROLLBACK_SCOPES` (one set for "runs as a job" and "never
 gets a `rollback_until`").
 
@@ -1595,39 +1650,73 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
 
 Expected divergence and reconciliation (B1-KEAOFFLINE, section 6 "Partial apply"):
 
-- `services.kea_files` keeps the partial plans this node applied in `/var/lib/pelagos/kea_partial.json`
-  (0640, written atomically by the web process under `<locks_dir>/kea-partial.lock`, read by the
-  collector): per entry `plan_id`, `engine`, `source_node_id` (this node), `applied_node_ids`,
-  `skipped_node_ids`, `applied_at`, `created_by`, `summary`. At most 200 entries, oldest out.
-- An entry is settled when the collector holds `config_hash` snapshots taken after `applied_at` of
-  the source and of every skipped node and `kea_shared.divergent` finds them equal. A settled entry
-  is ignored; the web process drops settled entries, entries whose skipped nodes all left
-  `cluster.toml`, and the entries a reconcile plan or a rollback settled, at its next write.
-- While an entry is unsettled the collector of the source node raises the `<engine>:config-hash`
-  `config_divergence` alert at once (no `CONFIG_DIVERGENCE_GRACE_SECONDS`), even when a skipped node
-  publishes no snapshot, with two more details: `expected_from_plan`
-  (`[{"plan_id","source_node_id","skipped_node_ids","applied_at","created_by","summary"}]`) and
-  `reconcile` (`[{"source_node_id","target_node_id"}]`, one per skipped node). Copies of the alert
-  held by several nodes merge with the union of both members (`core.cluster_alerts.merge_copies`).
-- Writes while it is open: a Kea configuration plan whose targets include a reachable node named as
-  `target_node_id` of an unsettled entry (this node's file, or the cluster's alert) answers
-  `409 config_divergence`; its `divergences[]` items carry `reconcile` and `plan_id`. Plans that
-  target other nodes only, adopt plans and the reconcile plan pass. A target still unreachable gets
-  `node_unreachable`, and a second partial plan adds an entry.
+- State: the replicated collection `kea_partials` (section 10), one record per couple, natural key
+  `id = "<engine>/<source_node_id>/<target_node_id>"`: `engine`, `source_node_id`,
+  `target_node_id`, `since` (first `applied_at`), `last_applied_at`, `plans` (the 50 newest
+  `{"plan_id","applied_at","created_by","summary"}`), `plan_count` (all of them),
+  `target_hash_before` (the target's relationship hash last seen by the source's collector when the
+  first partial applied; absent when unknown) and `settled_by` (absent, or `{"plan_id","at"}` set by
+  an applied reconcile plan). Written by the source's web process after `APPLIED`
+  (`ConfigStore.update_collection`); the write goes through with the target away, since
+  `peers_missing` ignores unreachable peers. Eviction drops plan references, never the record.
+- Settled: `settled_by` is set, or the relationship hashes (`collector.kea_shared`) of source and
+  target are equal, read either by a collector from `config_hash` snapshots taken after
+  `last_applied_at`, or live at a write (both `config-get`, as `kea_files.check` re-reads the
+  file). A settled record is ignored by collectors and deleted by the next web process that writes
+  the collection; so is a record whose target left `cluster.toml`.
+- Alert: while a record is unsettled, every collector raises the `<engine>:config-hash`
+  `config_divergence` alert at once (no `CONFIG_DIVERGENCE_GRACE_SECONDS`), even without a snapshot
+  of the target, with details `expected_from_plan` (`[{"source_node_id","target_node_id","since",
+  "plan_count","plans"}]`) and `reconcile` (`[{"source_node_id","target_node_id"}]`). Severity:
+  `warning` while the target is unreachable or its Kea stopped, `critical` once it answers with its
+  Kea running and the record is still unsettled (lease updates may be rejected, section 6). Copies
+  held by several nodes merge with the union of both members (`core.cluster_alerts.merge_copies`,
+  which also covers a copy from an older node without them).
+- `409 reconcile_required` (members `engine`, `divergences: [{"node_id","node_name",
+  "source_node_id","plan_ids","since"}]`): a Kea configuration plan whose targets include a
+  reachable node that is the target of an unsettled record, checked when the plan is built
+  (`DhcpService.plan`, next to `kea_files.check`) and again at the apply's preflight under the lock
+  (a plan built while the node was away and applied after its return, whose `CONFIG_HASH`
+  preconditions carry the builder's `node_id` only). Plans targeting other nodes only, adopt plans
+  and every `dhcp.config` plan pass; a target still offline gets `node_unreachable` first. Defence
+  in depth: `/repl/v1/plans/preflight` on any node refuses, with code `reconcile_required`, a Kea
+  configuration plan other than `dhcp.config` that targets such a node (an older builder, an older
+  UI); the caller reports it as `reconcile_required` (`peers.ACTION_CODES`).
 - `POST /dhcp/{family}/config/reconcile/plan {"source_node_id","target_node_id"}`
-  (`DhcpService.plan_reconcile`): reads both running configurations (as `GET
-  /dhcp/{family}/config?node_id=`), and builds the target's configuration with exactly what
-  `collector.kea_shared` hashes for the relationships both servers are in (section 15, "Kea config
-  divergence") taken from the source by object identity: subnet `id`, shared network `name`,
-  reservation identifier, class `name`, option and option definition `space` and `code`, plus the
-  global keys of the shared view; every per-server key of the target is kept
-  (`kea_shared.shared_overlay`, next to the hash so the two cannot drift). The result is a
-  whole-configuration replace of the target through the existing path (`kind = config` on this
-  node, the `dhcp.config.plan` peer action on a peer), scope `dhcp.config`, `requires_confirmation`
-  with reason `reconcile`, summary `plan.kea.reconcile`. After it applies, both servers publish the
-  same relationship hash (tested). Refusals: `400` when source and target are the same node or do
-  not run the engine, `503 engine_unavailable` when either does not answer, `409 conflict` when
-  their shared hashes are already equal, `409 config_divergence` when the target's file diverges.
+  (`DhcpService.plan_reconcile`, `write:dhcp.config`). The two nodes must share an HA relationship
+  and run the same Kea major version (`400` otherwise; `501 not_supported` "same Kea major version
+  required": the copied objects are in the source's dialect, `client-class` against
+  `client-classes`). The source's shared view of the common relationships is read live (its
+  `config-get` here, the `config` snapshot of a peer, computed by the peer when asked), and the
+  target computes the overlay on its own live `config-get`: on this node directly, on a peer
+  through the `dhcp.config.plan` action extended with the additive member `shared_from` (without it
+  the action keeps its behaviour; an older peer answers `not_supported`). The target's `CONFIG_HASH`
+  precondition is then the hash of the configuration the overlay started from, and masked secrets
+  never travel (the target keeps its own).
+  `collector.kea_shared.shared_overlay(source, target, servers)` copies exactly what the
+  relationship hash covers, for the relationships both servers are in, by object identity: subnet
+  `id`, shared network `name`, reservation identifier, class `name`, option and option definition
+  `space` and `code`, and the global keys of the shared view. It never touches `hooks-libraries`,
+  `interfaces-config`, `control-socket`, `control-sockets`, `lease-database`, `hosts-database`,
+  `hosts-databases`, `dhcp-ddns`, `ddns-*`, `multi-threading`, `loggers` nor `this-server-name`
+  (tested by enumeration). The plan: scope `dhcp.config`, target the target node only,
+  `requires_confirmation` with reason `reconcile`, summary `plan.kea.reconcile`, impact `ha_restart`
+  (the target restarts its HA service: `waiting`, then `syncing`, which disables its partner's DHCP
+  service for the sync, a few seconds), `source_hash` (the source relationship hash copied).
+- Both sides changed: when a record exists in the other direction (target to source, unsettled), or
+  the target's current relationship hash differs from `target_hash_before` (or that is absent), the
+  plan is still built, with the impact item `reconcile_overwrites` (warning) listing the plans of the
+  other direction and the differences lost (`core.keafile.view_differences`). The UI then offers
+  both directions; otherwise only "Reconcile from <source>". Never a blind copy.
+- Residue: the plan computes the target's relationship hash after the copy; when it still differs
+  from the source's (different hooks, keys outside the overlay), the impact item
+  `reconcile_residual` (warning) lists what it does not fix; when nothing would change, `409
+  conflict`. Once applied, the reconcile plan sets `settled_by` on the record of that couple (writes
+  unblock despite a residue); the ordinary `config-hash` alert, with its grace and without
+  `expected_from_plan`, stays for the residue.
+- Refusals: `400` same node, not running the engine, no common relationship; `503
+  engine_unavailable` when either does not answer; `501 not_supported` as above; `409 conflict`
+  when equal; `409 config_divergence` when the target's file diverges (existing check).
 - Kea HA synchronizes leases, never configuration: nothing in this flow changes the HA setup.
 
 ## 10. Tool configuration files (TOML)
@@ -2024,6 +2113,14 @@ Adding a collection is one line there plus its tests; nothing else in
   `peers_missing(name, statuses)` is not empty: a collection holds records
   only once every reachable node knows it.
 
+Registered collections:
+
+- `kea_partials` (0.4.0, B1-KEAOFFLINE): `Collection()` with natural key `id =
+  "<engine>/<source_node_id>/<target_node_id>"`, one record per couple a partial apply left
+  diverging; fields and rules in section 9, "Expected divergence and reconciliation". No secret
+  field. Written by the web process of the source (after a partial apply, a rollback, a reconcile
+  plan) and pruned by any web process once settled; read by every collector for the alert.
+
 Merge (section 13): each collection is a record list exactly like `users`
 or `api_tokens`. `cluster_merge.records()` returns the core record lists
 plus every `COLLECTIONS` entry (`cluster_merge.RECORDS` keeps the core ones
@@ -2166,7 +2263,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
-| `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null, "permissions"?: [check]}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict). `permissions` (0.2.5): the permission guard's checks of the plan on this node, run in its collector (section 7); absent from an older peer, which is then not checked |
+| `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null, "code"?: str, "permissions"?: [check]}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict). `code` (0.4.0, absent before): `engine_down` (the plan's Kea does not run here, section 6 "Partial apply"), `reconcile_required` (a Kea configuration plan other than `dhcp.config` targets a node of an unsettled `kea_partials` record, section 9). `permissions` (0.2.5): the permission guard's checks of the plan on this node, run in its collector (section 7); absent from an older peer, which is then not checked |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/releases/<version>[/<file>]` | | listing `{"version","files": [{"name","size","sha256"}],"signature"}`, or the file's bytes | a release this node holds in `upgrade/packages/` (section 29); `404` when not held or from an older node |
@@ -2825,7 +2922,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
 | `replication_conflict` | info | a write of this node to `cluster.toml` lost to a concurrent write of another node (`replication.conflict` audit entry, section 13); subject the entry path; details the masked request of the last entry; evaluated by the check pass from this node's entries of the last 24 hours, so it resolves 24 h after the last entry of that path |
-| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes`; a partial apply (section 6) opens the `<engine>:config-hash` one at once, details `expected_from_plan` and `reconcile` (section 9) |
+| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes`; an unsettled `kea_partials` record (section 9) raises the `<engine>:config-hash` one at once, details `expected_from_plan` and `reconcile`, `warning` while the skipped node is away and `critical` once it is back unreconciled |
 | `root_hints_stale` | warning, info | this node's hints file predates the last root server renumbering (related version before 2023112700: warning) or is more than 5 years old (info); subject `zone:<zone>[@<view>]:hints`; details `reason` (`renumbered` or `old`), `file`, `related_version`, `last_update` |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
 | `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists; an AAAA is judged only when DHCPv6 leases were read (`run_all(families=)`, the families of the node's Kea backends), an A only with DHCPv4 |
@@ -2899,6 +2996,9 @@ relationship with each other by `shared`. A node that publishes no
 hash of the divergent nodes) and `relationships` (`[{"servers",
 "hashes"}]`), plus `expected_from_plan` and `reconcile` while a partial apply
 is unsettled (section 9, "Expected divergence and reconciliation"; no grace).
+The shared view leaves out `ddns-*` and `dhcp-ddns`: a divergence of those
+keys between partners is not detected (known gap; for that reason a partial
+apply never narrows them, section 6).
 
 
 #### Lease history
@@ -3667,7 +3767,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/config?node_id=` | `read:dhcp` | | `{"node_id","hash","config": {...}}` |
 | `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, built there when it is a peer; never fanned out) | `Plan` |
 | `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
-| `POST /dhcp/{family}/config/reconcile/plan` | `write:dhcp.config` | `{"source_node_id", "target_node_id"}` | `Plan` (scope `dhcp.config`, target node only, `requires_confirmation` reason `reconcile`; section 9) |
+| `POST /dhcp/{family}/config/reconcile/plan` | `write:dhcp.config` | `{"source_node_id", "target_node_id"}` | `Plan` (scope `dhcp.config`, target node only, `requires_confirmation` reason `reconcile`; section 9); `400` same node or no common HA relationship, `501 not_supported` different Kea major versions or a peer without `shared_from`, `409 conflict` nothing to copy, `503 engine_unavailable` |
 | `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (the node that holds the file, default this node; a peer builds the plan) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/d2/servers` | `read:dhcp` | | `{"items": [{"node_id","capabilities","status"}]}` |
 | `GET /dhcp/d2/stats?node_id=` | `read:dhcp` | | `D2Stats` |
@@ -3681,10 +3781,10 @@ to the first reachable node that runs the engine; `node_id` selects one.
 Configuration plans (subnets, shared networks, reservations, classes,
 options, ddns, hooks, config, D2 config, host reservations) answer `409
 config_divergence` while a target node's Kea file disagrees with its running
-configuration, and while a reachable target is the target of an unsettled
-partial apply (section 9, "Expected divergence and reconciliation"); the problem
-document carries `"engine"` and `"divergences":
-[{"node_id","path","differences","alert_id"}]` (`"reconcile"` and `"plan_id"` in the second case).
+configuration; the problem document carries `"engine"` and `"divergences":
+[{"node_id","path","differences","alert_id"}]`. Those plans also answer `409 reconcile_required`
+while a reachable target waits for the reconciliation of a partial apply (section 9, "Expected
+divergence and reconciliation"), at build and at apply.
 
 ### Hosts
 
@@ -3729,7 +3829,7 @@ its engine (`dns...`: `read:dns`, `kea...`: `read:dhcp`). Answer time on a warm 
 | --- | --- | --- | --- |
 | `GET /plans?state=&user=&scope=&page=&per_page=` | any session | | paginated `PlanSummary` (section 6) of this node, newest first, `meta.node_id`; with `read:audit` every plan, else only the caller's own (`user` naming someone else: `403`); `state`: comma-separated `PlanState` values (`expired` is accepted and always empty: an expired plan left the store); `scope`: a `PlanScope` value or a prefix at least one value starts with (`dhcp.`); `400 validation_error` on an unknown state or scope |
 | `GET /plans/{id}` | creator, admin, or `read:audit` (read only) | | `Plan` (`410 plan_expired` past its retention deadline) |
-| `POST /plans/{id}/apply` | permission of the plan scope, and creator or admin | `{"confirm": bool, "partial"?: bool}` | `ApplyResult` (with `rollback_until`, section 6) or `202 Job` for `install`/`import`/`security` scopes; `409 node_unreachable` (`node_ids`, `node_names`, `partial_allowed`) when only unreachable peers of a Kea configuration part stop it; `partial: true` applies on the reachable targets (section 6, "Partial apply") and needs `confirm: true` |
+| `POST /plans/{id}/apply` | permission of the plan scope, and creator or admin | `{"confirm": bool, "partial"?: bool}` | `ApplyResult` (with `rollback_until`, section 6) or `202 Job` for `install`/`import`/`security` scopes; `409 node_unreachable` (`node_ids`, `node_names`, `nodes[].reason`, `partial_allowed`) when only offline peers of a Kea configuration part stop it; `409 reconcile_required`, `409 collection_unavailable` (section 6); `partial: true` applies on the reachable targets (section 6, "Partial apply") and needs `confirm: true` |
 | `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult` (with `rollback_until`); `410 plan_expired` past `rollback_until`; `409 plan_state` when the plan does not roll back; when the state moved since the apply (section 6): `409 precondition_failed` from a connector's `check_rollback`, the plan still `APPLIED`, or, from a guard inside the connector's rollback, `200` with state `failed`, the plan `FAILED` and terminal |
 | `DELETE /plans/{id}` | creator or admin (`read:audit` is not enough) | | `204` |
 | `GET /jobs/{id}` | any | | `Job` |
@@ -4116,7 +4216,9 @@ existing plan endpoint of that object (`POST /dns/zones/{zone}/records/plan`,
 `POST /dns/zones/plan`, `POST /dhcp/{family}/<kind>/plan`) and applies it with
 `PlanService.apply`; `DELETE` does the same with a `delete` change. No other write path
 exists: validation, preconditions, impact, confirmation, audit and rollback are those of
-the plan (`POST /plans/{id}/rollback` undoes a desired write). Permissions are those of the
+the plan (`POST /plans/{id}/rollback` undoes a desired write). They never apply in part: a Kea
+write with an offline target answers `409 node_unreachable`, one to a node waiting for
+reconciliation `409 reconcile_required` (section 6, "Partial apply"). Permissions are those of the
 plan endpoint plus the read permission of the object (`read:dns` or `read:dhcp`): a `PUT` or
 `DELETE` discloses the current object (`changed`, `etag`, the plan's `before`), so a write-only
 role or token gets `403`. The plan's scope is checked right after it is built, before any
@@ -4261,7 +4363,7 @@ Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 `totp_required` 401, `second_factor_required` 401, `unauthenticated` 401, `forbidden` 403,
 `csrf_failed` 403, `not_found` 404, `module_disabled` 404,
 `method_not_allowed` 405, `conflict` 409, `config_divergence` 409,
-`precondition_failed` 409, `preflight_failed` 409, `node_unreachable` 409,
+`precondition_failed` 409, `preflight_failed` 409, `node_unreachable` 409, `reconcile_required` 409,
 `plan_expired` 410, `plan_state` 409, `zone_without_records` 409, `zone_too_large` 409,
 `release_invalid` 422 (members `reason`, `detail_message` `update.refused.<reason>`, section 29),
 `confirmation_required` 428,

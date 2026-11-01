@@ -32,7 +32,7 @@ pytestmark = pytest.mark.unit
         ("240.0.0.1", "reserved"),
         ("::ffff:127.0.0.1", "loopback"),
         ("10.0.0.5", None),
-        ("192.168.1.20", None),
+        ("172.16.4.20", None),
         ("fd00::5", None),
         ("192.0.2.10", None),
     ],
@@ -47,7 +47,7 @@ def guard(resolved: dict[str, list[str]], node_hosts: tuple[str, ...] = ()) -> n
             raise OSError("no such name")
         return resolved[host]
 
-    return nhttp.TargetGuard(node_hosts, resolve)
+    return nhttp.TargetGuard(node_hosts, resolve, local=lambda: {ipaddress.ip_address("10.9.9.9")})
 
 
 def test_names_are_checked_on_every_address_and_nodes_are_refused():
@@ -136,3 +136,24 @@ def test_validation_refuses_a_literal_local_address_only_with_a_guard():
     mail = {"type": "email", "params": {"host": "127.0.0.1", "port": 25, "security": "none",
                                         "from": "p@example.lan", "to": ["a@example.lan"]}}  # fmt: skip
     assert not [i for i in transports.validate(mail, set(), nhttp.TargetGuard()) if i.level == "error"]
+
+
+def test_this_hosts_interface_addresses_are_refused():
+    g = guard({"me.example.lan": ["10.9.9.9"], "mapped.example.lan": ["::ffff:10.9.9.9"]})
+    with pytest.raises(SendError, match="an address of this node"):
+        g.pick("me.example.lan", 443)
+    with pytest.raises(SendError, match="an address of this node"):
+        g.pick("mapped.example.lan", 443)
+    with pytest.raises(SendError, match="an address of this node"):
+        g.pick("10.9.9.9", 443)
+
+
+def test_interface_addresses_lists_loopback():
+    assert ipaddress.ip_address("127.0.0.1") in nhttp.interface_addresses()
+
+
+def test_a_node_name_that_does_not_resolve_refuses_targets_of_that_name():
+    g = guard({"hook.example.lan": ["192.0.2.80"]}, node_hosts=("ns3.example.lan",))
+    with pytest.raises(SendError, match="names a node of the cluster that does not resolve"):
+        g.pick("NS3.example.lan.", 443)
+    assert g.pick("hook.example.lan", 443) == "192.0.2.80"

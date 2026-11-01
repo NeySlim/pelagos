@@ -8,8 +8,11 @@ own nodes, and pins the connection to the address it checked (section 22, outgoi
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import http.client
 import ipaddress
+import logging
 import socket
 import ssl
 import time
@@ -22,6 +25,54 @@ from pelagos.notify.model import SendError
 
 BODY_MAX = 4096
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+log = logging.getLogger(__name__)
+
+
+class _SockAddr(ctypes.Structure):
+    _fields_ = [("family", ctypes.c_ushort)]
+
+
+class _IfAddrs(ctypes.Structure):
+    pass
+
+
+_IfAddrs._fields_ = [
+    ("next", ctypes.POINTER(_IfAddrs)),
+    ("name", ctypes.c_char_p),
+    ("flags", ctypes.c_uint),
+    ("addr", ctypes.POINTER(_SockAddr)),
+    ("netmask", ctypes.POINTER(_SockAddr)),
+    ("ifu", ctypes.c_void_p),
+    ("data", ctypes.c_void_p),
+]
+
+
+def interface_addresses() -> set[IPAddress]:
+    """Every IPv4 and IPv6 address of this host's interfaces (getifaddrs); empty when unreadable."""
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        head = ctypes.POINTER(_IfAddrs)()
+        if libc.getifaddrs(ctypes.byref(head)) != 0:
+            raise OSError(ctypes.get_errno(), "getifaddrs failed")
+    except (OSError, AttributeError) as exc:
+        log.warning("interface addresses not read for the notification target guard: %s", exc)
+        return set()
+    out: set[IPAddress] = set()
+    try:
+        node = head
+        while node:
+            sa = node.contents.addr
+            if sa:
+                family, base = sa.contents.family, ctypes.addressof(sa.contents)
+                # Read only the bytes the family holds: sockaddr_in (16) or sockaddr_in6 (28).
+                if family == socket.AF_INET:
+                    out.add(ipaddress.IPv4Address(ctypes.string_at(base + 4, 4)))
+                elif family == socket.AF_INET6:
+                    out.add(ipaddress.IPv6Address(ctypes.string_at(base + 8, 16)))
+            node = node.contents.next
+    finally:
+        libc.freeifaddrs(head)
+    return out
 
 
 def system_resolve(host: str, port: int) -> list[str]:
@@ -48,6 +99,10 @@ def refused_reason(ip: IPAddress) -> str | None:
     return None
 
 
+def _name(host: str) -> str:
+    return host.lower().rstrip(".")
+
+
 def parse_ip(value: str) -> IPAddress | None:
     try:
         return ipaddress.ip_address(value.strip("[]").split("%", 1)[0])
@@ -57,14 +112,19 @@ def parse_ip(value: str) -> IPAddress | None:
 
 @dataclass(slots=True)
 class TargetGuard:
-    """Refuses loopback, link-local and other non-routable targets and the nodes of the cluster.
+    """Refuses loopback, link-local and other non-routable targets, the nodes of the cluster and the
+    addresses of this host's interfaces.
 
-    `node_hosts` are the host parts of the nodes' URLs, resolved on first use; `pick` checks every
-    address of the target and returns the one to connect to."""
+    `node_hosts` are the host parts of the nodes' URLs, resolved on first use; a node name that does
+    not resolve refuses any target of that name. `pick` checks every address of the target and
+    returns the one to connect to."""
 
     node_hosts: tuple[str, ...] = ()
     resolve: Callable[[str, int], list[str]] = system_resolve
+    local: Callable[[], set[IPAddress]] = interface_addresses
     _nodes: set[IPAddress] | None = None
+    _unresolved: set[str] = field(default_factory=set)
+    _own: set[IPAddress] | None = None
 
     def nodes(self) -> set[IPAddress]:
         if self._nodes is None:
@@ -77,15 +137,22 @@ class TargetGuard:
                 try:
                     found.update(ip for ip in map(parse_ip, self.resolve(host, 443)) if ip is not None)
                 except OSError:
-                    pass  # a node whose name does not resolve cannot be reached by name either
+                    self._unresolved.add(_name(host))
             self._nodes = found
         return self._nodes
+
+    def own(self) -> set[IPAddress]:
+        if self._own is None:
+            self._own = set(self.local())
+        return self._own
 
     def reason(self, ip: IPAddress) -> str | None:
         found = refused_reason(ip)
         if found is not None:
             return found
         plain = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped else ip
+        if ip in self.own() or plain in self.own():
+            return "an address of this node"
         if ip in self.nodes() or plain in self.nodes():
             return "a node of the cluster"
         return None
@@ -95,10 +162,14 @@ class TargetGuard:
         if literal is not None:
             addresses = [literal]
         else:
-            if host.lower().rstrip(".") in ("localhost", "localhost.localdomain") or host.lower().endswith(
-                ".localhost"
-            ):
+            name = _name(host)
+            if name in ("localhost", "localhost.localdomain") or name.endswith(".localhost"):
                 raise SendError("target address refused: loopback")
+            self.nodes()
+            if name in self._unresolved:
+                raise SendError(
+                    f"target address refused: {host} names a node of the cluster that does not resolve"
+                )
             try:
                 addresses = [ip for ip in map(parse_ip, self.resolve(host, port)) if ip is not None]
             except OSError as exc:

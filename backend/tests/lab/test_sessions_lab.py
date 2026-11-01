@@ -111,6 +111,12 @@ def install(address: str, deb: Path, downgrade: bool = False) -> None:
     )
 
 
+def restart(address: str) -> None:
+    # Two package switches in a few seconds restart the collector past systemd's start limit.
+    units = "pelagos pelagos-collector"
+    ssh(address, f"sudo systemctl reset-failed {units}; sudo systemctl restart {units}")
+
+
 def enroll_ns2() -> None:
     admin = Api(A1)
     wait_for("ns1 login", admin.login, timeout=120)
@@ -229,7 +235,7 @@ class TestSessionsAcrossThePair:
         if not OLD_DEB:
             pytest.skip("PELAGOS_SESSIONS_OLD_DEB (the previous release's amd64 deb) is not set")
         install(A2, Path(OLD_DEB), downgrade=True)
-        ssh(A2, "sudo systemctl restart pelagos pelagos-collector")
+        restart(A2)
         wait_for(
             "ns2 on the previous release", lambda: call(A2, "GET", "/health", None).status == 200, timeout=180
         )
@@ -244,7 +250,7 @@ class TestSessionsAcrossThePair:
         assert back.startswith("v1.") and status(A1, back) == 200
         assert status(A2, back) == 401
         install(A2, deb_package())
-        ssh(A2, "sudo systemctl restart pelagos pelagos-collector")
+        restart(A2)
         wait_for("ns2 back on this checkout", lambda: status(A2, back) == 200, timeout=180)
 
     def test_07_no_session_secret_in_audit_or_journals(self):

@@ -12,6 +12,7 @@ from pelagos.core import settings_registry as reg
 from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, NodeModules, Role, User, new_id, utcnow
+from pelagos.domain.cluster import clean_site
 from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
 from pelagos.services.masking import masked
 
@@ -381,6 +382,39 @@ class AdminService:
             self._enrollment().revoke(node_id, self._by(actor), client_ip)
         except EnrollError as exc:
             raise _enroll_error(exc) from None
+
+    def set_node_site(self, node_id: str, site: Any, actor: str, client_ip: str | None) -> None:
+        """PATCH /nodes/{id}: set or clear the site label (null or an empty string clears it)."""
+        if site is not None and not isinstance(site, str):
+            raise ValidationError("invalid site", [field_error("site", "string or null expected")])
+        new = clean_site(site)
+        if new is None and site is not None and site.strip():
+            raise ValidationError(
+                "invalid site", [field_error("site", "1 to 64 characters without control characters")]
+            )
+        peer = self.ctx.cluster().peer(node_id)
+        if peer is None:
+            raise NotFound(f"node {node_id}")
+
+        def mutate(c: ClusterConfig) -> None:
+            target = c.peer(node_id)
+            if target is not None:
+                target.site = new
+
+        self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
+        self.ctx.audit_log.append(
+            AuditEntry(
+                node_id=self.ctx.node.id,
+                user=actor,
+                action="admin.node.replace",
+                target=f"node:{node_id}",
+                request={"site": new},
+                response={"site": {"before": peer.site, "after": new}},
+                result=AuditResult.OK,
+                message=f"site of node {peer.name}: {peer.site or '(none)'} -> {new or '(none)'}",
+                client_ip=client_ip,
+            )
+        )
 
     def audit_sync(self, peer: Any, status: Any, actor: str, client_ip: str | None) -> None:
         self.ctx.audit_log.append(

@@ -90,7 +90,9 @@ class Cluster:
         _set_listen(paths, port)
         return self._start(paths)
 
-    def enroll(self, issuer: LiveNode, name: str = "ns2", ca: bool = False) -> LiveNode:
+    def enroll(
+        self, issuer: LiveNode, name: str = "ns2", ca: bool = False, site: str | None = None
+    ) -> LiveNode:
         port = free_port()
         paths = dev_paths(self.root / name)
         paths.ensure()
@@ -107,7 +109,12 @@ class Cluster:
         )
         token = issuer.service.enrollment.issue_token(f"user:admin@node:{issuer.id}", ca=ca)
         enroll_node(
-            paths, url=token["url"], token=token["token"], ca_fingerprint=token["ca_fingerprint"], name=name
+            paths,
+            url=token["url"],
+            token=token["token"],
+            ca_fingerprint=token["ca_fingerprint"],
+            name=name,
+            site=site,
         )
         return self._start(paths)
 
@@ -176,6 +183,14 @@ def test_enroll_second_node(pair):
     assert "admin.node.enroll" in actions
     assert _same_audit(a, b)
     assert read_replication_state(a.paths) == "ready" and b.ctx.replication_state == "ready"
+
+
+def test_enroll_with_a_site_registers_it_on_both_nodes(cluster):
+    a = cluster.first()
+    b = cluster.enroll(a, site="lyon")
+    assert a.ctx.cluster().peer(b.id).site == "lyon"
+    assert b.ctx.cluster().peer(b.id).site == "lyon"
+    assert a.ctx.cluster().peer(a.id).site is None
 
 
 def test_enroll_with_ca_flag_hands_over_the_ca_key(cluster):

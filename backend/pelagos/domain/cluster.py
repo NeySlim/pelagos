@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from pelagos.domain.common import Model, utcnow
 
 WEB_URL_MAX = 2048
+SITE_MAX = 64
 
 
 def clean_web_url(value: Any) -> str | None:
@@ -26,6 +27,16 @@ def clean_web_url(value: Any) -> str | None:
     except ValueError:
         return None
     return value if parts.scheme in ("http", "https") and parts.hostname else None
+
+
+def clean_site(value: Any) -> str | None:
+    """The trimmed site label when it is 1 to SITE_MAX characters without control characters."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value or len(value) > SITE_MAX or any(ord(c) < 32 or c == "\x7f" for c in value):
+        return None
+    return value
 
 
 @dataclass(slots=True)
@@ -52,10 +63,13 @@ class Peer(Model):
     modules: NodeModules = field(default_factory=NodeModules)
     enrolled_at: datetime = field(default_factory=utcnow)
     enrolled_by: str | None = None
+    # Free label grouping nodes (architecture section 4, "Node site"); absent when unset.
+    site: str | None = None
 
     def __post_init__(self) -> None:
-        # A stored or replicated web_url that is not a plain http(s) URL counts as absent.
+        # A stored or replicated web_url or site that breaks its rule counts as absent.
         self.web_url = clean_web_url(self.web_url)
+        self.site = clean_site(self.site)
 
 
 @dataclass(slots=True)

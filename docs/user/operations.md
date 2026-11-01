@@ -53,6 +53,13 @@ How it behaves:
 - **Offline peers**: a peer unreachable for 3 polls raises `peer_offline`.
   **Nodes and replication** shows each peer's configuration version, audit
   count, last contact and error; "Sync" forces an exchange now.
+- **Node site**: an optional label (1 to 64 characters, for example `paris`
+  or `dc2`) that groups nodes. Set it with `pelagos init --site NAME` or
+  `pelagos enroll --site NAME`, or later with `PATCH /api/v1/nodes/{id}`
+  and `{"site": "NAME"}` (`null` clears it; permission `admin:nodes`, audited
+  as `admin.node.replace`). It replicates with the node entry. A node on an
+  older release does not show or keep it, and enrolling through an older
+  issuing node registers the new node without a site.
 
 ## Redundancy: DNS, DHCP and the cluster
 

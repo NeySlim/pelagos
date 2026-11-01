@@ -329,6 +329,7 @@ Replication = model(
     "Replication",
     {"state": fields.String(enum=["ready", "syncing", "isolated"]), "peers": fields.List(fields.Raw)},
 )
+NodePatch = model("NodePatch", {"site": fields.String(description="site label, null clears it")})
 EnrollTokenRequest = model("EnrollTokenRequest", {"ttl_seconds": fields.Integer(default=900)})
 SyncAnswer = model("SyncAnswer", {"config_adopted": fields.Boolean, "audit_added": fields.Integer})
 

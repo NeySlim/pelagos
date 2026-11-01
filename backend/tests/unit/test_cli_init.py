@@ -126,3 +126,27 @@ def test_malformed_listen_is_refused(value):
 
     with pytest.raises(ListenError, match="not host:port"):
         split_listen(value)
+
+
+def test_init_site_is_stored_on_the_first_node(home, monkeypatch):
+    import tomllib
+
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", GOOD)
+    assert _init(home, "--site", " paris ") == 0
+    nodes = tomllib.loads((home / "var" / "cluster.toml").read_text())["nodes"]
+    assert nodes[0]["site"] == "paris"
+
+
+def test_init_without_site_writes_no_site_key(home, monkeypatch):
+    import tomllib
+
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", GOOD)
+    assert _init(home) == 0
+    assert "site" not in tomllib.loads((home / "var" / "cluster.toml").read_text())["nodes"][0]
+
+
+def test_init_refuses_a_bad_site_before_writing_anything(home, monkeypatch, capsys):
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", GOOD)
+    assert _init(home, "--site", "x" * 65) == 1
+    assert "--site" in capsys.readouterr().err
+    assert not (home / "var" / "cluster.toml").exists()

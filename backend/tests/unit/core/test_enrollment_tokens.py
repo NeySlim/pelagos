@@ -189,3 +189,24 @@ def test_node_toml_keeps_a_legacy_web_url_on_disk_and_warns(caplog):
     assert node.to_toml()["node"]["web_url"] == "ns1.example.lan:8443"
     node.web_url = "https://ns1.example.lan:8443"
     assert node.to_toml()["node"]["web_url"] == "https://ns1.example.lan:8443"
+
+
+def test_enroll_refuses_a_bad_site_before_burning_the_token(tmp_root, monkeypatch):
+    svc = EnrollmentService.__new__(EnrollmentService)
+    svc._ca = lambda: object()
+    svc.tokens = TokenStore()
+    token, _ = svc.tokens.issue("user:admin", ttl_seconds=60)
+    monkeypatch.setattr("pelagos.core.enrollment.ca_mod.csr_node_id", lambda _csr: "N2")
+    req = EnrollRequest(token, "ns2", "-", {}, "https://ns2:8444", None, "", site="a\nb")
+    with pytest.raises(EnrollError) as err:
+        svc.enroll(req)
+    assert err.value.status == 400 and err.value.field == "site"
+    assert svc.tokens.pending() == 1
+
+
+def test_the_enroll_request_carries_a_site_only_when_set():
+    base = EnrollRequest("t", "ns2", "-", {}, "https://ns2:8444", None, "1")
+    assert "site" not in base.to_dict()
+    assert EnrollRequest.from_dict({**base.to_dict(), "site": "paris"}).site == "paris"
+    # A 0.3.x issuing node never reads the key: the request without it still parses.
+    assert EnrollRequest.from_dict(base.to_dict()).site is None

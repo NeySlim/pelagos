@@ -45,7 +45,7 @@ from pelagos.core.repl_http import (
 )
 from pelagos.core.secrets import SecretBox, SecretError, write_master_key
 from pelagos.domain.audit import AuditEntry, AuditResult
-from pelagos.domain.cluster import NodeModules, Peer, clean_web_url
+from pelagos.domain.cluster import NodeModules, Peer, clean_site, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
 
 log = logging.getLogger(__name__)
@@ -102,6 +102,7 @@ class EnrollRequest:
     url: str
     web_url: str | None
     version: str
+    site: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -112,6 +113,7 @@ class EnrollRequest:
             "url": self.url,
             "web_url": self.web_url,
             "version": self.version,
+            **({"site": self.site} if self.site else {}),
         }
 
     @classmethod
@@ -125,6 +127,7 @@ class EnrollRequest:
                 url=str(data["url"]),
                 web_url=data.get("web_url"),
                 version=str(data.get("version", "")),
+                site=data.get("site"),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise EnrollError("validation_error", f"invalid enroll request: {exc}", 400) from exc
@@ -359,6 +362,13 @@ class EnrollmentService:
                 400,
                 "web_url",
             )
+        if req.site not in (None, "") and clean_site(req.site) is None:
+            raise EnrollError(
+                "validation_error",
+                "site must be 1 to 64 characters without control characters",
+                400,
+                "site",
+            )
         if self.config_store.load_cluster().peer(new_id_) is not None:
             raise EnrollError("conflict", f"node {new_id_} is already enrolled", 409)
         record = self.tokens.consume(req.token)
@@ -380,6 +390,7 @@ class EnrollmentService:
             name=req.name,
             url=req.url,
             web_url=req.web_url,
+            site=clean_site(req.site),
             cert_fingerprint=ca_mod.fingerprint(cert_pem),
             modules=NodeModules.from_dict(req.modules),
             enrolled_at=utcnow(),
@@ -600,6 +611,7 @@ def enroll_remote(
     csr_pem: bytes,
     self_url: str,
     web_url: str | None = None,
+    site: str | None = None,
     timeout: float = 15.0,
     retry_for: float = 0.0,
     notify: Callable[[str], None] = _quiet,
@@ -614,6 +626,7 @@ def enroll_remote(
         url=self_url,
         web_url=web_url,
         version=__version__,
+        site=site,
     )
     try:
         res = _request_with_retry(
@@ -656,6 +669,7 @@ def enroll_node(
     name: str | None = None,
     replication_url: str | None = None,
     web_url: str | None = None,
+    site: str | None = None,
     web_listen: str | None = None,
     replication_listen: str | None = None,
     engines: dict[str, Any] | None = None,
@@ -664,6 +678,8 @@ def enroll_node(
     notify: Callable[[str], None] = _quiet,
 ) -> EnrollResult:
     """The whole `pelagos enroll`: node.toml if absent, key and CSR, remote call, then every file at once."""
+    if site is not None and clean_site(site) is None:
+        raise ValueError("site must be 1 to 64 characters without control characters")
     paths.ensure()
     store = ConfigStore(paths.node_toml, paths.cluster_toml, paths.locks_dir / "cluster.lock")
     if store.cluster_exists():
@@ -703,6 +719,7 @@ def enroll_node(
         csr_pem=csr_pem,
         self_url=node.replication_url,
         web_url=node.web_url,
+        site=clean_site(site),
         timeout=timeout,
         retry_for=retry_for,
         notify=notify,
@@ -783,6 +800,7 @@ def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
             name=getattr(args, "name", None),
             replication_url=getattr(args, "replication_url", None),
             web_url=getattr(args, "web_url", None),
+            site=getattr(args, "site", None),
             web_listen=getattr(args, "web_listen", None),
             replication_listen=getattr(args, "replication_listen", None),
             engines=engines,

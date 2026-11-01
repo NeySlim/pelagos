@@ -87,6 +87,19 @@ class OneNode(Resource):
         return node.to_dict()
 
     @require("admin:nodes")
+    @ns.expect(m.NodePatch)
+    @ns.response(200, "Node with its new site", m.Node)
+    @ns.response(400, "validation_error: bad site label", m.Problem)
+    @ns.response(404, "not_found", m.Problem)
+    def patch(self, node_id: str):
+        body = json_body()
+        if set(body) != {"site"}:
+            raise ApiError("validation_error", 'body must be {"site": string or null}')
+        services().admin.set_node_site(node_id, body["site"], username(), client_ip())
+        node = next(n for n in _nodes() if n.peer.id == node_id)
+        return node.to_dict()
+
+    @require("admin:nodes")
     @ns.response(204, "Node removed and its certificate revoked")
     @ns.response(409, "conflict: a node cannot remove itself", m.Problem)
     def delete(self, node_id: str):

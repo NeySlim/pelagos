@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
+Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created
+in place in a version 1 cache, purged after `retention.lease_history_days` (90); `rebuild` drops it
+with the rest. The lease watch writes one row per `new`, `renew`, `reassign`, `release`, `expire`
+or `delete`; the live `leases` events keep their shape. Settings `collector.lease_history_enabled`
+(true), `collector.lease_history_renew_seconds` (86400). New `GET /dhcp/{family}/leases/history`
+and `GET /hosts/{key}/timeline` (section 17), new peer action `lease.history` (section 13; a peer
+without it is listed in `meta.unavailable`). WP-FRONTEND (U2-HOSTS-UI) builds the timeline on this
+contract and the mock (`frontend/mock/leaseHistory.mjs`). E2-REPORTS reads the same rows.
+
 ## 2026-11-01, W1-ROLLBACK-GUARDS (WP-BIND, WP-KEA, WP-COLLECTOR): connector rollback guards
 Additive. `BindBackend`, `KeaBackend` and `D2Backend` implement `check_rollback(plan)` (section 6):
 reads only (a backup set and a few digests, one `config-hash-get`), raises `PreconditionFailed`.
@@ -23,6 +33,7 @@ keeps a plan's private state for `plans.rollback_window_seconds` plus `peers.pla
 after the apply (memory only), same `finished_at` rule. The collector's backup purge and the
 replication housekeeping keep at least `ceil(window / 86400)` days. No API shape change:
 these refusals now answer `409 precondition_failed` instead of a `200` with state `failed`.
+
 
 ## 2026-11-01, B1-SITE (WP-CORE, WP-API-AUTH, WP-FRONTEND): site label on a node
 Additive. `domain.cluster.Peer` gains `site: str | None = None` (1 to 64 code points, trimmed, no

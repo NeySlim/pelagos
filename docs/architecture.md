@@ -1727,6 +1727,8 @@ consistency_seconds = 900
 live_seconds = 5                         # HA heartbeats, lease watch (section 15)
 lease_watch_max_leases = 50000           # largest lease table the lease watch walks
 hosts_cache_max_age_seconds = 60         # web process: host join cache (section 15)
+lease_history_enabled = true             # lease history (section 15)
+lease_history_renew_seconds = 86400      # at most one renew row per address this often (0: all)
 
 [settings.retention]                     # section 15
 pool_raw_days = 7
@@ -1735,6 +1737,7 @@ serial_days = 90
 ha_transition_days = 365
 alerts_resolved_days = 90
 backups_days = 90
+lease_history_days = 90
 
 [settings.rpz]                           # section 21
 check_seconds = 300
@@ -2169,6 +2172,7 @@ run under the collector's backend lock):
 | `kea.migration.leases` | `{"migration","family","from_node","sha256","size"}` or `{"migration","family","from_node","skipped"}` | `{"path","sha256","size"}` or `{"path": null,"skipped"}`: accepted only from the `driver` of the migration this node's cluster.toml holds, while it is active, between two of its nodes; this node fetches the lease copy of `from_node` (`GET /repl/v1/kea/leases/<family>`) into its own `<var>/kea-migration/<id>/leases<family>.received.csv` (0600), checks size and sha256 (a mismatch removes it and refuses), and notes `{"from_node","sha256","size"}` (or `skipped`) in `leases<family>.received.json` for the step `kea-mig-leases-in` (section 28, batch K5) |
 | `kea.migration.ha` | `{"engines"}` (`kea4`, `kea6`) | `{"node_id","engines": {engine: {"entries","states","leases","error"}}}`: `status-get` (`entries` the raw `high-availability` entries, `states` their local states) and a one-lease page (`lease4-get-page` / `lease6-get-page`; `leases` `ok`, `unsupported` without the lease commands hook, null on an error) of this node's daemons through fresh connectors; read only, polled by the driver of a Kea migration (section 28) |
 | `ha.transitions` | `{"engine"?,"since","until"}` | `{"node_id","items"}`: the HA history this node's collector recorded, the `GET /dhcp/{family}/ha/transitions` rows of this node |
+| `lease.history` | `{"engine","ip"?,"hw"?,"duid"?,"hostname"?,"since","until","limit"}` | `{"node_id","items": [row],"truncated"}`: this node's `lease_events` rows (section 15, Lease history), newest first, at most `limit` (5000) |
 | `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
@@ -2176,7 +2180,7 @@ run under the collector's backend lock):
 | `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ha.transitions`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory`, `kea.migration.analyze`, `kea.migration.leases` and `kea.migration.ha` actions never use the collector's connectors and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ha.transitions`, `lease.history`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory`, `kea.migration.analyze`, `kea.migration.leases` and `kea.migration.ha` actions never use the collector's connectors and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2640,7 +2644,21 @@ CREATE INDEX alerts_state ON alerts(state, severity);
 CREATE TABLE engine_snapshots (                                          -- last known read per node per engine, for the UI when a daemon is down
   node_id TEXT NOT NULL, engine TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
   PRIMARY KEY (node_id, engine, kind));
+CREATE TABLE lease_events (                                              -- schema version 2: lease history (below)
+  ts INTEGER NOT NULL, node_id TEXT NOT NULL, engine TEXT NOT NULL, event TEXT NOT NULL,
+  ip TEXT NOT NULL, lease_type TEXT, hw TEXT, duid TEXT, client_id TEXT, hostname TEXT,
+  subnet_id INTEGER, cltt INTEGER, valid_lft INTEGER, state TEXT);
+CREATE INDEX lease_events_ip ON lease_events(ip, ts);
+CREATE INDEX lease_events_hw ON lease_events(hw, ts);
+CREATE INDEX lease_events_duid ON lease_events(duid, ts);
+CREATE INDEX lease_events_hostname ON lease_events(hostname, ts);
+CREATE INDEX lease_events_ts ON lease_events(ts);
 ```
+
+`meta.schema_version` is 2 since 0.4.0. Schema changes are additive: a
+version 1 cache gains the new tables and columns in place when the collector
+opens it, nothing else is touched; an older collector opening a version 2
+cache ignores the tables it does not know.
 
 `ts` are Unix seconds UTC. Retention (defaults in `settings.retention`, all
 configurable): `series_pool` rows older than `pool_raw_days` (7) are
@@ -2649,7 +2667,8 @@ aggregated into `series_pool_hourly` and deleted; hourly rows older than
 `serial_days` (90) are deleted, except that the latest row per
 `(zone, view, node_id)` is always kept; `ha_transitions` older than
 `ha_transition_days` (365) are deleted; resolved alerts older than
-`alerts_resolved_days` (90) are deleted; the audit log is never purged.
+`alerts_resolved_days` (90) are deleted; `lease_events` older than
+`lease_history_days` (90) are deleted; the audit log is never purged.
 `pelagos collector --rebuild` drops and recreates the cache: everything in
 it is derived.
 
@@ -2798,6 +2817,48 @@ relationship with each other by `shared`. A node that publishes no
 hash of the divergent nodes) and `relationships` (`[{"servers",
 "hashes"}]`).
 
+
+#### Lease history
+
+Answers "which client held this address at that time" (B1-LEASEHIST). Each
+lease watch walk (above) also diffs the table against the last known state of
+every address of that engine and writes one `lease_events` row per change, in
+the task's transaction. The row carries the lease as it was then (`hw`,
+`duid`, `client_id`, `hostname`, `subnet_id`, `cltt`, `valid_lft`, `state`;
+`lease_type` `IA_NA`/`IA_TA`/`IA_PD` on DHCPv6, null on DHCPv4; `ip` the
+address or the delegated prefix without its length; `hostname` lowercase
+without the trailing dot). `event`:
+
+| Event | When | `ts` |
+| --- | --- | --- |
+| `new` | an address is held and was not, by no client or by this same client before (free, released, expired) | `cltt` |
+| `renew` | the same client, `cltt` moved forward (recorded at most once per `collector.lease_history_renew_seconds`, 86400, per address, unless the hostname, subnet, lifetime or state changed too; 0 records every renewal) | `cltt` |
+| `reassign` | the address is held by another client (hardware address, else DUID, else client id) than its last known holder, free in between or not; the row names the new client | `cltt` |
+| `release` | the lease went to state `released` (Kea lease affinity) | the walk |
+| `expire` | the lease went to `expired-reclaimed`, or left the table after `cltt + valid_lft` | `cltt + valid_lft` |
+| `delete` | the lease left the table before its expiry (`lease4-del`, a release the server drops at once) or went to `declined`; the row names the last holder | the walk |
+
+The last known state is seeded on the first walk from the newest row of each
+address this node recorded, so a collector restart records what changed while
+it was stopped, and a fresh cache records every held lease once as `new`.
+The live `leases` events (section 18) keep their shape and rules (the first
+walk still sends none). A change between two walks of the same address
+collapses (a lease added and removed between walks leaves no row); the walk
+pacing above bounds that window, and a table larger than
+`collector.lease_watch_max_leases` has no history. `collector.lease_history_enabled`
+(true) false writes nothing and frees the per-engine state.
+
+Each node records what its own Kea servers hold (an HA pair records the same
+leases twice). `GET /dhcp/{family}/leases/history` and `GET
+/hosts/{key}/timeline` (section 17) read this node's cache and every peer
+running that Kea over the `lease.history` peer action (section 13, 4 s per
+peer), and merge: rows equal on `(engine, ip, lease_type, event, hw, duid,
+client_id, cltt)` are one item whose `nodes` lists every node that recorded
+it (the earliest `ts` wins). A peer that does not answer, or runs a release
+without the action, is named in `meta.unavailable`. Each node returns at
+most 5000 rows per query, newest first; `meta.truncated` says one stopped
+there. Reading Kea's `legal_log` hook output (forensic logging) is out of
+scope: that file stays the authoritative record where it is configured.
 
 #### Host join cache
 
@@ -3505,6 +3566,7 @@ the API normalizes to the absolute form.
 | `POST /dhcp/{family}/reservations/plan` | `write:dhcp.reservations` | `{"change": Change}` (`after` = Reservation) | `Plan` |
 | `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC or DUID sent to Kea's lookup commands, or a hostname: Kea's exact lookup plus the leases whose hostname contains it, from a page walk of at most 20000 leases (no cursor) |
 | `GET /dhcp/{family}/leases/recent?limit=` | `read:dhcp` | | `{"items": [lease], "as_of", "nodes"}`: the latest client transactions by `cltt` across the nodes (the collectors' `recent_leases` snapshots, read-only; `limit` 1 to 50, default 20), one per address (the newest copy of an HA pair), fields as the `leases`/`lease` event (section 15); `as_of` is the oldest walk read |
+| `GET /dhcp/{family}/leases/history?ip=&mac=&duid=&hostname=&since=&until=&node_id=&page=&per_page=` | `read:dhcp` | | paginated `LeaseEvent` `{"ts","event","engine","family","ip_address","lease_type","hw_address","duid","client_id","hostname","subnet_id","cltt","valid_lft","expires_at","state","nodes"}` (times RFC 3339), newest first; `meta`: `{"unavailable": [{"node_id","name","error"}], "truncated"}`. Filters combine (AND): `ip` exact (canonical form), `mac` (any separator, case-insensitive), `duid`, `hostname` (case-insensitive, trailing dot ignored); `since`/`until` RFC 3339 or Unix seconds (default: the retention window up to now); `node_id` reads one node. Section 15, Lease history |
 | `GET /dhcp/{family}/leases/{ip}` | `read:dhcp` | | `{"items": [Lease]}` (one per node, to show HA agreement) |
 | `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default every node holding the lease, HA partner and backups alike, since lease commands are not replicated by the ha hook; with `node_id` that node only; `404` when no node holds it) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
@@ -3544,6 +3606,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | --- | --- | --- | --- |
 | `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest; sources come through the host join cache (section 15): a zone is read again only when its serial moved, a source at the latest after `collector.hosts_cache_max_age_seconds` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
+| `GET /hosts/{key}/timeline?since=&until=&page=&per_page=` | `read:hosts` | | paginated `{"ts","source": "lease","event",...LeaseEvent}` of one host, newest first, `meta` as `GET /dhcp/{family}/leases/history` plus `key`: `mac:` the events of that hardware address, `ip:` of that address, `name:` of that hostname, both families (DHCPv6 with the `dhcpv6` module); the key need not be a current host. Later sources (DNS changes) add items with another `source` |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
 
 ### Search

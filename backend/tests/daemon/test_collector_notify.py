@@ -290,7 +290,10 @@ def test_one_sender_groups_and_hands_over_without_losing_a_batch(pair):
     [sent] = rx.ok("/hook", "test")
     assert signed(sent) and sent.body["schema"] == "pelagos.notification.v1" and sent.body["events"] == []
 
-    # Two daemons down at once: one message from ns1 listing both, nothing from ns2.
+    # Two daemons down at once: one message from ns1 listing both, nothing from ns2. Each collector
+    # sees its own named stop on its next poll, and ns1 reads ns2's alert over the peer view: under
+    # load that spreads the two openings past a 5 s window, so the window under test is 30 s.
+    pair.settings(notifications={"group_seconds": 30})
     t0 = time.time()
     for server in pair.named:
         server.stop()
@@ -299,7 +302,8 @@ def test_one_sender_groups_and_hands_over_without_losing_a_batch(pair):
     assert sorted(batch.events) == [("opened", "daemon_down", "ns1"), ("opened", "daemon_down", "ns2")]
     assert batch.headers["x-pelagos-delivery"] == batch.body["id"]
     assert batch.body["open"]["critical"] >= 2
-    assert batch.at - t0 < 60
+    # Detection (one poll), the 30 s window from the first opening, a dispatcher tick, and load.
+    assert batch.at - t0 < 90
     time.sleep(25)
     assert len(rx.ok("/hook", "events")) == 1, [d.events for d in rx.ok("/hook")]
     history = pair.api("GET", f"/admin/notifications/history?channel_id={hook['id']}")

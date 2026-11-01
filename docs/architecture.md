@@ -3044,7 +3044,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `archive_failed` | warning, critical | the archive of this node could not be written to a destination (subject `archive:<destination id>`, `local` included); critical after `checks.archive_failures_critical_count` failures in a row; details `failures`, `error`; section 23 |
 | `archive_stale` | warning | the last successful archive of this node is older than `checks.archive_stale_factor` x `archives.interval_hours` while `archives.schedule_enabled` (subject `archive:last`) |
 | `archive_incomplete` | info | the last archive lists files it could not read (subject `archive:incomplete`; details `files`); exceptable |
-| `archive_key_unverified` | warning | while `archives.schedule_enabled`, no recipient was proven to open archives by a pasted private key (`verified_at`), or the newest proof is older than `archives.key_reminder_days` (0: only when none); raised by the first node of `[[nodes]]` alone (the recipients are cluster-wide), subject `archive:key`; details `verified_at` (newest, or null), `days`, `reminder_days`; section 23 |
+| `archive_key_unverified` | warning | while `archives.schedule_enabled`, no recipient was proven to open archives by a pasted private key (`verified_at`), or the newest proof is older than `archives.key_reminder_days` (0: only when none); raised by the service node alone (section 22 election, offline peers skipped: the recipients are cluster-wide), subject `archive:key`; details `verified_at` (newest, or null), `days`, `reminder_days`; section 23 |
 | `ddns_outage` | critical | the active primary of a prepared dynamic zone receives no DDNS update: D2 `update-timeout` toward it, its node offline or its named down (cluster-wide, subject `ddns:<view>/<zone>`; details `primary_node_id`, `since`, `epoch`, `candidates`); proposes the failover plan; section 24 |
 | `ddns_replay` | warning | active leases whose `cltt` falls in the last outage window lack their A, AAAA or PTR (cluster-wide, subject `ddns:replay`; details `from`, `to`, `count`); proposes the replay plan |
 | `kea_series_obsolete` | info | a node runs a Kea series that ISC no longer maintains (date from `pelagos/data/isc_advisories.json`, section 26); per node, subject `kea:series`; details `engine`, `version`, `series`, `source`, `package`, `eol`, `successor`, `reference` (the data's source URL), `checked_at`, `remediation: "kea_migration"`; exceptable with `admin:settings` |
@@ -4870,14 +4870,17 @@ command line, B6 API and screen, B7 lab.
   older nodes copy them unchanged). `POST /admin/archives/keys/{recipient}/verify` sets them when
   the private key pasted by the operator opens a test archive encrypted in memory to that recipient
   (the same `age.Encryptor` as a run) and, when this node holds an archive encrypted to it, that
-  archive's header and first chunk. Any kind counts: for the `cluster` entry it proves the copy
+  archive's header and first chunk. The identity lives in the web process memory for the request
+  only; it is not written anywhere (it is not wiped from memory either). Any kind counts: for the `cluster` entry it proves the copy
   shown once by `generate` or `rotate` was kept; a rotation makes a new entry without proof.
   Turning `schedule_enabled` on (false before, true after, through either settings route) is
   refused `409 archive_key_unverified` while no entry has `verified_at`; a cluster already
   scheduled before 0.4.0 keeps running, and `archive_key_unverified` (section 15) warns until a
   key is proven, then again once the newest proof is older than `key_reminder_days`. Removing the
   proven entry is not refused (the alert follows). Audit `admin.archive.op` with `request.op`
-  `verify_key`, `request.recipient`, result `ok` or `error` (a failed attempt is audited too).
+  `verify_key`, `request.recipient`, result `ok` or `error`: every failed attempt is audited too,
+  an unknown recipient, a missing or oversized identity and a rate limit refusal included
+  (`response.reason`), never the pasted text.
 - **Destination**: `{"id","type": "peer"|"mounted"|"sftp","name","enabled",
   "params","keep": null|{"daily","weekly","monthly"}}`; `local` is implicit
   and always written. `peer` `{"node_ids": []}` ([] = every other node);
@@ -5087,8 +5090,15 @@ command line, B6 API and screen, B7 lab.
 - **Restore check** (`pelagos restore --verify [--archive] F [--identity F]... [--workdir D]
   [--json]`, 0.4.0, `OfflineRestore.verify`): proves an archive restorable without touching the
   host: no root needed (an identity is then required unless this node's master key is readable),
-  no file outside a 0700 work folder (under `/run` when it has room, removed afterwards) is
-  written, no unit is stopped or started, no audit entry. It never raises on a bad archive: the
+  no file outside a 0700 work folder is written, no unit is stopped or started, no audit entry.
+  The work folder is under `/run` for root, else under `$XDG_RUNTIME_DIR`, when it has room, else
+  under the temporary folder (`/tmp`, a disk on some distributions); it is removed afterwards,
+  also on SIGHUP (a lost ssh session) and SIGTERM (`--dry-run` too). The archive is decrypted
+  twice: the first pass reads the manifest (the last member), the second writes only the engine
+  configurations (BIND user and managed files, static zone files, Kea `.conf` and `.json` files),
+  the zone snapshots, `node.toml` and `cluster.toml`; `master.key`, TLS and DNSSEC private keys,
+  D2 secret files and leases are only hashed, never written. Every member's sum is checked in both
+  passes. It reports instead of raising (a bad manifest, a missing `--workdir`): the
   report `{"ok","archive","manifest" (null when unopened),"checks": [{"what","ok" (null: not
   checked),"output"}],"warnings","host": [text]}` lists, in order: `sha256` (the `.sha256` beside
   the file; a warning when absent), `decrypt` (age header and payload, every member's sum against
@@ -5099,7 +5109,9 @@ command line, B6 API and screen, B7 lab.
   `named-checkconf`, `named-checkzone` per archived zone, `kea-dhcp4 -T`, `kea-dhcp6 -T`
   (`-T` loads the hooks and opens no socket and no file; `-t` where `-T` is unknown) and
   `kea-dhcp-ddns -t`, run with the caller's environment (Kea's `KEA_*_DIR` path rules, as for
-  the daemons). `host` lists what a real restore on this host would refuse (another node,
+  the daemons). `-T` loads the hook libraries the archive names and opens their database
+  connections, and `named-checkconf` reads every file an include names: check archives you trust,
+  or run `--verify` as an unprivileged user. `host` lists what a real restore on this host would refuse (another node,
   a missing engine or account), for information only. `ok` is false when a check is false;
   exit status 0 or 1. The scheduled test restore runs the same engine and `cluster.toml` checks.
 - **API and screen** (B6, `services/archive_service.py`, `api/archives.py`, Administration >

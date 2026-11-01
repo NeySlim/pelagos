@@ -174,6 +174,13 @@ gives the report:
 pelagos restore --verify ns2-20261028T031500Z.tar.gz.age --identity cluster-key.txt
 ```
 
+Only the engine configurations, the zones, `node.toml` and `cluster.toml`
+are written to the folder (under `$XDG_RUNTIME_DIR` or `/tmp` without root);
+`master.key` and the private keys are never written, and the folder is
+removed even when the session is cut. `kea-dhcp4 -T` loads the hook
+libraries the archive names and `named-checkconf` reads every file an
+include names: check archives you trust, as an unprivileged user.
+
 It also notes what a real restore on this host would refuse (another node
 already installed, a missing engine). The scheduled test restore
 (`archives.test_restore_days`) runs the same checks on each node's newest

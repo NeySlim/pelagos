@@ -58,14 +58,15 @@ renamed from `ipv6.poll_seconds` (`RENAMED`); `retention.neighbor_observation_da
 Section 23 "Key proof" and "Restore check". Additive: `archives.recipients` entries may carry
 `verified_at` and `verified_by` (older nodes copy them unchanged); new setting
 `archives.key_reminder_days` (90); new alert kind `archive_key_unverified` (`domain.alerts`,
-warning, raised by the first node of `[[nodes]]`); new error code `archive_key_unverified` (409,
+warning, raised by the service node of section 22, `ArchiveRunner.service_node` wired by
+`collector/main.py`); new error code `archive_key_unverified` (409,
 `api/errors.py`); new route `POST /admin/archives/keys/{recipient}/verify` (the pasted identity is
 never stored, logged or audited). Behaviour change: turning `archives.schedule_enabled` on is
 refused with `409 archive_key_unverified` until a recipient is proven; a cluster already scheduled
 keeps running and gets the alert. `services.archive_service.refuse_schedule_without_recipient`
 takes the current settings as a third argument (`admin_service.update_settings` passes them).
-`pelagos restore --verify` checks an archive on copies (no root, nothing written outside its work
-folder, report with exit 0 or 1); the scheduled test restore uses the same checks
+`pelagos restore --verify` checks an archive on copies of the engine files (no root, no key
+written, nothing outside its work folder, removed on SIGHUP and SIGTERM, report with exit 0 or 1); the scheduled test restore uses the same checks
 (`kea-dhcp4|6 -T` instead of `-t` when the daemon does not answer, plus `cluster.toml`).
 Audit segments (B1-AUDIT): the online `pelagos.audit` part already merges every `audit*.jsonl`
 member and never restores a seal; the offline rebuild puts the node's own audit directory back

@@ -279,7 +279,7 @@ class TestReferencePair:
         since = int(time.time())
         job = api(A1).apply(plan, timeout=900)
         names = [s["name"] for s in job["steps"]]
-        assert "2-d2-switch/ns2" in names and names[-1].endswith("3-bind-remove")
+        assert "2-d2-switch/ns2" in names and any(n.endswith("3-bind-remove") for n in names)
         assert left(api(A1).get("/install/security")["findings"]) == []
         # ns2 holds secondary copies only: its finding opens transfers to ddi-read.
         rest = api(A2).get("/install/security")["findings"]

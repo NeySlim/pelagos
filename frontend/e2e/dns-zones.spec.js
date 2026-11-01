@@ -303,6 +303,7 @@ test.describe('record types', () => {
       await editor.getByTestId('record-fields-add').click()
       await expect(editor.getByTestId('record-preview')).toContainText(`IN SSHFP 4 2 ${fp}`)
     })
+    await page.getByPlaceholder('Search records...').fill('bastion')
     const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'bastion' })
     await expect(row).toContainText('SSHFP')
   })
@@ -316,6 +317,8 @@ test.describe('record types', () => {
       await editor.getByTestId('record-rdata').fill('1 . alpn="h2,h3" port=8443')
       await expect(editor.getByTestId('record-preview')).toContainText('IN HTTPS 1 . alpn="h2,h3" port=8443')
     })
+    // The zone holds more rows than a page: search for the new one.
+    await page.getByPlaceholder('Search records...').fill('svc')
     const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'alpn="h2,h3"' })
     await expect(row).toContainText('HTTPS')
   })

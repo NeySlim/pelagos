@@ -122,6 +122,14 @@ def test_packaged_catalogs_match_the_frontend():
         assert packaged == catalog.dump(built), f"run make notify-catalogs ({lang})"
 
 
+def test_languages_follow_the_locale_folders():
+    if not LOCALES.is_dir():
+        pytest.skip("frontend catalogs not in this tree")
+    folders = [p.name for p in LOCALES.iterdir() if p.is_dir()]
+    assert catalog.LANGUAGES == catalog._codes(folders), "run make notify-catalogs"
+    assert catalog.LANGUAGES[0] == "en"
+
+
 def test_catalog_fallbacks():
     assert catalog.text("fr", "event.opened") == "Ouverte"
     assert catalog.text("fr", "no.such.key") == "no.such.key"

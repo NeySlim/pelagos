@@ -16,16 +16,24 @@ from typing import Any
 
 from pelagos.domain import messages
 
-LANGUAGES = ("en", "fr")
 NAMESPACES = ("messages", "notify")
 DATA = Path(__file__).resolve().parents[1] / "data" / "i18n"
+
+
+def _codes(names: list[str]) -> tuple[str, ...]:
+    """English first (the fallback), then the other languages in alphabetical order."""
+    return tuple(sorted(names, key=lambda code: (code != "en", code)))
+
+
+# One language per generated file: adding a language adds its folder in the frontend locales.
+LANGUAGES = _codes([p.stem for p in DATA.glob("*.json")]) or ("en",)
 _PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 
 def build(locales: Path) -> dict[str, dict[str, Any]]:
     """The server catalogs from the frontend `src/i18n/locales` directory."""
     out: dict[str, dict[str, Any]] = {}
-    for lang in LANGUAGES:
+    for lang in _codes([p.name for p in locales.iterdir() if p.is_dir()]):
         out[lang] = {ns: json.loads((locales / lang / f"{ns}.json").read_text("utf-8")) for ns in NAMESPACES}
     return out
 

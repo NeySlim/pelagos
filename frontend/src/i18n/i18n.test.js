@@ -2,6 +2,7 @@
 // Every namespace exists in every language with exactly the same keys, and every
 // label the navigation and the area pages use resolves in each language.
 import { describe, it, expect } from 'vitest'
+import { readdirSync } from 'node:fs'
 import i18n, { resources, languages } from './index'
 import { allNavItems, navGroups, allRoutes } from '../pages/routes'
 
@@ -17,13 +18,31 @@ function placeholders(text) {
   return [...String(text).matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]).sort()
 }
 
+// Every folder of locales/ is a language, even an empty one (the glob does not see it).
+const folders = readdirSync('src/i18n/locales', { withFileTypes: true })
+  .filter((d) => d.isDirectory())
+  .map((d) => d.name)
+  .sort()
+
 describe('i18n resources', () => {
   const codes = languages.map((l) => l.code)
   const namespaces = Object.keys(resources.en)
 
-  it('has en and fr with the same namespaces', () => {
-    expect(codes).toEqual(['en', 'fr'])
-    for (const lang of codes) expect(Object.keys(resources[lang]).sort()).toEqual([...namespaces].sort())
+  it('lists every locale folder as a language, English first', () => {
+    expect(codes[0]).toBe('en')
+    expect([...codes].sort()).toEqual(folders)
+    expect(languages.find((l) => l.code === 'fr').name).toBe('Français')
+  })
+
+  // A new folder must carry every namespace and key of English: the failure lists what is missing.
+  it.each(folders)('locale %s has every namespace and key of English', (lang) => {
+    const missing = []
+    for (const ns of namespaces) {
+      const have = new Set(flatKeys(resources[lang]?.[ns] || {}))
+      if (!resources[lang]?.[ns]) missing.push(`${lang}/${ns}.json (file)`)
+      else for (const key of flatKeys(resources.en[ns])) if (!have.has(key)) missing.push(`${lang}/${ns}.json ${key}`)
+    }
+    expect(missing, `missing in ${lang}:\n${missing.join('\n')}`).toEqual([])
   })
 
   it.each(namespaces)('namespace %s has the same keys and placeholders in every language', (ns) => {

@@ -15,10 +15,20 @@ for (const [path, content] of Object.entries(files)) {
   resources[lang][ns] = content
 }
 
-export const languages = [
-  { code: 'en', name: 'English' },
-  { code: 'fr', name: 'Français' },
-]
+// A language is a folder under locales/: English first (the fallback), the others by code.
+// Each is named in its own language ("Français"), so a reader finds it whatever the UI language.
+export function languageName(code) {
+  try {
+    const name = new Intl.DisplayNames([code], { type: 'language' }).of(code)
+    return name ? name.charAt(0).toLocaleUpperCase(code) + name.slice(1) : code
+  } catch {
+    return code
+  }
+}
+
+export const languages = Object.keys(resources)
+  .sort((a, b) => (a === 'en' ? -1 : b === 'en' ? 1 : a.localeCompare(b)))
+  .map((code) => ({ code, name: languageName(code) }))
 
 export const namespaces = Object.keys(resources.en || {})
 

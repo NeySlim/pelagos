@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { parseDdnsValue, noteOf, ownerOf, withNote, userContextEntries, haTransitionRows, ipv4InPrefix, defaultReservationSubnet } from './lib'
+import { parseDdnsValue, noteOf, ownerOf, withNote, userContextEntries, haTransitionRows, ipv4InPrefix, defaultReservationSubnet, sameValue, isUnchanged, firstBadPool, optionRowsOf, optionRowsToText, leasesHref } from './lib'
 
 describe('haTransitionRows', () => {
   it('reads Unix seconds and ISO strings, newest first', () => {
@@ -73,5 +73,35 @@ describe('defaultReservationSubnet', () => {
     expect(ipv4InPrefix('198.51.100.127', '198.51.100.0/25')).toBe(true)
     expect(ipv4InPrefix('198.51.100.128', '198.51.100.0/25')).toBe(false)
     expect(ipv4InPrefix('x', '198.51.100.0/25')).toBe(false)
+  })
+})
+
+describe('unchanged guard helpers', () => {
+  it('reads null, undefined and empty alike and ignores key order', () => {
+    expect(sameValue({ a: 1, b: null }, { b: undefined, a: 1 })).toBe(true)
+    expect(sameValue({ a: [1, { x: '' }] }, { a: [1, {}] })).toBe(true)
+    expect(sameValue({ a: 1 }, { a: 2 })).toBe(false)
+    expect(sameValue([1], [1, 2])).toBe(false)
+  })
+
+  it('is never unchanged for an add', () => {
+    expect(isUnchanged(null, { id: 1 })).toBe(false)
+    expect(isUnchanged({ id: 1 }, { id: 1 })).toBe(true)
+  })
+
+  it('finds the first bad pool row', () => {
+    expect(firstBadPool(['192.0.2.1 - 192.0.2.9', ' ', '192.0.2.0/24'], 'v4')).toBeNull()
+    expect(firstBadPool(['192.0.2.1 - 192.0.2.9', 'nope'], 'v4')).toEqual({ index: 1, value: 'nope' })
+    expect(firstBadPool(['192.0.2.0/33'], 'v4')).toEqual({ index: 0, value: '192.0.2.0/33' })
+  })
+
+  it('round-trips option rows', () => {
+    const rows = optionRowsOf([{ name: 'routers', data: '192.0.2.1' }, { code: 6, data: '192.0.2.53' }])
+    expect(rows).toEqual([{ key: 'routers', value: '192.0.2.1' }, { key: '6', value: '192.0.2.53' }])
+    expect(optionRowsToText([...rows, { key: '', value: '' }])).toBe('routers = 192.0.2.1\n6 = 192.0.2.53')
+  })
+
+  it('links a pool to its declined leases', () => {
+    expect(leasesHref('v4', 3, 'declined')).toBe('/dhcp/v4/leases?subnet_id=3&state=declined')
   })
 })

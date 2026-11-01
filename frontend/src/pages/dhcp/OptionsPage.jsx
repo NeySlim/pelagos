@@ -13,7 +13,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, Checkbox, RowActions } from './ui'
 import { usePlanFlow } from './hooks'
-import { fieldErrors, optionSpace } from './lib'
+import { fieldErrors, isUnchanged, optionSpace } from './lib'
 
 const flag = (value) => (value === true ? '✓' : '')
 const optionId = (o) => o.name || String(o.code)
@@ -125,6 +125,18 @@ function OptionForm({ family, option, existing, flow, onClose }) {
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
 
+  const after = {
+    ...(option || { raw: {} }),
+    name: form.name || null,
+    code: form.code === '' ? null : Number(form.code),
+    space: form.space,
+    data: form.data,
+    csv_format: form.csv_format,
+    always_send: form.always_send,
+    never_send: form.never_send,
+  }
+  const unchanged = isUnchanged(option, after)
+
   const submit = async () => {
     const e = {}
     if (!form.name && form.code === '') e.name = t('form.nameOrCode')
@@ -132,20 +144,10 @@ function OptionForm({ family, option, existing, flow, onClose }) {
     if (isNew && existing.some((o) => (form.name && o.name === form.name) || (form.code !== '' && o.code === Number(form.code)))) e.name = t('form.nameTaken')
     setErrors(e)
     if (Object.keys(e).length) return
-    const after = {
-      ...(option || { raw: {} }),
-      name: form.name || null,
-      code: form.code === '' ? null : Number(form.code),
-      space: form.space,
-      data: form.data,
-      csv_format: form.csv_format,
-      always_send: form.always_send,
-      never_send: form.never_send,
-    }
     try {
       const plan = await flow.build(
         () => api.dhcp.optionsPlan(family, [{ op: isNew ? 'add' : 'replace', target: optionTarget(after, family), before: option || null, after }]),
-        { rethrow: true },
+        { rethrow: true, unchanged },
       )
       if (plan) onClose()
     } catch (err) {
@@ -161,6 +163,7 @@ function OptionForm({ family, option, existing, flow, onClose }) {
       onSubmit={submit}
       submitLabel={t('form.preview')}
       loading={flow.building}
+      disabled={unchanged}
       testId="option-form"
     >
       <div className="grid gap-3 sm:grid-cols-[1fr_100px_120px]">

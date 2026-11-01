@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Small components shared by the DHCP, hosts and nodes areas.
 import { useTranslation } from 'react-i18next'
-import { ArrowsClockwise, PencilSimple, Trash } from '@phosphor-icons/react'
+import { ArrowsClockwise, PencilSimple, Plus, Trash } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
+import { Input } from '../../components/Input'
 import { PageLayout } from '../../components/PageLayout'
 import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
@@ -108,7 +109,7 @@ export function TextArea({ label, hint, value, onChange, rows = 3, placeholder, 
 }
 
 // Native select: the forms keep plain FormData-free state, and this stays testable.
-export function NativeSelect({ label, value, onChange, options, testId, disabled }) {
+export function NativeSelect({ label, value, onChange, options, testId, disabled, helperText }) {
   return (
     <label className="block">
       {label && <FieldLabel>{label}</FieldLabel>}
@@ -125,6 +126,7 @@ export function NativeSelect({ label, value, onChange, options, testId, disabled
           </option>
         ))}
       </select>
+      {helperText && <span className="block text-2xs text-text-tertiary mt-1">{helperText}</span>}
     </label>
   )
 }
@@ -209,5 +211,64 @@ export function RowActions({ onEdit, onDelete, editLabel, deleteLabel, testId })
         </Button>
       )}
     </span>
+  )
+}
+
+// Editable list of rows, one input per row with its own error, add and remove. `rows` is an
+// array of strings; `onChange` receives the new array. Row `i` error: `errors[i]`.
+export function PoolRows({ label, hint, rows, onChange, placeholder, errors = {}, addLabel, removeLabel, testId }) {
+  const setRow = (i, value) => onChange(rows.map((r, j) => (j === i ? value : r)))
+  return (
+    <fieldset className="space-y-1.5" data-testid={testId}>
+      <legend><FieldLabel hint={hint}>{label}</FieldLabel></legend>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-start gap-1.5" data-testid={`${testId}-row`}>
+          <div className="flex-1">
+            <Input
+              aria-label={`${label} ${i + 1}`}
+              value={row}
+              onChange={(e) => setRow(i, e.target.value)}
+              placeholder={placeholder}
+              error={errors[i]}
+              className="font-mono"
+            />
+          </div>
+          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(rows.filter((_, j) => j !== i))} title={removeLabel} aria-label={`${removeLabel} ${i + 1}`} data-testid={`${testId}-remove`}>
+            <Trash size={13} className="status-danger-text" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="secondary" size="xs" onClick={() => onChange([...rows, ''])} data-testid={`${testId}-add`}>
+        <Plus size={12} />
+        {addLabel}
+      </Button>
+    </fieldset>
+  )
+}
+
+// Option rows { key, value }: name (or code) on the left, data on the right.
+export function OptionRows({ label, hint, rows, onChange, keyLabel, valueLabel, keyPlaceholder, valuePlaceholder, errors = {}, addLabel, removeLabel, testId }) {
+  const setRow = (i, patch) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  return (
+    <fieldset className="space-y-1.5" data-testid={testId}>
+      <legend><FieldLabel hint={hint}>{label}</FieldLabel></legend>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-start gap-1.5" data-testid={`${testId}-row`}>
+          <div className="w-2/5">
+            <Input aria-label={`${keyLabel} ${i + 1}`} value={row.key} onChange={(e) => setRow(i, { key: e.target.value })} placeholder={keyPlaceholder} error={errors[i]} className="font-mono" />
+          </div>
+          <div className="flex-1">
+            <Input aria-label={`${valueLabel} ${i + 1}`} value={row.value} onChange={(e) => setRow(i, { value: e.target.value })} placeholder={valuePlaceholder} className="font-mono" />
+          </div>
+          <Button type="button" variant="ghost" size="xs" onClick={() => onChange(rows.filter((_, j) => j !== i))} title={removeLabel} aria-label={`${removeLabel} ${i + 1}`} data-testid={`${testId}-remove`}>
+            <Trash size={13} className="status-danger-text" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="secondary" size="xs" onClick={() => onChange([...rows, { key: '', value: '' }])} data-testid={`${testId}-add`}>
+        <Plus size={12} />
+        {addLabel}
+      </Button>
+    </fieldset>
   )
 }

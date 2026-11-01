@@ -48,3 +48,20 @@ describe('useNodeNames', () => {
     Date.now.mockRestore()
   })
 })
+
+describe('usePlanFlow unchanged guard', () => {
+  it('builds no plan and says there is no difference', async () => {
+    const { usePlanFlow } = await import('./hooks')
+    const { NotificationProvider } = await import('../../contexts/NotificationContext')
+    const fn = vi.fn()
+    let flow
+    function Probe() {
+      flow = usePlanFlow()
+      return null
+    }
+    render(<NotificationProvider><Probe /></NotificationProvider>)
+    await expect(flow.build(fn, { rethrow: true, unchanged: true })).rejects.toThrow(/No difference/)
+    expect(await flow.build(fn, { unchanged: true })).toBeNull()
+    expect(fn).not.toHaveBeenCalled()
+  })
+})

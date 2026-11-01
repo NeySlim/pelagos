@@ -2,6 +2,7 @@
 // Hooks shared by the DHCP, hosts and nodes areas: the plan flow (build a plan,
 // show PlanPreview, refresh on apply) and node names.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useWsTopic } from '../../hooks/useWebSocket'
@@ -9,8 +10,10 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 
 // Builds plans and owns the PlanPreview modal. `build(fn)` returns the plan, or
-// throws when `rethrow` is set so a form can show the field errors itself.
+// throws when `rethrow` is set so a form can show the field errors itself. With
+// `unchanged` set no plan is built: the user is told there is no difference.
 export function usePlanFlow({ onApplied } = {}) {
+  const { t } = useTranslation('dhcp')
   const { showError } = useNotification()
   const [plan, setPlan] = useState(null)
   const [building, setBuilding] = useState(false)
@@ -18,7 +21,13 @@ export function usePlanFlow({ onApplied } = {}) {
   const lastBuild = useRef(null)
 
   const build = useCallback(
-    async (fn, { rethrow = false } = {}) => {
+    async (fn, { rethrow = false, unchanged = false } = {}) => {
+      if (unchanged) {
+        const err = new Error(t('form.noDifference'))
+        if (rethrow) throw err
+        showError(err.message)
+        return null
+      }
       setBuilding(true)
       try {
         const next = await fn()
@@ -33,7 +42,7 @@ export function usePlanFlow({ onApplied } = {}) {
         setBuilding(false)
       }
     },
-    [showError],
+    [showError, t],
   )
 
   const recompute = useCallback(async () => {

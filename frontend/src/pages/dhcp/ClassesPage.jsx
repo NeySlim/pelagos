@@ -13,7 +13,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, Checkbox, OptionChips, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
-import { noteOf, fieldErrors, optionsToText, textToOptions, withNote } from './lib'
+import { noteOf, fieldErrors, isUnchanged, optionsToText, textToOptions, withNote } from './lib'
 
 export default function ClassesPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -103,27 +103,29 @@ function ClassForm({ family, cls, existing, flow, onClose }) {
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
 
+  const after = {
+    ...(cls || { option_def: [], raw: {}, user_context: {} }),
+    name: form.name,
+    test: form.test.trim() || null,
+    only_in_additional_list: form.only_in_additional_list,
+    options: textToOptions(form.options, family, cls?.options),
+    next_server: family === 'v4' ? form.next_server.trim() || null : null,
+    server_hostname: family === 'v4' ? form.server_hostname.trim() || null : null,
+    boot_file_name: family === 'v4' ? form.boot_file_name.trim() || null : null,
+    user_context: withNote(cls?.user_context, form.note.trim()),
+  }
+  const unchanged = isUnchanged(cls, after)
+
   const submit = async () => {
     const e = {}
     if (!/^[A-Za-z0-9_.:-]+$/.test(form.name)) e.name = t('form.badName')
     else if (isNew && existing.some((c) => c.name === form.name)) e.name = t('form.nameTaken')
     setErrors(e)
     if (Object.keys(e).length) return
-    const after = {
-      ...(cls || { option_def: [], raw: {}, user_context: {} }),
-      name: form.name,
-      test: form.test.trim() || null,
-      only_in_additional_list: form.only_in_additional_list,
-      options: textToOptions(form.options, family, cls?.options),
-      next_server: family === 'v4' ? form.next_server.trim() || null : null,
-      server_hostname: family === 'v4' ? form.server_hostname.trim() || null : null,
-      boot_file_name: family === 'v4' ? form.boot_file_name.trim() || null : null,
-      user_context: withNote(cls?.user_context, form.note.trim()),
-    }
     try {
       const plan = await flow.build(
         () => api.dhcp.clientClassPlan(family, { op: isNew ? 'add' : 'replace', target: `client-classes/${after.name}`, before: cls || null, after }),
-        { rethrow: true },
+        { rethrow: true, unchanged },
       )
       if (plan) onClose()
     } catch (err) {
@@ -139,6 +141,7 @@ function ClassForm({ family, cls, existing, flow, onClose }) {
       onSubmit={submit}
       submitLabel={t('form.preview')}
       loading={flow.building}
+      disabled={unchanged}
       size="lg"
       testId="class-form"
     >

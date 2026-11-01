@@ -16,7 +16,7 @@ import { api } from '../../services/api'
 import { AreaPage, ClassChips, NativeSelect, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
 import {
-  defaultReservationSubnet, noteOf, ownerOf, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
+  defaultReservationSubnet, isUnchanged, noteOf, ownerOf, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
 } from './lib'
 
 const ID_TYPES = ['hw-address', 'duid', 'client-id', 'circuit-id', 'flex-id']
@@ -180,28 +180,30 @@ export function ReservationForm({ family, reservation, prefill = {}, filter = ''
     return e
   }
 
+  const identifier = form.id_type === 'hw-address' ? form.identifier.trim().toLowerCase() : form.identifier.trim()
+  const after = {
+    ...(reservation || { options: [], server_hostname: null, raw: {} }),
+    subnet_id: form.subnet_id === '' ? null : Number(form.subnet_id),
+    id_type: form.id_type,
+    identifier,
+    ip_address: family === 'v4' ? form.ip_address.trim() || null : null,
+    ip_addresses: family === 'v6' ? splitList(form.ip_addresses) : [],
+    prefixes: family === 'v6' ? splitList(form.prefixes) : [],
+    hostname: form.hostname.trim() || null,
+    client_classes: splitList(form.client_classes),
+    next_server: family === 'v4' ? form.next_server.trim() || null : null,
+    boot_file_name: family === 'v4' ? form.boot_file_name.trim() || null : null,
+    user_context: withNote(reservation?.user_context, form.note.trim(), form.owner.trim()),
+  }
+  const unchanged = isUnchanged(reservation, after)
+
   const submit = async () => {
     const e = validate()
     setErrors(e)
     if (Object.keys(e).length) return
-    const identifier = form.id_type === 'hw-address' ? form.identifier.trim().toLowerCase() : form.identifier.trim()
-    const after = {
-      ...(reservation || { options: [], server_hostname: null, raw: {} }),
-      subnet_id: form.subnet_id === '' ? null : Number(form.subnet_id),
-      id_type: form.id_type,
-      identifier,
-      ip_address: family === 'v4' ? form.ip_address.trim() || null : null,
-      ip_addresses: family === 'v6' ? splitList(form.ip_addresses) : [],
-      prefixes: family === 'v6' ? splitList(form.prefixes) : [],
-      hostname: form.hostname.trim() || null,
-      client_classes: splitList(form.client_classes),
-      next_server: family === 'v4' ? form.next_server.trim() || null : null,
-      boot_file_name: family === 'v4' ? form.boot_file_name.trim() || null : null,
-      user_context: withNote(reservation?.user_context, form.note.trim(), form.owner.trim()),
-    }
     const change = { op: isNew ? 'add' : 'replace', target: reservationTarget(family, after), before: reservation || null, after }
     try {
-      const plan = await flow.build(() => api.dhcp.reservationPlan(family, change), { rethrow: true })
+      const plan = await flow.build(() => api.dhcp.reservationPlan(family, change), { rethrow: true, unchanged })
       if (plan) onClose()
     } catch (err) {
       setErrors({ ...fieldErrors(err), _form: err.message })
@@ -216,6 +218,7 @@ export function ReservationForm({ family, reservation, prefill = {}, filter = ''
       onSubmit={submit}
       submitLabel={t('form.preview')}
       loading={flow.building}
+      disabled={unchanged}
       size="lg"
       testId="reservation-form"
     >
@@ -225,6 +228,7 @@ export function ReservationForm({ family, reservation, prefill = {}, filter = ''
           value={form.subnet_id}
           onChange={(v) => { setSubnetChosen(true); set('subnet_id')(v) }}
           disabled={!isNew}
+          helperText={isNew ? undefined : t('form.idLocked')}
           options={[{ value: '', label: t('reservations.global') }, ...subnets.map((s) => ({ value: String(s.id), label: `${s.id}: ${s.subnet}` }))]}
           testId="reservation-subnet"
         />
@@ -233,6 +237,7 @@ export function ReservationForm({ family, reservation, prefill = {}, filter = ''
           value={form.id_type}
           onChange={set('id_type')}
           disabled={!isNew}
+          helperText={isNew ? undefined : t('form.idLocked')}
           options={ID_TYPES.map((v) => ({ value: v, label: v }))}
           testId="reservation-id-type"
         />
@@ -241,6 +246,7 @@ export function ReservationForm({ family, reservation, prefill = {}, filter = ''
           value={form.identifier}
           onChange={set('identifier')}
           disabled={!isNew}
+          helperText={isNew ? undefined : t('form.idLocked')}
           error={errors.identifier}
           placeholder={form.id_type === 'hw-address' ? '02:00:5e:00:00:01' : '00:03:00:01:02:00:5e:00:00:01'}
           required

@@ -252,3 +252,38 @@ export function nextCursor(stack, next) {
 export function previousCursor(stack) {
   return stack.length > 1 ? stack.slice(0, -1) : stack
 }
+
+// Deep equality where null, undefined and "" read the same and key order does not matter:
+// a form that changed nothing must compare equal to the object it started from.
+export function sameValue(a, b) {
+  const blank = (v) => v === null || v === undefined || v === ''
+  if (blank(a) || blank(b)) return blank(a) && blank(b)
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => sameValue(v, b[i]))
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+    return [...keys].every((k) => sameValue(a[k], b[k]))
+  }
+  return a === b
+}
+
+// True when a replace form submits exactly what it was opened on.
+export const isUnchanged = (before, after) => Boolean(before) && sameValue(before, after)
+
+// Validation of the editable pool rows: the first line that is not a pool, as { index, value }.
+export function firstBadPool(rows, family) {
+  const index = rows.findIndex((p) => p.trim() && !isPool(p.trim(), family))
+  return index < 0 ? null : { index, value: rows[index].trim() }
+}
+
+// Option rows { key, value } <-> the "name = data" text textToOptions reads.
+export function optionRowsOf(options = []) {
+  return options.map((o) => ({ key: String(o.name ?? o.code ?? ''), value: String(o.data ?? '') }))
+}
+export const optionRowsToText = (rows) =>
+  rows.filter((r) => r.key.trim() || r.value.trim()).map((r) => `${r.key.trim()} = ${r.value.trim()}`).join('\n')
+
+// Link to the leases of a subnet in one state (pool "declined" action).
+export const leasesHref = (family, subnetId, state) =>
+  `/dhcp/${family}/leases?subnet_id=${encodeURIComponent(subnetId)}&state=${encodeURIComponent(state)}`

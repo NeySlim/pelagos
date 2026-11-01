@@ -17,7 +17,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, OptionChips, RowActions, SectionError, TextArea, UserContextView } from './ui'
 import { usePlanFlow } from './hooks'
-import { noteOf, fieldErrors, optionsToText, splitList, textToOptions, withNote } from './lib'
+import { noteOf, fieldErrors, isUnchanged, optionsToText, splitList, textToOptions, withNote } from './lib'
 
 export default function SharedNetworksPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -132,27 +132,29 @@ function NetworkForm({ family, network, existing, flow, onClose }) {
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
 
+  // Member subnets are managed from the subnet form, so they are not sent here.
+  const { subnets: _subnets, ...base } = network || { family, raw: {}, user_context: {} }
+  const after = {
+    ...base,
+    name: form.name,
+    family,
+    interface: form.interface.trim() || null,
+    relay: splitList(form.relay),
+    options: textToOptions(form.options, family, network?.options),
+    user_context: withNote(network?.user_context, form.note.trim()),
+  }
+  const unchanged = isUnchanged(network ? base : null, after)
+
   const submit = async () => {
     const e = {}
     if (!/^[A-Za-z0-9_.-]+$/.test(form.name)) e.name = t('form.badName')
     else if (isNew && existing.some((n) => n.name === form.name)) e.name = t('form.nameTaken')
     setErrors(e)
     if (Object.keys(e).length) return
-    // Member subnets are managed from the subnet form, so they are not sent here.
-    const { subnets: _subnets, ...base } = network || { family, raw: {}, user_context: {} }
-    const after = {
-      ...base,
-      name: form.name,
-      family,
-      interface: form.interface.trim() || null,
-      relay: splitList(form.relay),
-      options: textToOptions(form.options, family, network?.options),
-      user_context: withNote(network?.user_context, form.note.trim()),
-    }
     try {
       const plan = await flow.build(
         () => api.dhcp.sharedNetworkPlan(family, { op: isNew ? 'add' : 'replace', target: `shared-networks/${form.name}`, before: network || null, after }),
-        { rethrow: true },
+        { rethrow: true, unchanged },
       )
       if (plan) onClose()
     } catch (err) {
@@ -168,6 +170,7 @@ function NetworkForm({ family, network, existing, flow, onClose }) {
       onSubmit={submit}
       submitLabel={t('form.preview')}
       loading={flow.building}
+      disabled={unchanged}
       testId="network-form"
     >
       <Input label={t('fields.name')} value={form.name} onChange={set('name')} disabled={!isNew} error={errors.name} required data-testid="network-name" />

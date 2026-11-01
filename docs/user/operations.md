@@ -102,7 +102,8 @@ Supported in front of the nodes:
 
 A load balancer that terminates TLS and talks plain HTTP to the nodes is
 not supported: the cookie would lose its `Secure` flag and the login rate
-limit would see every client as the proxy's address.
+limit would see every client as the proxy's address. Pelagos does not trust
+`X-Forwarded-For` or `Forwarded`, so the proxy's address is what it sees.
 
 Signing out on one node signs out everywhere: the other nodes learn it
 from the replicated audit log within a few seconds. Changing a password,
@@ -114,6 +115,9 @@ Removing a node signs everyone out of the other nodes once (the signing
 secret is replaced, so the removed node cannot open sessions any more).
 `auth.session_resume_enabled` (Administration > Settings) set to false
 goes back to one login per node and per restart.
+
+Behind a load balancer, `auth.resume` audit entries are normal: one is written
+each time a node takes over a session opened on another node.
 
 During a rolling upgrade from 0.3.x, a node on the older release does not
 accept the new sessions and the reverse: use session affinity on the load

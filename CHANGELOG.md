@@ -5,6 +5,19 @@ One section per release, newest first. The full notes of each release are in
 [GitHub releases](https://github.com/NeySlim/pelagos/releases) page, which
 also holds the releases before 0.3.3.
 
+## 0.4.0
+
+- New: plans with a 24 hour rollback window, desired state verbs, global
+  search, change events on notification channels, `GET /metrics`, IPv4
+  neighbor discovery, lease history, sealed audit segments, sessions shared
+  by every node, Kea comments kept and a plan that applies with a DHCP
+  partner offline, then reconciles it.
+- Behaviour: token reads are no longer audited by default, notification
+  channels refuse loopback and node targets by default, sizes use binary
+  units.
+- Upgrade: read the upgrade section of the
+  [0.4.0 notes](docs/releases/0.4.0.md) first.
+
 ## 0.3.5
 
 - Fix: Administration > Updates no longer fails with "Permission denied" on

@@ -34,6 +34,7 @@ file per section under `<conf dir>/<engine>.d/`. Without the tree, `KeaConfigFil
 comments into `user-context.pelagos.comment` before `config-write` (one extra `config-set` on the
 command path). New primitives `KeaDocument.comments`, `comment_notes`, `include_tree`,
 `keafile.copy_comments`, `keep_comments`, `mask_comment`, `NOTED_LISTS`; copies survive rollbacks and replaces, secrets masked. `GET /dhcp/{family}/config/file` items gain `comments`.
+The invariant "same config-get on both partners" is checked on the shared view (`kea_shared.shared_view`), not on the raw `config-get`.
 WP-FRONTEND: banner line with `dhcp:keaFile.comments` (U1-DHCP-A), import checkbox (U1-ADMIN).
 
 ## 2026-11-01, B1-AUDIT (WP-CORE, WP-COLLECTOR, WP-API-AUTH): sealed audit segments, token reads not audited
@@ -99,6 +100,7 @@ short timed sleep, never `time.sleep(0)`; never hold a blocking file lock across
 `axfr`; `tests/unit/connectors/bind/test_bind_zone_roles.py` follows. `gunicorn_conf.py` turns
 gunicorn's control socket off. No API change; WP-CORE and WP-API-AUTH code that does long CPU work
 in requests (audit queries, hosts cache, argon2) should follow the rules (see the B1-WEBPROC report).
+
 ## 2026-11-01, B1-DISCOVERY (WP-COLLECTOR, WP-API-AUTH, WP-FRONTEND): IPv4 neighbor discovery
 Additive, behind the cluster module `discovery` (absent means false, D11; `GET /admin/modules` and
 `GET /capabilities` list it). Section 27 "IPv4 neighbors and discovery": table
@@ -144,6 +146,7 @@ Audit segments (B1-AUDIT): the online `pelagos.audit` part already merges every 
 member and never restores a seal; the offline rebuild puts the node's own audit directory back
 byte for byte (its seals still verify). WP-FRONTEND: Backups screen "Test my key" per recipient
 and the refusal message; the mock keeps its archive state across scenario switches.
+
 ## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
 Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created
 in place in a version 1 cache, purged after `retention.lease_history_days` (90) in chunks; unlike
@@ -196,13 +199,7 @@ true, cluster-wide). Responses may carry a refreshed cookie; `POST /auth/passwor
 secret when a node is removed. `auth/recovery.py`: only `reset-password` ends open sessions.
 `docs/user/operations.md`: supported load balancer topology. A 0.3.x node answers a 0.4.0 cookie
 `401` and keeps the secret as a plain entry.
-Dependency on the audit log (B1-AUDIT, not merged): `Revocations` rebuilds from the entries of the
-last `auth.session_ttl_seconds` with `AuditLog.query(since=, action=)` (one function,
-`Revocations._recent`) at process start and whenever the live file changes inode or shrinks, and
-follows it with `AuditLog.scan(offset, inode, needle)` otherwise; never a scan from offset 0. When
-B1-AUDIT lands (sealed yearly segments), the rule is: Revocations rebuild with
-`AuditLog.tail(since=now - TTL, needle='"action":"a')` (cursor taken with the read), then follow with
-`scan`; the lot merged second makes the switch in `_recent` (B1-AUDIT if B1-SESSIONS merges first).
+Audit log: `Revocations` rebuilds with `AuditLog.tail(since=now - TTL, needle=...)` and follows with `scan`; the switch to `tail` is done in B1-AUDIT.
 Revocation entries (`auth.logout`, `auth.op`, `admin.user.*`, `admin.role.replace`) keep their shape.
 WP-FRONTEND: nothing required (the CSRF token from login or `GET /auth/session` stays valid on every
 node; a `401` already leads to the login page). Optional hardening: on `403 csrf_failed`, read

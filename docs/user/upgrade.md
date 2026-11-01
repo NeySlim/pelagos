@@ -164,7 +164,8 @@ curl -k https://127.0.0.1:8443/api/v1/health                 # your web port
 ```
 
 The package manager restarts both units. Sign in again (sessions are
-dropped) and open **Nodes**: the node is `online` with the new version, its
+dropped; this holds from 0.3.x to 0.4.0, later upgrades keep sessions) and
+open **Nodes**: the node is `online` with the new version, its
 peers are `online`, and the audit count did not go down. Preview plans again
 rather than applying one built before the upgrade.
 
@@ -272,6 +273,13 @@ Limits while versions differ:
   logs `ERROR ... is not a valid AlertKind` on `alerts.list` and lists that
   peer as unavailable on the Alerts page, until it is upgraded. From 0.2.1
   such an alert is listed with its kind and title as they are.
+- 0.4.0: a 0.3.x node does not accept the session cookies of a 0.4.0 node and
+  the reverse, so each switch between them asks to sign in again.
+- 0.4.0: a Kea configuration plan applied in part needs `kea_partials` on
+  every reachable node; a 0.3.x node answers `409 collection_unavailable`.
+  The new replicated collections are ignored, never deleted, by a 0.3.x node.
+- 0.4.0: the purge of sealed audit segments waits until every node runs
+  0.4.0 or later; a 0.3.x node reads only its live `audit.jsonl`.
 
 ## Rollback
 

@@ -1218,8 +1218,10 @@ class RolloutWriter:
     @staticmethod
     def _not_withdrawable(r: Rollout | None, plan: Plan) -> str | None:
         """Only the rollout this plan wrote, still running with every node pending, can be withdrawn."""
-        if r is None or r.plan_id != plan.id:
-            return "the rollout of this plan finished or was replaced: see the Updates screen"
+        if r is None:
+            return "the rollout of this plan is gone: finished; nothing to remove"
+        if r.plan_id != plan.id:
+            return f"the rollout of this plan is gone: replaced by {r.id}; nothing to remove"
         if r.state != RolloutState.RUNNING.value or any(
             n.state != NodeState.PENDING.value for n in r.nodes.values()
         ):

@@ -1161,10 +1161,10 @@ Guards per scope today:
   web process's memory for `settings.plans.ttl_seconds` after the apply; past that, or after a
   restart, the rollback answers "the before state of this plan is no longer held", whatever
   `rollback_until` says. W1-ROLLBACK-GUARDS keeps it for the window.
-- `update`: only the rollout this plan wrote, still `running` with every node `pending`, can be
-  withdrawn; once a node started, the rollout finished (moved to `updates.history`) or another
-  rollout replaced it, `check_rollback` refuses (`409`) and `RolloutWriter.rollback` refuses too,
-  never a success without effect. The Updates screen's actions (cancel, roll back) handle the rest.
+- `update`: the rollback removes a rollout no node has started; once started, finished or
+  replaced, `check_rollback` refuses it (the Updates screen's actions take over).
+  `RolloutWriter.rollback` refuses the same cases with the same message (`ok` false), never a
+  success that removed nothing.
 - Peers: the rollback of a part sent to a peer goes again over `/repl/v1/plans/rollback` with the
   whole plan; peers store nothing and check their own guards the same way.
 

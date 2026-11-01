@@ -352,10 +352,11 @@ def test_plan_rollback_removes_a_rollout_not_started(admin, services, node_ctx):
     assert ur.load(node_ctx.settings()) is None
 
 
-def _applied_update(admin, services):
+def _applied_update(admin, services, hold: bool = True):
     from tests.conftest import ADMIN_PASSWORD
 
-    _hold(services)
+    if hold:
+        _hold(services)
     plan = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW).get_json()
     resp = admin.post(f"{V1}/plans/{plan['id']}/apply", json={"confirm": True, "password": ADMIN_PASSWORD})
     assert resp.get_json()["state"] == "applied" and resp.get_json()["rollback_until"]
@@ -371,11 +372,16 @@ def _change_rollout(node_ctx, change) -> None:
     node_ctx.config_store.update_cluster(mutate, updated_by="test")
 
 
-def _refused(admin, node_ctx, plan) -> None:
-    """F0-PLANS: check_rollback answers 409 before anything runs; the plan stays applied."""
+def _refused(admin, node_ctx, plan, reason: str) -> None:
+    """F0-PLANS: check_rollback answers 409 before anything runs: the plan stays applied, with the
+    same rollback_until, and nothing is audited."""
+    held = node_ctx.plan_store.get(plan["id"])
+    until = held.rollback_until
     resp = admin.post(f"{V1}/plans/{plan['id']}/rollback")
     assert resp.status_code == 409 and resp.get_json()["code"] == "precondition_failed", resp.get_json()
-    assert node_ctx.plan_store.get(plan["id"]).state.value == "applied"
+    assert reason in resp.get_json()["detail"]
+    assert held.state.value == "applied" and held.rollback_until == until
+    assert node_ctx.audit_log.query(action="update.rollback", plan_id=plan["id"])[1] == 0
 
 
 def test_rollback_refused_once_a_node_started(admin, services, node_ctx):
@@ -385,30 +391,38 @@ def test_rollback_refused_once_a_node_started(admin, services, node_ctx):
         next(iter(r.nodes.values())).state = NodeState.RUNNING.value
 
     _change_rollout(node_ctx, start)
-    _refused(admin, node_ctx, plan)
-    assert ur.load(node_ctx.settings()) is not None
+    before = ur.load(node_ctx.settings())
+    _refused(admin, node_ctx, plan, f"rollout {before.id} has started")
+    after = ur.load(node_ctx.settings())
+    assert after is not None and after.id == before.id and after.plan_id == plan["id"]
 
 
 def test_rollback_refused_once_the_rollout_finished(admin, services, node_ctx):
     plan = _applied_update(admin, services)
+    rollout_id = ur.load(node_ctx.settings()).id
 
     def finish(r) -> None:
         r.state = RolloutState.DONE.value
 
-    _change_rollout(node_ctx, finish)  # moved to history
+    _change_rollout(node_ctx, finish)  # moved to updates.history
     assert ur.load(node_ctx.settings()) is None
-    _refused(admin, node_ctx, plan)
+    _refused(admin, node_ctx, plan, "is gone: finished; nothing to remove")
+    assert rollout_id in node_ctx.settings()["updates"]["history"]
 
 
-def test_rollback_refused_when_another_rollout_replaced_it(admin, services, node_ctx):
+def test_rollback_refused_when_another_plan_rollout_replaced_it(admin, services, node_ctx):
     plan = _applied_update(admin, services)
 
-    def replace(r) -> None:
-        r.plan_id = "another-plan"
+    def finish(r) -> None:
+        r.state = RolloutState.CANCELLED.value
 
-    _change_rollout(node_ctx, replace)
-    _refused(admin, node_ctx, plan)
-    assert ur.load(node_ctx.settings()).plan_id == "another-plan"
+    _change_rollout(node_ctx, finish)
+    second = _applied_update(admin, services, hold=False)
+    current = ur.load(node_ctx.settings())
+    assert current.plan_id == second["id"]
+    _refused(admin, node_ctx, plan, f"is gone: replaced by {current.id}; nothing to remove")
+    kept = ur.load(node_ctx.settings())
+    assert kept is not None and kept.id == current.id and kept.plan_id == second["id"]
 
 
 def test_writer_rollback_never_fakes_a_success(admin, services, node_ctx):
@@ -420,7 +434,7 @@ def test_writer_rollback_never_fakes_a_success(admin, services, node_ctx):
     _change_rollout(node_ctx, finish)
     writer = services.plans.cluster_parts[PlanScope.UPDATE]
     result = writer.rollback(node_ctx.plan_store.get(plan["id"]))
-    assert not result.ok and "finished or was replaced" in result.message
+    assert not result.ok and result.message == "the rollout of this plan is gone: finished; nothing to remove"
 
 
 def test_peer_action_answers_the_node_row(services):

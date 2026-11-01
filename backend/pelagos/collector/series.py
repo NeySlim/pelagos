@@ -14,7 +14,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 HOUR = 3600
 DAY = 86400
 
@@ -58,7 +58,34 @@ CREATE TABLE IF NOT EXISTS resolver_probes (
   kind TEXT NOT NULL, name TEXT NOT NULL, address TEXT NOT NULL, family INTEGER NOT NULL,
   ok INTEGER NOT NULL, rtt_ms REAL, checked_at INTEGER NOT NULL, last_failure INTEGER,
   failures INTEGER NOT NULL, PRIMARY KEY (kind, name, address));
+CREATE TABLE IF NOT EXISTS lease_events (
+  ts INTEGER NOT NULL, node_id TEXT NOT NULL, engine TEXT NOT NULL, event TEXT NOT NULL,
+  ip TEXT NOT NULL, lease_type TEXT, hw TEXT, duid TEXT, client_id TEXT, hostname TEXT,
+  subnet_id INTEGER, cltt INTEGER, valid_lft INTEGER, state TEXT);
+CREATE INDEX IF NOT EXISTS lease_events_ip ON lease_events(ip, ts);
+CREATE INDEX IF NOT EXISTS lease_events_hw ON lease_events(hw, ts);
+CREATE INDEX IF NOT EXISTS lease_events_duid ON lease_events(duid, ts);
+CREATE INDEX IF NOT EXISTS lease_events_hostname ON lease_events(hostname, ts);
+CREATE INDEX IF NOT EXISTS lease_events_ts ON lease_events(ts);
 """
+# Columns of a lease_events row, in table order (section 15, Lease history).
+LEASE_EVENT_COLUMNS = (
+    "ts",
+    "node_id",
+    "engine",
+    "event",
+    "ip",
+    "lease_type",
+    "hw",
+    "duid",
+    "client_id",
+    "hostname",
+    "subnet_id",
+    "cltt",
+    "valid_lft",
+    "state",
+)
+LEASE_EVENT_FILTERS = ("ip", "hw", "duid", "hostname")
 
 
 def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
@@ -451,6 +478,53 @@ class SeriesStore:
         ]
         return max(found) if found else None
 
+    # Lease history (B1-LEASEHIST) -------------------------------------------
+
+    def write_lease_events(self, rows: Iterable[tuple[Any, ...]]) -> int:
+        """Rows in LEASE_EVENT_COLUMNS order; returns how many were written."""
+        rows = list(rows)
+        if rows:
+            self.conn.executemany("INSERT INTO lease_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            self._commit()
+        return len(rows)
+
+    def lease_history_seed(self, node_id: str, engine: str) -> list[dict[str, Any]]:
+        """The last row written for each address of one engine on one node (the walk's known state)."""
+        rows = self.conn.execute(
+            "SELECT e.* FROM lease_events e JOIN (SELECT MAX(rowid) AS r FROM lease_events"
+            " WHERE node_id = ? AND engine = ? GROUP BY ip, lease_type) m ON e.rowid = m.r",
+            (node_id, engine),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def lease_events(
+        self,
+        *,
+        engine: str | None,
+        node_id: str | None,
+        since: int,
+        until: int,
+        limit: int,
+        **filters: str | None,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """(rows newest first, truncated): `filters` are exact matches on LEASE_EVENT_FILTERS."""
+        clauses, params = ["ts >= ? AND ts <= ?"], [since, until]
+        for column, value in (("engine", engine), ("node_id", node_id)):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        for column in LEASE_EVENT_FILTERS:
+            value = filters.get(column)
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        rows = self.conn.execute(
+            f"SELECT * FROM lease_events WHERE {' AND '.join(clauses)}"  # noqa: S608
+            " ORDER BY ts DESC, rowid DESC LIMIT ?",
+            [*params, limit + 1],
+        ).fetchall()
+        return [dict(r) for r in rows[:limit]], len(rows) > limit
+
     def counts(self) -> dict[str, int]:
         return {
             t: self.conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]  # noqa: S608
@@ -462,6 +536,7 @@ class SeriesStore:
                 "alerts",
                 "resolver_samples",
                 "resolver_hourly",
+                "lease_events",
             )
         }
 
@@ -551,6 +626,9 @@ class SeriesStore:
             "DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?",
             (now - days("alerts_resolved_days", 90) * DAY,),
         ).rowcount
+        lease_events_deleted = self.conn.execute(
+            "DELETE FROM lease_events WHERE ts < ?", (now - days("lease_history_days", 90) * DAY,)
+        ).rowcount
         self._commit()
         self.set_meta("last_run_retention", str(now))
         return {
@@ -563,6 +641,7 @@ class SeriesStore:
             "resolver_hourly_deleted": resolver_hourly_deleted,
             "ha_deleted": ha_deleted,
             "alerts_deleted": alerts_deleted,
+            "lease_events_deleted": lease_events_deleted,
         }
 
 

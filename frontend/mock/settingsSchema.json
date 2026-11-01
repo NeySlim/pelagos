@@ -730,6 +730,19 @@
       "unit": "seconds"
     },
     {
+      "key": "collector.lease_history_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "collector.lease_history_renew_seconds",
+      "type": "integer",
+      "default": 86400,
+      "min": 0,
+      "max": 2592000,
+      "unit": "seconds"
+    },
+    {
       "key": "retention.pool_raw_days",
       "type": "integer",
       "default": 7,
@@ -797,6 +810,14 @@
       "key": "retention.ipv6_observation_days",
       "type": "integer",
       "default": 30,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.lease_history_days",
+      "type": "integer",
+      "default": 90,
       "min": 1,
       "max": 3650,
       "unit": "days"

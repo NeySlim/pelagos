@@ -407,7 +407,9 @@
         "consistency_seconds": "Passe de cohérence",
         "live_seconds": "Passe rapide : battements HA et suivi des baux",
         "lease_watch_max_leases": "Suivi des baux : plus grande table parcourue",
-        "hosts_cache_max_age_seconds": "Vue des hôtes : âge maximal d'une lecture en cache"
+        "hosts_cache_max_age_seconds": "Vue des hôtes : âge maximal d'une lecture en cache",
+        "lease_history_enabled": "Historique des baux : enregistrer les changements",
+        "lease_history_renew_seconds": "Historique des baux : écart minimal entre deux lignes de renouvellement"
       },
       "retention": {
         "pool_raw_days": "Séries brutes des pools",
@@ -418,7 +420,8 @@
         "backups_days": "Sauvegardes d'écriture",
         "resolver_raw_days": "Séries brutes du résolveur",
         "resolver_hourly_days": "Séries horaires du résolveur",
-        "ipv6_observation_days": "Observations IPv6"
+        "ipv6_observation_days": "Observations IPv6",
+        "lease_history_days": "Historique des baux"
       },
       "dns": {
         "read_key": "Clé de transfert",
@@ -556,7 +559,8 @@
       },
       "collector": {
         "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi).",
-        "hosts_cache_max_age_seconds": "Les baux, réservations et enregistrements lus pour la vue des hôtes et la recherche sont relus après cet âge, ou plus tôt s'ils changent (0 : chaque requête relit)."
+        "hosts_cache_max_age_seconds": "Les baux, réservations et enregistrements lus pour la vue des hôtes et la recherche sont relus après cet âge, ou plus tôt s'ils changent (0 : chaque requête relit).",
+        "lease_history_renew_seconds": "Un renouvellement qui ne change rien d'autre est enregistré au plus à cette fréquence par adresse (0 : chaque renouvellement)."
       },
       "dns": {
         "view_keys": "Une vue autre que _default est atteinte avec sa propre clé TSIG : la clé de mise à jour, et une clé de transfert si elle diffère.",

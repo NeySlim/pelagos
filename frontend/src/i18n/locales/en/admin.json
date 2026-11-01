@@ -407,7 +407,9 @@
         "consistency_seconds": "Consistency pass",
         "live_seconds": "Live pass: HA heartbeats and lease watch",
         "lease_watch_max_leases": "Lease watch: largest lease table walked",
-        "hosts_cache_max_age_seconds": "Hosts view: largest age of a cached read"
+        "hosts_cache_max_age_seconds": "Hosts view: largest age of a cached read",
+        "lease_history_enabled": "Lease history: record lease changes",
+        "lease_history_renew_seconds": "Lease history: shortest gap between two renewal rows"
       },
       "retention": {
         "pool_raw_days": "Raw pool series",
@@ -418,7 +420,8 @@
         "backups_days": "Write backups",
         "resolver_raw_days": "Raw resolver series",
         "resolver_hourly_days": "Hourly resolver series",
-        "ipv6_observation_days": "IPv6 observations"
+        "ipv6_observation_days": "IPv6 observations",
+        "lease_history_days": "Lease history"
       },
       "dns": {
         "read_key": "Transfer key",
@@ -556,7 +559,8 @@
       },
       "collector": {
         "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off).",
-        "hosts_cache_max_age_seconds": "Leases, reservations and zone records read for the hosts view and search are read again after this age, or sooner when they change (0: every request reads again)."
+        "hosts_cache_max_age_seconds": "Leases, reservations and zone records read for the hosts view and search are read again after this age, or sooner when they change (0: every request reads again).",
+        "lease_history_renew_seconds": "A renewal that changes nothing else is recorded at most this often per address (0 records every renewal)."
       },
       "dns": {
         "view_keys": "A view other than _default is reached with its own TSIG key: the update key, and a transfer key when it differs.",

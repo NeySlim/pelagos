@@ -195,6 +195,9 @@ REGISTRY: tuple[Setting, ...] = (
     S("collector.lease_watch_max_leases", "integer", 50000, 0, 10_000_000, "leases"),
     # F0-HOSTS: web process cache of the hosts join (section 15, Host join cache)
     S("collector.hosts_cache_max_age_seconds", "integer", 60, 0, 3600, "seconds"),
+    # B1-LEASEHIST: lease history (section 15)
+    S("collector.lease_history_enabled", "boolean", True),
+    S("collector.lease_history_renew_seconds", "integer", 86400, 0, 30 * DAY, "seconds"),
     # Retention
     S("retention.pool_raw_days", "integer", 7, 1, 3650, "days"),
     S("retention.pool_hourly_days", "integer", 365, 1, 3650, "days"),
@@ -205,6 +208,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("retention.resolver_raw_days", "integer", 7, 1, 3650, "days"),
     S("retention.resolver_hourly_days", "integer", 90, 1, 3650, "days"),
     S("retention.ipv6_observation_days", "integer", 30, 1, 3650, "days"),
+    S("retention.lease_history_days", "integer", 90, 1, 3650, "days"),
     # DNS
     S("dns.read_key", "string", "ddi-read", pattern=NAME_PATTERN),
     S("dns.admin_key", "string", "ddi-admin", pattern=NAME_PATTERN),

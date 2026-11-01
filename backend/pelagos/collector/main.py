@@ -379,7 +379,8 @@ class Collector:
     def watch_leases(self) -> None:
         """Walk the leases of a server that answered clients since the last walk; new and renewed
         ones go out as `leases` events and the latest ones to the "recent_leases" snapshot."""
-        limit = int(reg.get(self.ctx.settings(), "collector.lease_watch_max_leases"))
+        settings = self.ctx.settings()
+        limit = int(reg.get(settings, "collector.lease_watch_max_leases"))
         for poller in self.kea:
             with self.backend_lock:
                 acks = poller.ack_counter()
@@ -391,6 +392,13 @@ class Collector:
                 log.debug("lease watch %s failed: %s", poller.engine.value, exc)
                 continue
             self._finish(poller.lease_diff(leases, acks))
+            # B1-LEASEHIST: one lease_events row per change since the last walk (section 15).
+            if reg.get(settings, "collector.lease_history_enabled"):
+                renew = int(reg.get(settings, "collector.lease_history_renew_seconds"))
+                self.store.write_lease_events(poller.history_diff(leases, renew))
+            else:
+                poller.history = None
+            # B1-LEASEHIST end.
 
     def recheck_zone(self, zone: str, view: str, serial: int) -> None:
         """A peer announced a new serial for a zone this node may hold as a secondary: read it again

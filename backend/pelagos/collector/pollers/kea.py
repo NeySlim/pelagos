@@ -24,6 +24,7 @@ import os
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +47,7 @@ from pelagos.core.keafile import (
     redact_kea_difference,
     view_differences,
 )
-from pelagos.domain import Alert, AlertKind, Engine, Family, HAState, Lease, to_rfc3339
+from pelagos.domain import Alert, AlertKind, Engine, Family, HAState, Lease, LeaseState, to_rfc3339
 from pelagos.services import ddns_replay
 
 log = logging.getLogger(__name__)
@@ -270,6 +271,8 @@ class KeaPoller:
         self.lease_index: dict[str, tuple[str, int]] | None = None
         self.last_acks: int | None = None
         self.last_walk: float | None = None
+        # Lease history (section 15): the last known state of each address, None until the first walk.
+        self.history: LeaseHistory | None = None
 
     def _open_pool_alerts(self) -> dict[str, AlertKind]:
         """Pool alerts of this engine open (or acked) now, from the alert table the poll reconciles."""
@@ -755,6 +758,16 @@ class KeaPoller:
             out.events.append(("leases", "coalesced", data))
         return out
 
+    def history_diff(self, leases: list[Lease], renew_seconds: int) -> list[tuple[Any, ...]]:
+        """The lease_events rows of this walk (section 15, Lease history); the first one seeds the
+        known state from the rows this node wrote before."""
+        if self.history is None:
+            self.history = LeaseHistory(self.node_id, self.engine.value, self.backend.family)
+            seed = getattr(self.store, "lease_history_seed", None)
+            if callable(seed):
+                self.history.seed(seed(self.node_id, self.engine.value))
+        return self.history.diff(leases, int(self.clock()), renew_seconds)
+
     def _poll_pools(self, now: int, out: PollOutcome) -> None:
         engine = self.engine.value
         try:
@@ -845,6 +858,151 @@ def lease_brief(lease: Lease) -> dict[str, Any]:
         "prefix_len": lease.prefix_len,
         "node_id": lease.node_id,
     }
+
+
+# Lease history: lease states that hold an address for a client.
+HELD_STATES = frozenset({LeaseState.DEFAULT.value, LeaseState.REGISTERED.value})
+HELD_EVENTS = frozenset({"new", "renew", "reassign"})
+
+
+@dataclass(slots=True)
+class _Known:
+    """What the history knows of one address: its last lease and whether a client holds it."""
+
+    ident: str
+    cltt: int
+    state: str
+    hw: str | None
+    duid: str | None
+    client_id: str | None
+    hostname: str | None
+    subnet_id: int | None
+    valid_lft: int
+    held: bool
+    recorded: int  # ts of the last row that named this holder (renew throttling)
+
+
+def _hostname(value: str | None) -> str | None:
+    return value.rstrip(".").lower() or None if value else None
+
+
+class LeaseHistory:
+    """Diff of successive lease walks into lease_events rows (section 15, Lease history)."""
+
+    def __init__(self, node_id: str, engine: str, family: Family) -> None:
+        self.node_id = node_id
+        self.engine = engine
+        self.v6 = family is Family.V6
+        self.known: dict[tuple[str, str | None], _Known] = {}
+
+    def seed(self, rows: list[dict[str, Any]]) -> None:
+        for r in rows:
+            held = r["event"] in HELD_EVENTS
+            hw, duid, client_id = r.get("hw"), r.get("duid"), r.get("client_id")
+            self.known[(r["ip"], r.get("lease_type"))] = _Known(
+                self._ident(hw, duid, client_id),
+                int(r.get("cltt") or 0),
+                r.get("state") or LeaseState.DEFAULT.value,
+                hw,
+                duid,
+                client_id,
+                r.get("hostname"),
+                r.get("subnet_id"),
+                int(r.get("valid_lft") or 0),
+                held,
+                int(r["ts"]) if held else 0,
+            )
+
+    def _ident(self, hw: str | None, duid: str | None, client_id: str | None) -> str:
+        # DHCPv6 names a client by its DUID; the hardware address there is optional and may vary.
+        return (duid or hw or client_id or "") if self.v6 else (hw or client_id or "")
+
+    def _row(
+        self, ts: int, event: str, key: tuple[str, str | None], k: _Known, state: str
+    ) -> tuple[Any, ...]:
+        return (
+            ts,
+            self.node_id,
+            self.engine,
+            event,
+            key[0],
+            key[1],
+            k.hw,
+            k.duid,
+            k.client_id,
+            k.hostname,
+            k.subnet_id,
+            k.cltt,
+            k.valid_lft,
+            state,
+        )
+
+    def diff(self, leases: list[Lease], now: int, renew_seconds: int) -> list[tuple[Any, ...]]:
+        rows: list[tuple[Any, ...]] = []
+        known = self.known
+        seen: set[tuple[str, str | None]] = set()
+        for lease in leases:
+            key = (lease.ip_address, lease.lease_type if self.v6 else None)
+            seen.add(key)
+            hw = lease.hw_address.lower() if lease.hw_address else None
+            duid = lease.duid.lower() if lease.duid else None
+            state = lease.state.value
+            cur = _Known(
+                self._ident(hw, duid, lease.client_id),
+                int(lease.cltt.timestamp()) if lease.cltt else 0,
+                state,
+                hw,
+                duid,
+                lease.client_id,
+                _hostname(lease.hostname),
+                lease.subnet_id,
+                int(lease.valid_lft or 0),
+                state in HELD_STATES,
+                0,
+            )
+            prev = known.get(key)
+            known[key] = cur
+            if not cur.held:
+                cur.recorded = prev.recorded if prev is not None else 0
+                if prev is None or not prev.held:
+                    continue
+                # Leaving a held state: the row names the last holder, in the state the lease went to.
+                if state == LeaseState.EXPIRED_RECLAIMED.value:
+                    rows.append(self._row(min(prev.cltt + prev.valid_lft, now), "expire", key, prev, state))
+                elif state == LeaseState.RELEASED.value:
+                    rows.append(self._row(now, "release", key, prev, state))
+                else:
+                    rows.append(self._row(now, "delete", key, prev, state))
+                continue
+            cur.recorded = cur.cltt
+            if prev is None or not prev.held:
+                event = "reassign" if prev is not None and prev.ident and prev.ident != cur.ident else "new"
+            elif prev.ident != cur.ident:
+                event = "reassign"
+            elif cur.cltt > prev.cltt:
+                changed = (prev.hostname, prev.subnet_id, prev.valid_lft, prev.state) != (
+                    cur.hostname,
+                    cur.subnet_id,
+                    cur.valid_lft,
+                    cur.state,
+                )
+                if not changed and renew_seconds > 0 and cur.cltt - prev.recorded < renew_seconds:
+                    cur.recorded = prev.recorded
+                    continue
+                event = "renew"
+            else:
+                cur.recorded = prev.recorded
+                continue
+            rows.append(self._row(cur.cltt, event, key, cur, state))
+        for key, prev in known.items():
+            if key in seen or not prev.held:
+                continue
+            prev.held = False
+            if prev.valid_lft and prev.cltt + prev.valid_lft <= now:
+                rows.append(self._row(prev.cltt + prev.valid_lft, "expire", key, prev, prev.state))
+            else:
+                rows.append(self._row(now, "delete", key, prev, prev.state))
+        return rows
 
 
 def _json_list(values: list[str]) -> str:

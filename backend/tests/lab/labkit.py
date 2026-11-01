@@ -303,6 +303,8 @@ class Api:
     port: int = 8443
     csrf: str = ""
     jar: http.cookiejar.CookieJar = field(default_factory=http.cookiejar.CookieJar)
+    # Set once the user enrolled TOTP: every login (and the 401 re-login) sends a fresh code.
+    totp_secret: str | None = None
 
     def __post_init__(self) -> None:
         ctx = ssl.create_default_context()
@@ -352,7 +354,12 @@ class Api:
         return self.call("POST", path, body if body is not None else {}, **kw)
 
     def login(self, username: str = "admin", password: str = ADMIN_PASSWORD) -> dict[str, Any]:
-        out = self.post("/auth/login", {"username": username, "password": password})
+        body = {"username": username, "password": password}
+        if self.totp_secret:
+            import pyotp
+
+            body["totp_code"] = pyotp.TOTP(self.totp_secret).now()
+        out = self.post("/auth/login", body)
         self.csrf = out["csrf_token"]
         return out
 

@@ -29,6 +29,7 @@ from tests.lab.labkit import (
     REPO,
     Api,
     deb_package,
+    fixable,
     rollback,
     run_script,
     scp,
@@ -62,7 +63,7 @@ pytestmark = [
 def api(address: str, fresh: bool = False) -> Api:
     key = f"api:{address}"
     if fresh or key not in STATE:
-        client = Api(address)
+        client = Api(address, totp_secret=STATE.get("secret"))
         wait_for(f"{address} login", lambda: client.login(), timeout=180)
         STATE[key] = client
     return STATE[key]
@@ -76,7 +77,9 @@ def install(address: str, deb: Path) -> None:
     scp(address, deb, "/tmp/pelagos.deb")
     ssh(
         address,
-        "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q --allow-downgrades /tmp/pelagos.deb",
+        # apt-daily-upgrade may hold the dpkg lock right after a rollback.
+        "sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 "
+        "install -y -q --allow-downgrades /tmp/pelagos.deb",
         timeout=900,
     )
     ssh(address, "sudo systemctl restart pelagos pelagos-collector || true")
@@ -162,14 +165,38 @@ class TestAuditSegmentsOnThePair:
             lambda: all(n["status"] == "online" for n in api(A1).get("/nodes")["items"]),
             timeout=180,
         )
+        # Engines adopted and the security plan applied, as in test_upgrade_ui_lab.py; the HA TLS
+        # push to the peer can be refused at first, hence the retries.
+        for address in (A1, A2):
+            client = api(address)
+            client.apply(client.post("/install/import/plan", {"engines": ["bind", "kea4", "d2"]}))
+        wait_for(
+            "both online after import",
+            lambda: all(n["status"] == "online" for n in api(A1).get("/nodes")["items"]),
+            timeout=300,
+        )
+
+        def security(address: str) -> bool:
+            client = api(address)
+            todo = fixable(client.get("/install/security")["findings"])
+            if todo:
+                client.apply(client.post("/install/security/plan", {"finding_ids": todo}), timeout=900)
+            return True
+
+        for address in (A1, A2):
+            wait_for(f"security plan on {address}", lambda a=address: security(a), timeout=300, interval=10)
 
     def test_01_writes_and_token_reads_on_the_previous_release(self):
         """A record written on each node, an API token GET on ns1: auth.token_call audited; counts equal."""
         import pyotp
 
+        api(A2)  # logged in before the TOTP enrollment: a password-only login is refused after it
         admin = api(A1)
         secret = admin.post("/auth/totp/enroll")["secret"]
         admin.post("/auth/totp/confirm", {"code": pyotp.TOTP(secret).now()})
+        STATE["secret"] = secret
+        for client in (api(A1), api(A2)):
+            client.totp_secret = secret
         time.sleep(31)  # a fresh code for the token
         STATE["token"] = admin.post(
             "/auth/tokens", {"name": "lab", "role": "admin", "totp_code": pyotp.TOTP(secret).now()}
@@ -219,15 +246,15 @@ class TestAuditSegmentsOnThePair:
         (seg,) = segments(A1)
         STATE["segment"] = seg["name"]
         assert seg["sealed"] and seg["seal"]["node_id"] == node_id(A1)
-        verdict = api(A1).post(f"/audit/segments/{seg['name']}/verify")
-        assert verdict["ok"] and verdict["peers_checked"] == 1, verdict
-        after = export(A1)
-        assert after.startswith(before)  # the anchor comes after the old content
         wait_for(
             "ns2 holds the anchor",
             lambda: api(A2).get("/audit?action=audit.rotate")["total"] == 1,
             timeout=60,
         )
+        verdict = api(A1).post(f"/audit/segments/{seg['name']}/verify")
+        assert verdict["ok"] and verdict["peers_checked"] == 1, verdict
+        after = export(A1)
+        assert after.startswith(before)  # the anchor comes after the old content
         assert ssh(A1, "sudo -u pelagos pelagos audit-log verify")[0] == 0
 
     def test_04_audit_replicates_both_ways_after_the_rotation(self):

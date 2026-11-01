@@ -159,7 +159,12 @@ test.describe('at 390px', () => {
     expect(made.ok()).toBe(true)
     const id = (await made.json()).item.id
     try {
-      await signIn(page)
+      // The sidebar is a menu on a phone: sign in without waiting for it.
+      await page.goto('/login')
+      await page.getByTestId('login-username').fill('admin')
+      await page.getByTestId('login-password').fill('admin')
+      await page.getByTestId('login-submit').click()
+      await expect(page).not.toHaveURL(/login/)
       await page.goto('/admin/tokens')
       await expect(page.getByTestId('data-table-cards')).toBeVisible()
       await expect(page.getByTestId('data-table-card')).toContainText('phone-check')

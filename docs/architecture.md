@@ -592,6 +592,7 @@ class Peer(Model):                 # as stored in cluster.toml [[nodes]]
     id: str; name: str
     url: str                       # replication base URL "https://ns1.example.lan:8444"
     web_url: str | None            # UI URL to offer in the node switcher
+    site: str | None = None        # free label grouping nodes (UI, later IPAM); see "Node site" below
     cert_fingerprint: str          # sha256 hex of the node certificate
     modules: NodeModules
     enrolled_at: datetime
@@ -650,6 +651,30 @@ class ApiToken(Model):           # cluster.toml [[api_tokens]], section 16
     created_at: datetime; created_by: str | None = None; created_on: str | None = None   # username, node id
     def public(self) -> dict       # to_dict() without secret_hash
 ```
+
+Node site (`Peer.site`): an optional label naming where a node lives (`paris`, `dc2`,
+`office`). It groups nodes in the UI and is the key later address-space features can scope
+by. Rules:
+
+- Absent (`None`) by default. Stored as `site` in the `[[nodes]]` entry only when set
+  (`_strip_none`), so a cluster that never sets a site keeps the same `cluster.toml` bytes
+  and digest as before.
+- Value: a string of 1 to 64 characters after trimming, no control characters, compared
+  case-sensitively; `null` or an empty string clears it. A stored or replicated value that
+  breaks the rule counts as absent (the `web_url` precedent in `Peer.__post_init__`).
+- Why a field of the peer and not a generic collection: a site is a one-to-one attribute
+  of a node, it has no identity or lifecycle of its own (no site list to create, rename or
+  delete), and it must disappear with the node. The `[[nodes]]` entry is already replicated
+  field by field (section 13), so `nodes/<id>/site` merges, conflicts and tombstones with the
+  node with no new code in the merge. A `[[sites]]` collection would add a second record to
+  keep consistent with the nodes and a dangling-reference case for nothing. If a later
+  feature needs site-level data (a subnet list, a contact), it adds a collection keyed by the
+  label then; the label stays the join key.
+- Mixed versions: a 0.3.x node drops the unknown `site` field when it reads the entry and
+  never tombstones it (the generic guarantee of section 10); the value comes back at the next
+  merge. A 0.3.x node cannot set or display a site. `pelagos enroll --site` against a 0.3.x
+  issuing node enrolls the node without a site (the older request parser ignores the key).
+
 
 Audit (`domain/audit.py`):
 
@@ -2443,7 +2468,8 @@ Flow:
    connects with TLS verifying the server certificate chain against the
    fingerprint of the CA presented in the chain (pinning, no client cert),
    and calls `POST /repl/v1/enroll` with
-   `{"token","name","csr_pem","modules","url","web_url","version"}`.
+   `{"token","name","csr_pem","modules","url","web_url","version","site"?}`
+   (`site`: optional label of the new node, validated like `Peer.site`).
 4. The issuing node verifies the token hash, signs the certificate, adds the
    node to `[[nodes]]` (bumps version), and answers
    `{"cert_pem","ca_pem","master_key","cluster_toml","ca_key_pem": optional}`.
@@ -3103,7 +3129,8 @@ change revokes the user's other sessions.
 | --- | --- | --- | --- |
 | `GET /nodes` | `read:nodes` | | `{"items": [Node]}` |
 | `GET /nodes/self` | `read:nodes` | | `Node` |
-| `GET /nodes/{id}` | `read:nodes` | | `Node` |
+| `GET /nodes/{id}` | `read:nodes` | | `Node` (`peer.site`: label or `null`, also in `GET /nodes` and `GET /nodes/self`) |
+| `PATCH /nodes/{id}` | `admin:nodes` | `{"site": str \| null}` | `Node` (`400 validation_error` on a bad label, `404 not_found`; audit `admin.node.replace`, target `node:<id>`, request `{"site"}`, response `{"site"}` before and after) |
 | `POST /nodes/enroll-token` | `admin:nodes` | `{"ttl_seconds"?: 900, "ca"?: false}` | `{"token","url","ca_fingerprint","expires_at","command"}` |
 | `DELETE /nodes/{id}` | `admin:nodes` | | `204` |
 | `POST /nodes/{id}/sync` | `admin:nodes` | | `{"config_adopted": bool, "audit_added": n, "status": PeerStatus}` (`503 engine_unavailable` when the peer does not answer) |

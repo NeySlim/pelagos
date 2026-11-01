@@ -54,6 +54,19 @@ renamed from `ipv6.poll_seconds` (`RENAMED`); `retention.neighbor_observation_da
 `GET /admin/ipv6` keeps `settings.poll_seconds`. WP-FRONTEND (U2-HOSTS-UI) builds the "Seen" and
 "Vendor" columns and the unknown filter on this contract and `frontend/mock/discovery.mjs`.
 
+## 2026-11-01, B1-EVENTS (WP-COLLECTOR, WP-API-AUTH, WP-FRONTEND): change events on channels
+Additive (section 22, Change events). Channel tables gain optional `alerts`, `events`,
+`event_filters` and server-kept `events_since`; a channel without them sends the same alert
+messages as before. The dispatcher derives `plan.applied|rolled_back|failed|expired`,
+`auth.login_failed` (threshold), `audit.conflict` from replicated audit entries, `node.offline|online`
+and `zone.transfer_failed` from the cluster alert view, `lease.new|release` from the lease history,
+and sends them in their own batches: webhook payload `pelagos.notification.v1` with `"type": "event"`
+(alert payloads unchanged), `notify.sent` request with `type` and `changes`. New settings
+`notifications.login_failed_threshold`, `notifications.login_failed_window_seconds`,
+`notifications.allow_local_targets` (false): HTTP transports refuse loopback, link-local and other
+non-routable targets and the cluster's own node addresses unless it is on (behaviour change for a
+channel aimed at such an address). E3-APPROVAL adds its `plan.*` kinds to `EVENT_KINDS`.
+
 ## 2026-11-01, B1-ARCHIVES (WP-CORE, WP-COLLECTOR, WP-API-AUTH, WP-INSTALLER, WP-FRONTEND): archive key proof, restore check
 Section 23 "Key proof" and "Restore check". Additive: `archives.recipients` entries may carry
 `verified_at` and `verified_by` (older nodes copy them unchanged); new setting

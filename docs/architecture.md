@@ -4831,6 +4831,83 @@ screen, N5 daemon and lab tests.
   `make` (one set of translations). Host names from the engines are
   truncated and escaped (Matrix HTML).
 
+### Change events (B1-EVENTS)
+
+A channel can also hear about changes, not only alerts. Events are derived by the same dispatcher
+(the elected sender only) from replicated or cluster-wide sources, so one node sends each event
+once, and what was sent is read back from the `notify.*` audit entries like alert events.
+
+- **Channel members** (all optional; a channel without them behaves exactly as before):
+  `alerts` (bool, default true: false makes a change-only channel), `events` (list of kinds,
+  default `[]`), `event_filters` `{"plan_scopes": [PlanScope], "users": [username]}` (`[]` = all;
+  they narrow the `plan.*` kinds only) and `events_since` `{kind: RFC 3339}`, kept by the server
+  (a kind added to `events` gets "now", a kind removed loses its entry; read only in the API,
+  ignored on writes). An event older than its kind's `events_since` is never sent, so a new
+  subscription has no backlog. A node on an older release keeps these members when it edits the
+  channel and ignores them when it is the sender (it then sends alerts to a change-only channel).
+- **Kinds and sources** (`collector/notify.py`, `EVENT_KINDS`):
+  - `plan.applied`, `plan.rolled_back`, `plan.failed`: the plan summary entry
+    (`<scope>.apply|rollback`, `request.entry` `summary`; state from `response.state`); id = the
+    audit entry id. `rollback_until` = entry time plus `plans.rollback_window_seconds` for an applied
+    plan of a scope that can roll back (`core.plans.NO_ROLLBACK_SCOPES` excluded), else null.
+  - `plan.expired`: the rollback window of an applied plan closed with no later summary entry for
+    that plan; id = `<summary entry id>.expired`, time = its `rollback_until`.
+  - `auth.login_failed`: `auth.login_failed` entries of the cluster, oldest first; when
+    `notifications.login_failed_threshold` (5) of them fall within
+    `notifications.login_failed_window_seconds` (600), one event (id = the entry that reached the
+    threshold) and the count starts again; a channel gets at most one per window.
+  - `audit.conflict`: each `replication.conflict` entry; id = its entry id. Values never leave:
+    the event names the path, the reason and both authors.
+  - `node.offline` / `node.online`: a `peer_offline` alert of the cluster view opens / resolves
+    (`online` only after an `offline` was sent for that occurrence); id = `<alert id>.offline|online`,
+    bound to the alert's occurrence like alert events (`first_seen`, 300 s skew).
+  - `zone.transfer_failed`: a `secondary_stale` alert opens (a secondary has not refreshed the zone
+    and nears its expiry); id = `<alert id>.transfer_failed`, same occurrence rule.
+  - `lease.new` (lease history `new` or `reassign`) and `lease.release` (`release`): the
+    `lease_events` rows of every node (local cache plus the `lease.history` peer action, merged as
+    the history API merges them), read at most every 30 s and only while an enabled channel
+    subscribes; window: the last hour. id = 16 hex of SHA-256 over the merge key. A message lists
+    at most 20 lease events; the rest of a storm is counted in `held_back` and covered by
+    `lease_until` in the entry (rows at or before it are handled). A peer unreachable for more than
+    the hour loses its lease events.
+  Audit-derived kinds look back `LEDGER_DAYS` (7), bounded by `events_since`.
+- **Dispatch**: per channel, change events form their own batches (never mixed with alerts),
+  leave `group_seconds` after the first one was seen, wait during a mute or quiet hours (no
+  critical exception, no digest: they leave when it ends, inside their look-back), and count
+  toward `messages_max_per_hour` with the alert messages of the channel. Retries follow the alert
+  rule with their own retry state (`state.json` `change_retry: {channel id: {...}}`); a channel's
+  `state` (`ok`/`failing`) covers both.
+- **Webhook payload**: same schema `pelagos.notification.v1`, same headers and signature, with
+  `"type": "event"` (an alert message has no `type` and does not change):
+  `{"schema","type": "event","id","cluster_id","sent_at","sender","reason": "events",
+  "events": [{"event": kind,"id","ts","node_id","node_name","title","url","data"}],
+  "open","held_back"}`. `data` per kind: `plan.*` `{"plan_id","scope","verb","state","user",
+  "summary","target_node_ids","error","rollback_until"}`; `lease.*` `{"engine","family",
+  "ip_address","hw_address","duid","hostname","subnet_id","nodes"}`; `node.*` `{"node_id",
+  "alert_id","since"}`; `zone.transfer_failed` `{"zone","view","alert_id"}`;
+  `auth.login_failed` `{"count","window_seconds","users","client_ips"}` (at most 10 each);
+  `audit.conflict` `{"path","section","reason","local_by","remote_by","suppressed"}`. Links:
+  `<web_url of the plan's node>/plans?id=<plan id>` (the sender's `web_url` when unknown),
+  `<base_url>/alerts?alert=<id>`, `<base_url>/audit`, none for leases. Other channel
+  types render one line per event in the channel's language (`notify.json` `change.*`).
+- **Audit**: `notify.sent` / `notify.failed` of a change batch: `request` `{"batch_id",
+  "alert_ids": [],"events": [],"type": "event","changes": [{"id","event","ts"}],"sender",
+  "reason","lease_until"?}` (an older node reads no alert event from it and still counts it toward
+  the hourly cap). History rows (`GET /admin/notifications/history`) add `type` and `changes`.
+- **Outgoing target guard** (all HTTP transports: webhook, Home Assistant, ntfy, Gotify, Matrix;
+  not email, whose `none` security stays loopback only): unless
+  `notifications.allow_local_targets` (false) is on, a send is refused when the target host is, or
+  resolves to, a loopback, link-local, unspecified, multicast or reserved address (IPv4-mapped
+  forms included) or an address of a node of the cluster (hosts of `api_url` and `web_url`); the
+  connection goes to the address that was checked, so a DNS answer cannot change between check
+  and connect. Private LAN ranges stay allowed (Home Assistant or Gotify at home). Refusal:
+  `SendResult` error `target address refused: <reason>`, no retry; channel validation answers it
+  as an error for a literal address or `localhost` and leaves names to the send.
+- **Settings** (`[settings.notifications]`): `login_failed_threshold` (5, 2 to 1000),
+  `login_failed_window_seconds` (600, 60 to 86400), `allow_local_targets` (false).
+- **Screen**: the channel dialog gains "Send alerts" and an "Events" group of check boxes, with the
+  plan scope and user filters; the history shows change messages with their kinds.
+
 ## 23. Scheduled archives and restore
 
 Design: `design.md` 13.2. Code: `pelagos.archives` (`archives/age.py` age

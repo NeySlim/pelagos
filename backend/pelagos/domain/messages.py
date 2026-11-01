@@ -38,6 +38,8 @@ CATALOG: dict[str, str] = {
     "rrset.singleton": "{owner} {rtype} holds a single value",
     "rrset.dname_below": "{owner} has names below it ({names}): a DNAME cannot be added above them",
     "rrset.under_dname": "{owner} is below the DNAME at {dname}: no record can be added there",
+    "rrset.dname_ns": "{owner}: DNAME and NS records share a name only at the zone apex",
+    "rrset.ds_below_cut": "{owner} is below the delegation {cut}: its DS belongs to that child zone",
     "note.no_difference": "no difference found",
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",

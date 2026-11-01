@@ -237,7 +237,8 @@ def resolve_changes(
 def _check_neighbours(
     op: ChangeOp, owner: str, rtype: str, after: RRset | None, zone: str, live: set[tuple[str, str]]
 ) -> None:
-    """DS only at a delegation (NS at the owner, never the apex); nothing below a DNAME (RFC 6672 2.3)."""
+    """DS only at a delegation (NS at the owner, never the apex, never below another cut); nothing
+    below a DNAME, and no DNAME beside NS outside the apex (RFC 6672 2.3)."""
     if op is ChangeOp.DELETE:
         if rtype == "NS" and owner != zone and (owner, "DS") in live:
             raise RRsetError(
@@ -256,6 +257,12 @@ def _check_neighbours(
                 f"{owner} has no NS records: a DS record only sits at a delegation",
                 messages.msg("rrset.ds_no_delegation", owner=owner),
             )
+    other = {"DNAME": "NS", "NS": "DNAME"}.get(rtype)
+    if other is not None and owner != zone and (owner, other) in live:
+        raise RRsetError(
+            f"{owner}: DNAME and NS records share a name only at the zone apex",
+            messages.msg("rrset.dname_ns", owner=owner),
+        )
     if rtype == "DNAME" and after is not None and len(after.rdata) != 1:
         raise RRsetError(
             f"{owner} DNAME must have exactly one target",
@@ -279,6 +286,11 @@ def _check_neighbours(
     parent = name
     while parent != origin and len(parent.labels) > len(origin.labels):
         parent = parent.parent()
+        if rtype == "DS" and parent != origin and (parent.to_text(), "NS") in live:
+            raise RRsetError(
+                f"{owner} is below the delegation {parent}: its DS belongs to that child zone",
+                messages.msg("rrset.ds_below_cut", owner=owner, cut=parent.to_text()),
+            )
         if (parent.to_text(), "DNAME") in live:
             raise RRsetError(
                 f"{owner} is below the DNAME at {parent}; no record can be added there",

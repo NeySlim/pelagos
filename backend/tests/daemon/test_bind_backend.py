@@ -491,6 +491,10 @@ def test_new_record_types_reach_the_secondary(named_server, named_secondary, tmp
         "example.lan", [Change(ChangeOp.ADD, "example.lan/host.old/A", after={"rdata": ["192.0.2.77"]})]
     )
     assert plan.state is PlanState.FAILED and "below the DNAME" in plan.error
+    plan = primary.plan_rrset_changes(
+        "example.lan", [Change(ChangeOp.ADD, "example.lan/old/NS", after={"rdata": ["ns.example.net."]})]
+    )
+    assert plan.state is PlanState.FAILED and "only at the zone apex" in plan.error
 
 
 def rr_norm(rtype: str, value: str) -> list[str]:

@@ -604,6 +604,8 @@
   "rrset.singleton": "{{owner}} {{rtype}} ne prend qu'une valeur",
   "rrset.dname_below": "{{owner}} a des noms en dessous ({{names}}) : un DNAME ne peut pas être ajouté au-dessus",
   "rrset.under_dname": "{{owner}} est sous le DNAME de {{dname}} : aucun enregistrement n'est possible à ce nom",
+  "rrset.dname_ns": "{{owner}} : DNAME et NS ne partagent un nom qu'à l'apex de la zone",
+  "rrset.ds_below_cut": "{{owner}} est sous la délégation {{cut}} : son DS appartient à cette zone fille",
   "problem.detail.engine_rejected": "{{tool}} a refusé la modification",
   "plan.impact.skipped_nodes": "appliqué sans {{nodes}} : leur Kea garde sa configuration jusqu'à la réconciliation",
   "plan.impact.ha_restart": "{{node}} recharge Kea : son service HA redémarre en attente et ne sert pas le DHCP pendant environ {{seconds}} s (max-response-delay {{max_response_delay}} ms + heartbeat-delay {{heartbeat_delay}} ms)",

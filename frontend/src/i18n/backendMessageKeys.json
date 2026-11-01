@@ -1796,7 +1796,14 @@
     "names",
     "owner"
   ],
+  "rrset.dname_ns": [
+    "owner"
+  ],
   "rrset.ds_apex": [
+    "owner"
+  ],
+  "rrset.ds_below_cut": [
+    "cut",
     "owner"
   ],
   "rrset.ds_no_delegation": [

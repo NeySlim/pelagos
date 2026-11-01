@@ -144,8 +144,9 @@ def test_a_delegation_with_a_ds_loses_both_together():
 
 
 def test_dname_occludes_the_names_below():
-    _, errors = resolve([add("sub/DNAME", "elsewhere.example.net.")])
-    assert errors and "has names below it (ns.sub.example.lan.)" in errors[0]
+    below_www = zone_with(RRset("x.www.example.lan.", "TXT", 3600, ['"x"']))
+    _, errors = resolve([add("www/DNAME", "elsewhere.example.net.")], below_www)
+    assert errors and "has names below it (x.www.example.lan.)" in errors[0]
     current = zone_with(RRset("old.example.lan.", "DNAME", 3600, ["new.example.lan."]))
     _, errors = resolve([add("host.old/A", "192.0.2.20")], current)
     assert errors == [
@@ -167,6 +168,23 @@ def test_dname_occludes_the_names_below():
         ]
     )
     assert errors == []
+
+
+def test_dname_and_ns_share_a_name_only_at_the_apex():
+    """RFC 6672 2.3: a DNAME beside NS below the apex would hide behind the zone cut."""
+    _, errors = resolve([add("sub/DNAME", "elsewhere.example.net.")], zone_with()[:4])
+    assert errors == ["sub.example.lan.: DNAME and NS records share a name only at the zone apex"]
+    current = zone_with(RRset("old.example.lan.", "DNAME", 3600, ["new.example.lan."]))
+    _, errors = resolve([add("old/NS", "ns.elsewhere.example.net.")], current)
+    assert errors == ["old.example.lan.: DNAME and NS records share a name only at the zone apex"]
+    apex_only = zone_with()[:2]
+    resolved, errors = resolve([add("@/DNAME", "example.net.")], apex_only)
+    assert errors == [] and resolved
+
+
+def test_ds_never_below_another_delegation():
+    _, errors = resolve([add("a.sub/NS", "ns.a.example.net."), add("a.sub/DS", DS)])
+    assert any("below the delegation sub.example.lan." in e for e in errors)
 
 
 def test_dname_holds_a_single_target():

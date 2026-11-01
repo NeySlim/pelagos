@@ -19,7 +19,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-from pelagos.core.keafile import KeaConfigError
+from pelagos.core.keafile import NOTED_LISTS, KeaConfigError
 
 INCLUDE_RE = re.compile(r'<\?\s*include\s+"([^"\n]+)"\s*\?>')
 _LITERAL = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null")
@@ -79,6 +79,14 @@ class Include:
 
 
 @dataclass(slots=True)
+class Comment:
+    file: int
+    start: int
+    end: int
+    text: str  # without its markers
+
+
+@dataclass(slots=True)
 class Node:
     kind: str  # obj, arr, scalar
     first: int  # token indexes, inclusive
@@ -126,6 +134,7 @@ class KeaDocument:
         self.texts: list[str] = []
         self.includes: list[Include] = []
         self.tokens: list[Token] = []
+        self.comments: list[Comment] = []
         self._load(self.path, text)
         self.root = self._parse()
         self.value = self._to_value(self.root)
@@ -169,11 +178,15 @@ class KeaDocument:
                 i += 1
             elif text.startswith("//", i) or c == "#":
                 j = text.find("\n", i)
-                i = n if j < 0 else j
+                j = n if j < 0 else j
+                self.comments.append(Comment(f, i, j, text[i + (1 if c == "#" else 2) : j].strip()))
+                i = j
             elif text.startswith("/*", i):
                 j = text.find("*/", i + 2)
                 if j < 0:
                     raise KeaEditError(f"{self.paths[f]}: unterminated /* comment")
+                body = [ln.strip().lstrip("*").strip() for ln in text[i + 2 : j].splitlines()]
+                self.comments.append(Comment(f, i, j + 2, "\n".join(ln for ln in body if ln)))
                 i = j + 2
             elif text.startswith("<?", i):
                 m = INCLUDE_RE.match(text, i)
@@ -323,6 +336,107 @@ class KeaDocument:
             return node.items[step].value
         raise KeyError(step)
 
+    # Comments ---------------------------------------------------------------
+
+    def comment_notes(self, root: str) -> list[tuple[list[str | int], str]]:
+        """(path, text) per comment: the nearest object that can hold a `user-context` (a subnet,
+        reservation, option, pool, class...; else the `root` body). A comment alone on its line
+        describes what follows it, a comment after code on its line describes that code."""
+        body = next((m.value for m in self.root.members if self.tokens[m.key].value == root), None)
+        if body is None or body.kind != "obj":
+            return []
+        out: list[tuple[list[str | int], str]] = []
+        for c in self.comments:
+            if not any(ch.isalnum() for ch in c.text):
+                continue  # rulers and blank comments
+            anchor = self._comment_anchor(c)
+            path: list[str | int] = [root]
+            if anchor is not None and body.first <= anchor <= body.last:
+                path = self._noted_path(body, anchor, [root])
+            out.append((path, c.text))
+        return out
+
+    def _comment_anchor(self, c: Comment) -> int | None:
+        text = self.texts[c.file]
+        same = [k for k, t in enumerate(self.tokens) if t.file == c.file]
+        before = [k for k in same if self.tokens[k].end <= c.start]
+        after = [k for k in same if self.tokens[k].start >= c.end]
+        trailing = before and _line(text, self.tokens[before[-1]].end) == _line(text, c.start)
+        if trailing or not after:
+            return before[-1] if before else None
+        return after[0]
+
+    def _noted_path(self, node: Node, k: int, path: list[str | int]) -> list[str | int]:
+        """Path of the deepest object holding token `k` that may carry a user-context."""
+        best = list(path)
+        while True:
+            if node.kind == "obj":
+                hit = next((m for m in node.members if m.value.first <= k <= m.value.last), None)
+                if hit is None:
+                    return best
+                path = [*path, self.tokens[hit.key].value]
+                node = hit.value
+            elif node.kind == "arr":
+                idx = next(
+                    (i for i, it in enumerate(node.items) if it.value.first <= k <= it.value.last), None
+                )
+                if idx is None:
+                    return best
+                key = path[-1]
+                path = [*path, idx]
+                node = node.items[idx].value
+                if node.kind == "obj" and key in NOTED_LISTS:
+                    best = list(path)
+            else:
+                return best
+
+    # Include tree -----------------------------------------------------------
+
+    def include_tree(self, root: str, directory: Path) -> dict[Path, str]:
+        """Texts that split a file without includes into one file per object or list of the `root`
+        body under `directory`; the top file keeps the include directives and the global values.
+        Comments move with the member they precede or close; the tree must read back as this
+        document."""
+        if self.has_includes:
+            raise KeaEditError(f"{self.path} already uses <?include?>")
+        body = next((m.value for m in self.root.members if self.tokens[m.key].value == root), None)
+        if body is None or body.kind != "obj" or not body.members:
+            raise KeaEditError(f"{self.path} has no {root} object to split")
+        text = self.texts[0]
+        open_tok = self.tokens[body.first]
+        cuts = [_after_line(text, open_tok.end)]
+        for m in body.members:
+            end = self.tokens[m.comma].end if m.comma is not None else self.tokens[m.value.last].end
+            cuts.append(_after_line(text, end))
+        names: set[str] = set()
+        out: dict[Path, str] = {}
+        lines: list[str] = []
+        for i, m in enumerate(body.members):
+            piece = text[cuts[i] : cuts[i + 1]]
+            if m.value.kind == "scalar":
+                lines.append(piece)  # a global value stays in the top file
+                continue
+            if m.comma is not None:
+                at = self.tokens[m.comma].start - cuts[i]
+                piece = piece[:at] + piece[at + 1 :]
+            key = str(self.tokens[m.key].value)
+            name = re.sub(r"[^A-Za-z0-9._-]", "_", key) or "member"
+            stem, n = name, 2
+            while name.lower() in names:
+                name, n = f"{stem}-{n}", n + 1
+            names.add(name.lower())
+            target = directory / f"{name}.json"
+            indent = _line_indent(text, self.tokens[m.key].start)
+            out[target] = _dedent(piece, indent).rstrip(" \t\n") + "\n"
+            comma = "," if i < len(body.members) - 1 else ""
+            lines.append(f'{indent}<?include "{target}"?>{comma}\n')
+        top = text[: cuts[0]] + "".join(lines) + text[cuts[-1] :]
+        tree = {self.path: top, **out}
+        check = KeaDocument(self.path, reader=lambda p: tree[p], cwd=self.cwd, text=top)
+        if _canonical(check.value) != _canonical(self.value):
+            raise KeaEditError(f"{self.path}: the include tree does not read back as the file")
+        return tree
+
     # Patching --------------------------------------------------------------
 
     def patch(self, new_value: dict[str, Any]) -> dict[Path, str]:
@@ -452,6 +566,17 @@ class KeaDocument:
             last = kept[-1]
             comma = last.comma if last.comma not in self._dropped else None
             anchor = comma if comma is not None else last.value.last
+            inc = self._member_include(node, last) if comma is None else None
+            if inc is not None:
+                # The last member has a file of its own (include tree): the new one stays in the
+                # file that holds the braces, after that file's directive.
+                text = self.texts[inc.file]
+                multiline = _starts_line(text, inc.start)
+                indent = _line_indent(text, inc.start) if multiline else ""
+                body = prefix + self._render(value, inc.file, indent, multiline)
+                joint = f"\n{indent}" if multiline else " "
+                self._edit(inc.file, inc.end, inc.end, f",{joint}{body}")
+                return
             f = self.tokens[anchor].file
             text = self.texts[f]
             lead = self.tokens[last.key if isinstance(last, Member) else last.value.first]
@@ -488,6 +613,21 @@ class KeaDocument:
         else:
             body = prefix + self._render(value, f, "", False)
             self._edit(f, open_tok.end, open_tok.end, f" {body} ")
+
+    def _member_include(self, node: Node, last: Member | Item) -> Include | None:
+        """The directive, in the file of `node`'s closing brace, of a file holding only `last`."""
+        if node.kind != "obj" or not isinstance(last, Member):
+            return None
+        close = self.tokens[node.last].file
+        target = self.tokens[last.key].file
+        if target == close:
+            return None
+        inc = next((i for i in self.includes if i.file == close and i.target == target), None)
+        first = self.tokens[node.first]
+        if inc is None or first.file != close or not (first.start < inc.start < self.tokens[node.last].start):
+            return None
+        owned = sum(1 for t in self.tokens if t.file == target)
+        return inc if owned == last.value.last - last.key + 1 else None
 
     def _insert_before(self, node: Node, value: Any, where: str) -> None:
         tok = self.tokens[node.first]
@@ -540,6 +680,29 @@ def _whole_lines(text: str, start: int, end: int) -> tuple[int, int]:
     if j >= len(text):
         return ls, j
     return start, end
+
+
+def _after_line(text: str, pos: int) -> int:
+    """Past the end of the line holding `pos` when only blanks or a comment follow, else `pos`."""
+    j = pos
+    while j < len(text) and text[j] in " \t":
+        j += 1
+    if text.startswith(("//", "#"), j):
+        k = text.find("\n", j)
+        j = len(text) if k < 0 else k
+    elif text.startswith("/*", j):
+        k = text.find("*/", j)
+        if k >= 0 and "\n" not in text[j:k]:
+            j = k + 2
+            while j < len(text) and text[j] in " \t":
+                j += 1
+    if j >= len(text):
+        return len(text)
+    return j + 1 if text[j] == "\n" else pos
+
+
+def _dedent(piece: str, indent: str) -> str:
+    return "\n".join(ln[len(indent) :] if ln.startswith(indent) else ln for ln in piece.split("\n"))
 
 
 def _indent_unit(text: str) -> str:

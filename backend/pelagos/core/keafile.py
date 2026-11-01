@@ -709,3 +709,79 @@ def restore_secrets(target: Any, clear: list[Any], known: Any) -> list[str]:
 
     walk(target, "")
     return missing
+
+
+# Comments carried into user-context before config-write (section 9) ---------------------------------
+
+COMMENT_KEY = "pelagos"
+# Lists whose objects may carry a `user-context` (Kea ARM: subnets, pools, reservations, options,
+# classes; D2 domains, servers and keys).
+NOTED_LISTS = frozenset(
+    {
+        "subnet4",
+        "subnet6",
+        "shared-networks",
+        "pools",
+        "pd-pools",
+        "reservations",
+        "option-data",
+        "option-def",
+        "client-classes",
+        "ddns-domains",
+        "dns-servers",
+        "tsig-keys",
+    }
+)
+
+
+def _running_path(file_config: Any, running: Any, path: list[Any]) -> list[Any]:
+    """The objects of `running` along `path` (a path in the file) that may hold a user-context, list
+    items matched by identity; stops at the first step the running configuration does not have."""
+    out = [running]
+    file_node, run_node, key = file_config, running, ""
+    for step in path:
+        if isinstance(step, str) and isinstance(file_node, dict) and isinstance(run_node, dict):
+            if step not in run_node or step not in file_node:
+                break
+            file_node, run_node, key = file_node[step], run_node[step], step
+        elif isinstance(step, int) and isinstance(file_node, list) and isinstance(run_node, list):
+            if not 0 <= step < len(file_node) or not isinstance(file_node[step], dict):
+                break
+            pairs, _, _ = pair_items(key, [file_node[step]], run_node)
+            if not pairs:
+                break
+            file_node, run_node = file_node[step], run_node[pairs[0][1]]
+            if key in NOTED_LISTS:
+                out.append(run_node)
+        else:
+            break
+    return out
+
+
+def copy_comments(
+    file_config: dict[str, Any], notes: list[tuple[list[Any], str]], running_body: dict[str, Any], root: str
+) -> tuple[dict[str, Any], int]:
+    """`running_body` with each note added to `user-context.pelagos.comment` of the object it was
+    written next to (its nearest object that still runs, else the body); returns (body, count of
+    lines added). A line already there is not added again: copying twice changes nothing."""
+    body = _copy(running_body)
+    added = 0
+    for path, text in notes:
+        if not path or path[0] != root:
+            continue
+        chain = _running_path(file_config.get(root), body, path[1:])
+        target = chain[-1]
+        context = target.get("user-context")
+        context = dict(context) if isinstance(context, dict) else {}
+        meta = context.get(COMMENT_KEY)
+        meta = dict(meta) if isinstance(meta, dict) else {}
+        current = str(meta.get("comment") or "")
+        have = current.splitlines()
+        new = [ln for ln in text.splitlines() if ln not in have]
+        if not new:
+            continue
+        meta["comment"] = "\n".join([*have, *new])
+        context[COMMENT_KEY] = meta
+        target["user-context"] = context
+        added += len(new)
+    return body, added

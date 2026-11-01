@@ -402,3 +402,24 @@ def test_old_node_keeps_the_secret_entry(tmp_path):
     sealed = store.load_cluster().secrets[SESSION_SIGNING]
     store.update_cluster(lambda c: c.settings.setdefault("auth", {}).update({"require_totp": False}), "t")
     assert store.load_cluster().secrets[SESSION_SIGNING] == sealed
+
+
+def test_deleted_user_sessions_end_when_the_config_merged_first(log, cluster):
+    """The user is already gone from cluster.toml when admin.user.delete is applied."""
+    store, rev = SessionStore(), Revocations()
+    rev.refresh(log, cluster, store)
+    s = store.create("id-carol", "carol", set(), keys=KEYS)
+    s.issued_at = utcnow() - timedelta(minutes=1)
+    cluster.users[:] = [u for u in cluster.users if u.username != "carol"]
+    log.merge([entry("admin.user.delete", "user:carol", {"username": "carol"})])
+    rev.refresh(log, cluster, store)
+    assert store.peek(s.id) is None
+
+
+def test_copy_of_a_cookie_older_than_the_last_reissue_is_refused():
+    store = SessionStore()
+    s = store.create("u", "alice", set(), keys=KEYS)
+    old, _ = store.cookie(s)
+    s.issued_at = utcnow() + timedelta(seconds=1)  # re-issued (password change)
+    new, _ = store.cookie(s)
+    assert store.get(old) is None and store.get(new) is s

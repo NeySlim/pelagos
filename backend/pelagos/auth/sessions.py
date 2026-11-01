@@ -247,6 +247,9 @@ class SessionStore:
                     return None
                 if verify_cookie(session.keys, value) is None:
                     return None
+                # A copy older than the last re-issue (password change) is not this session any more.
+                if claims.issued_ms < now_ms(session.created_at) - 1:
+                    return None
                 # Activity seen on another node counts for the idle timer here.
                 session.seen_ms = max(session.seen_ms, claims.seen_ms)
                 seen = datetime.fromtimestamp(claims.seen_ms / 1000, tz=now.tzinfo)
@@ -301,6 +304,15 @@ class SessionStore:
                 sid
                 for sid, s in self._sessions.items()
                 if s.user_id == user_id and (before is None or s.created_at < before)
+            ]
+            for sid in victims:
+                del self._sessions[sid]
+        return len(victims)
+
+    def revoke_username(self, username: str, before: datetime) -> int:
+        with self._lock:
+            victims = [
+                sid for sid, s in self._sessions.items() if s.username == username and s.created_at < before
             ]
             for sid in victims:
                 del self._sessions[sid]
@@ -466,9 +478,8 @@ class Revocations:
             latest, _ = self.users.get(name, (0.0, 0.0))
             if ts > latest:
                 self.users[name] = (ts, expiry)
-            user = cluster.user(name) if hasattr(cluster, "user") else None
-            if user is not None:
-                sessions.revoke_user(user.id, before=entry.ts)
+            # By name: a deleted user is already gone from cluster.toml when its entry arrives.
+            sessions.revoke_username(name, before=entry.ts)
 
     def _expire(self, now: float) -> None:
         self.handles = {h: e for h, e in self.handles.items() if e > now}

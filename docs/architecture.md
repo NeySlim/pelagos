@@ -3047,7 +3047,9 @@ Resolution of a request cookie (`security.session_from_cookie`, used by
 1. `parse_cookie`; a malformed value or an older format (a bare 0.3.x id) is
    no session (`401` on routes that need one).
 2. A local session with that `sid`: the mac is checked with the session's own
-   keys and `user_id` must match. A live local session is authoritative for
+   keys, `user_id` must match and `issued` must not be older than the
+   session's `issued_at` (a copy from before `POST /auth/password` re-issued
+   it is refused). A live local session is authoritative for
    user, permissions and restriction; its idle timer takes
    `max(last_seen, seen)`. A local session dead by idle time or TTL is
    dropped and the cookie goes on to step 3 (the user may have been active
@@ -3115,6 +3117,8 @@ fixed key order of section 11 makes it select `auth.*`, `admin.*`,
 | `admin.role.replace` | every user holding that role (`target` `role:<name>`) when the rule is applied: sessions issued before the entry |
 
 Invariants:
+- User rules end the sessions held in memory by user name, so a deleted
+  user (gone from `cluster.toml` before its entry arrives) loses them too.
 - User rules are indexed by user name (entries carry `target =
   "user:<name>"`; names cannot change, `update_user` takes only `roles`,
   `enabled` and `must_change_password`); `refused(claims, user)` compares

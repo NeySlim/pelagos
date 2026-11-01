@@ -22,6 +22,18 @@ short timed sleep, never `time.sleep(0)`; never hold a blocking file lock across
 `axfr`; `tests/unit/connectors/bind/test_bind_zone_roles.py` follows. `gunicorn_conf.py` turns
 gunicorn's control socket off. No API change; WP-CORE and WP-API-AUTH code that does long CPU work
 in requests (audit queries, hosts cache, argon2) should follow the rules (see the B1-WEBPROC report).
+## 2026-11-01, B1-DISCOVERY (WP-COLLECTOR, WP-API-AUTH, WP-FRONTEND): IPv4 neighbor discovery
+Additive, behind the cluster module `discovery` (absent means false, D11; `GET /admin/modules` and
+`GET /capabilities` list it). Section 27 "IPv4 neighbors and discovery": table
+`neighbor_observations` (created in place, no schema version change), peer action
+`discovery.neighbors` (a peer without it observes nothing), `AlertKind.UNKNOWN_DEVICE`
+(`unknown_device`, info, cluster-wide, subject `mac:<mac>`, exceptable), `Host.seen`
+(`{"first","last","node"}` or null) and `Host.vendor` (str or null), `GET /hosts/discovered` and
+`GET /hosts/vendor/{mac}` (section 17). OUI table `pelagos/data/oui.tsv` from `scripts/gen-oui.py`
+(D7). Settings domain `discovery`: `ipv4_enabled`, `unknown_after_minutes`, and `poll_seconds`
+renamed from `ipv6.poll_seconds` (`RENAMED`); `retention.neighbor_observation_days`.
+`GET /admin/ipv6` keeps `settings.poll_seconds`. WP-FRONTEND (U2-HOSTS-UI) builds the "Seen" and
+"Vendor" columns and the unknown filter on this contract and `frontend/mock/discovery.mjs`.
 
 ## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
 Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created

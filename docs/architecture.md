@@ -762,6 +762,7 @@ class AlertKind(str, Enum):
     ROOT_HINTS_STALE="root_hints_stale"; IPV6_SOURCE_FAILED="ipv6_source_failed"
     PATH_NOT_WRITABLE="path_not_writable"
     UPDATE_AVAILABLE="update_available"; UPDATE_FAILED="update_failed"; UPDATE_STALLED="update_stalled"
+    UNKNOWN_DEVICE="unknown_device"   # B1-DISCOVERY (section 27, IPv4 neighbors)
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -886,6 +887,8 @@ class Host(Model):                 # join by MAC, then IP, then name; nothing pe
     lease: Lease | None; reservation: Reservation | None
     records: list[RRset]           # A, AAAA, PTR found for this host
     alerts: list[Alert]            # open inconsistencies about this host
+    seen: dict | None = None       # {"first","last","node"}: IPv4 neighbor sightings (section 27), discovery module
+    vendor: str | None = None      # manufacturer of `mac` from the OUI table (section 27), discovery module
 ```
 
 ## 5. Connector interfaces
@@ -1888,6 +1891,7 @@ description = "Records only"
 [modules]                               # cluster-wide feature switches
 dhcpv6 = false                          # DHCPv6 module (hides v6 everywhere when false)
 advanced_editor = true
+# discovery = false                     # IPv4 neighbor discovery (section 27); absent means false
 
 # [settings]: one table per domain, never a leaf at the root (naming: "Settings naming" below).
 # Every key, its bounds and its default: core/settings_registry.py, GET /admin/settings/schema.
@@ -2407,11 +2411,12 @@ run under the collector's backend lock):
 | `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
+| `discovery.neighbors` | `{"since"?}` | `{"node_id","neighbors": [NeighborObservation],"status": NeighborStatus|null}`: the IPv4 neighbors this node recorded (section 27, IPv4 neighbors); a peer without the action (`not_supported`) counts as observing nothing |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26), plus `analysis`: the last report kept on this node (taken out of `nodes[]` by the caller) |
 | `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ha.transitions`, `lease.history`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory`, `kea.migration.analyze`, `kea.migration.leases` and `kea.migration.ha` actions never use the collector's connectors and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ha.transitions`, `lease.history`, `ipv6.observations`, `discovery.neighbors`, `tokens.usage`, `kea.migration.inventory`, `kea.migration.analyze`, `kea.migration.leases` and `kea.migration.ha` actions never use the collector's connectors and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -3013,6 +3018,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_missing_aaaa` | info | hosts with a stable observed IPv6 address and no AAAA in their forward zone (section 27); cluster-wide, one alert per zone, subject `ipv6:aaaa:<zone>`; details `zone`, `count`, `hosts: [{"host_key","name","mac","address"}]`, `exception_keys` |
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
+| `unknown_device` | info | an IPv4 neighbor nobody declared (section 27, IPv4 neighbors; `discovery` module): a MAC first seen at least `discovery.unknown_after_minutes` ago and seen within `3 x discovery.poll_seconds`, with no lease nor reservation for that MAC or on one of its addresses, and no A record nor PTR for one of its addresses; cluster-wide, subject `mac:<mac>`; raised by the consistency pass of a node with a DHCPv4 backend and primary forward zones, over every node's neighbors; details `mac`, `vendor`, `addresses`, `nodes`, `first_seen`, `last_seen`, `exception_keys` (`["mac:<mac>"]`); exceptable; resolved when a lease, reservation or record appears, when the MAC is no longer seen or when the module is off; kept as it is while a node does not answer |
 | `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
 | `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`, `daemon`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`, `daemon_denied`, `daemon_apparmor`, `daemon_denied_apparmor`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
@@ -3661,7 +3667,7 @@ Until a work package implements an endpoint it answers `501` with
 | --- | --- | --- | --- |
 | `GET /health` | anon | | `{"status":"ok"|"degraded","replication":"ready"|"syncing","node_id","time"}` |
 | `GET /version` | anon | | `{"version","api":"v1","python","build"}` |
-| `GET /capabilities` | any | | `{"node": Node, "modules": {dhcpv6, advanced_editor}, "engines": {"bind": DnsCapabilities|null, "kea4": DhcpCapabilities|null, "kea6": ..., "d2": {...}|null}}` |
+| `GET /capabilities` | any | | `{"node": Node, "modules": {dhcpv6, advanced_editor, discovery}, "engines": {"bind": DnsCapabilities|null, "kea4": DhcpCapabilities|null, "kea6": ..., "d2": {...}|null}}` |
 
 ### Auth and account
 
@@ -3847,6 +3853,8 @@ divergence and reconciliation"), at build and at apply.
 | --- | --- | --- | --- |
 | `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest; sources come through the host join cache (section 15): a zone is read again only when its serial moved, a source at the latest after `collector.hosts_cache_max_age_seconds` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
+| `GET /hosts/discovered?filter=&q=&page=&per_page=` | `read:hosts` | | `404 module_disabled` without the `discovery` module. Paginated `Discovered` (section 27, IPv4 neighbors), one row per MAC seen over the cluster, latest `last_seen` first; `filter` `unknown` (no host of `GET /hosts` holds the MAC or one of its addresses, excepted rows left out) or `known`; `q` part of the MAC, an address or the vendor; `meta.unavailable` `[{"node_id","error"}]` for the nodes that did not answer or whose last read failed, `meta.errors` as `GET /hosts` |
+| `GET /hosts/vendor/{mac}` | `read:hosts` | | `404 module_disabled` without the `discovery` module; `{"mac","vendor","prefix"}` (`vendor` and `prefix` null when no OUI matches or the MAC is locally administered); `400 validation_error` for a value that is not a MAC |
 | `GET /hosts/{key}/timeline?since=&until=&page=&per_page=` | `read:hosts` | | paginated `{"ts","source": "lease","event",...LeaseEvent}` of one host, newest first, `meta` as `GET /dhcp/{family}/leases/history` plus `key`: `mac:` the events of that hardware address, `ip:` of that address, `name:` of that hostname, both families (DHCPv6 with the `dhcpv6` module); the key need not be a current host. Later sources (DNS changes) add items with another `source` |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
 
@@ -4144,7 +4152,7 @@ parts and put the reservation on every node that runs the Kea engine.
 | `GET /admin/settings` | `admin:settings` | | `[settings]` as JSON |
 | `PUT /admin/settings` | `admin:settings` | partial; former names accepted (section 10, "Settings naming"); a `map` setting (`dns.view_keys`) is replaced whole | merged settings; `400 validation_error` with one entry per bad field (bounds, type, pairs, unknown key, entry of a dedicated screen) |
 | `GET /admin/settings/schema` | `admin:settings` | | `{"domains": [..], "settings": [{"key","type","default","min"?,"max"?,"unit"?,"group"?,"pattern"?}], "pairs": [{"lower","higher","strict"}], "renamed": {old: new}, "scaled": {old: factor}}` |
-| `GET /admin/modules` | `admin:modules` | | `{"cluster": {dhcpv6, advanced_editor}, "nodes": {node_id: NodeModules}}` |
+| `GET /admin/modules` | `admin:modules` | | `{"cluster": {dhcpv6, advanced_editor, discovery}, "nodes": {node_id: NodeModules}}` |
 | `PUT /admin/modules` | `admin:modules` | same shape, partial | merged |
 | `GET /admin/certificates` | `admin:certificates` | | `{"nodes": [status], "cluster", "settings", "thresholds", "providers", "acme_profiles", "key_types"}`; a node that does not answer shows the certificate its web listener presents |
 | `PUT /admin/certificates/cluster` | `admin:certificates` | `{"source": "acme"|"ucm", "node_ids": "all"|[ids], ..., "secrets"?: {name: str|null}, "apply"?: true}` | `{"cluster", "job"}`: the selected nodes follow it (their own source becomes `inherit`), a job requests on each |
@@ -5540,8 +5548,8 @@ Code: sources in `collector/ipv6/` (`neighbors.py`, `dhcpv6.py`, interface `Neig
 `services/ipv6_hosts.py`, checks in `services/consistency.py`, routes in
 `api/ipv6.py`. Batches: V1 observations, V2 checks and API, V3 screens.
 
-- **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `poll_seconds`
-  (300, the DHCPv6 lease walk; the neighbor table is read every pass), `stable_min_days` (8), `stale_days` (14),
+- **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `discovery.poll_seconds`
+  (300, the DHCPv6 lease walk, `ipv6.poll_seconds` before 0.4.0; the neighbor table is read every pass), `stable_min_days` (8), `stale_days` (14),
   `auto_apply_enabled` (false, reserved). Retention
   `retention.ipv6_observation_days` (30). Screen entry: `prefixes` (watched
   prefixes, IPv6 CIDR strings; empty: only the effective defaults).
@@ -5676,7 +5684,7 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   refused transfer neither opens nor resolves an `ipv6_*` host alert.
   `meta.unavailable` also names (`{"node_id","source","error"}`) each source
   whose last poll failed (its `error`), read nothing, read nothing in a watched
-  prefix (`kept` 0), or is older than three passes (`3 x max(ipv6.poll_seconds,
+  prefix (`kept` 0), or is older than three passes (`3 x max(discovery.poll_seconds,
   collector.poll_seconds)`: the observer stopped), and each answering node with
   no source status (`source` `neighbors`: `no observation pass yet`, or
   `every observation source is disabled` when `ipv6.neighbors_enabled` is false
@@ -5738,6 +5746,74 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
     `node_ids` (without them: this node, else the first BIND node, and every other BIND node, so
     the PTR keep the redundancy of the forward zones). `409 conflict`
     when a served `ip6.arpa` zone of that view already holds the prefix.
+
+### IPv4 neighbors and discovery (0.4.0)
+
+Batch B1-DISCOVERY: see the device present without lease or reservation, and name its
+manufacturer. Code: the source in `collector/neighbors.py` (`collector/ipv6/neighbors.py`
+re-exports it), the table in `collector/ipv6/store.py`, the pass and the check in
+`collector/checks/discovery.py`, the OUI table and the routes in `services/discovery_service.py`.
+
+- **Module** `[modules] discovery` (cluster, D11): absent means false, so a cluster that never
+  turns it on keeps the same `cluster.toml` bytes. Off: no IPv4 neighbor read, no
+  `unknown_device` (open ones resolve), `GET /hosts/discovered` and `GET /hosts/vendor/{mac}`
+  answer `404 module_disabled`, `Host.seen` and `Host.vendor` stay null. The IPv6 observations
+  above do not depend on it.
+- **Settings** `[settings.discovery]`: `ipv4_enabled` (true), `poll_seconds` (300, 60 to 86400:
+  the IPv4 neighbor read and the DHCPv6 lease walk; former `ipv6.poll_seconds`, migrated by
+  `RENAMED`: a 0.3.x node then reads its default), `unknown_after_minutes` (60, 5 to 43200).
+  Retention `retention.neighbor_observation_days` (30).
+- **Source**: `ip -j -4 neigh show` (no privilege, the netlink socket the collector unit already
+  allows) every `discovery.poll_seconds` on each node with the module on and `ipv4_enabled`, a
+  collector task of its own (`discover`), never inside the `live` pass. Kept: entries with a
+  link-layer address, not `FAILED`, `INCOMPLETE` or `NOARP`; dropped: multicast, broadcast,
+  loopback, `0.0.0.0/8` and link-local `169.254.0.0/16`; MAC lower-case, all-zero MAC dropped.
+  A `stale` entry never moves `last_seen` (Linux keeps it long after the device left), as for IPv6.
+- **NeighborObservation**: `{"family": 4,"mac","address","node_id","first_seen","last_seen",
+  "state"}` (Unix seconds), in the observing node's cache: `neighbor_observations (family INTEGER
+  NOT NULL, mac TEXT NOT NULL, address TEXT NOT NULL, node_id TEXT NOT NULL, first_seen INTEGER
+  NOT NULL, last_seen INTEGER NOT NULL, state TEXT, PRIMARY KEY (family, mac, address))`, indexes
+  on `mac` and `last_seen`, created in place (`CREATE TABLE IF NOT EXISTS`: no schema version
+  change; derived, so `rebuild` empties it like the rest of the cache), rows older than
+  `neighbor_observation_days` deleted by each pass, at most 65536 neighbors recorded per pass.
+  Only family 4 is written in 0.4.0; IPv6 sightings stay in `ipv6_observations`.
+- **NeighborStatus** in the cache's `meta` (`discovery.status`): `{"node_id","last_poll","error",
+  "entries","failing_since"}`. A failing read logs a warning once when it starts and once when it
+  works again; it raises no alert in 0.4.0, the routes name it in `meta.unavailable`.
+- **Vendor**: `pelagos/data/oui.tsv`, generated by `scripts/gen-oui.py` from the IEEE
+  registries (MA-L `https://standards-oui.ieee.org/oui/oui.csv`, MA-M `.../oui28/mam.csv`, MA-S
+  `.../oui36/oui36.csv`, IAB `.../iab/iab.csv`), regenerated at each release, at most 2 MB:
+  header lines `#` (sources, date), then `<hex prefix>\t<short name>` sorted, prefixes of 6, 7
+  or 9 hex digits, names cut of their legal suffixes and to 48 characters, `Private`
+  assignments left out. `vendor(mac)` answers the longest matching prefix (36, then 28, then 24
+  bits), null for a locally administered MAC (randomised) or no match. The table is read on the
+  first lookup, never at import nor at start.
+- **Host fields**: `seen` `{"first","last","node"}` (RFC 3339): the earliest first sighting and
+  the latest last sighting over the cluster of the host's MAC (of its addresses when it has no
+  MAC), `node` the node of the latest one; `vendor` of the host's MAC. Both null without the
+  module or without a sighting. The web process keeps every node's neighbors in memory for
+  `collector.hosts_cache_max_age_seconds` (peers asked in parallel, 3 s each; outside the host
+  join cache, so a refresh never rebuilds `join:snapshot`); a node that does not answer only
+  leaves its sightings out.
+- **`unknown_device`** (section 15 table): judged in the consistency pass of each node with a
+  DHCPv4 backend and primary forward zones, over the leases, reservations and primary zones that
+  pass already read and every node's neighbors (`discovery.neighbors`, 5 s, in parallel). A MAC
+  is unknown when no lease nor reservation names it (hardware address) or holds one of its
+  addresses and no A record nor PTR (primary zones of the judging node) is about one of its
+  addresses. It is reported once its first sighting is `unknown_after_minutes` old and while it
+  was seen within `3 x discovery.poll_seconds`. A node without a DHCPv4 backend or primary
+  forward zone reports none; while a node does not answer, the alerts stay as they were. An
+  exception on `mac:<mac>` (the alert subject, lower-case) silences one device.
+- **Discovered** (`GET /hosts/discovered`): `{"mac","vendor","mac_random","addresses":
+  [{"address","node_id","first_seen","last_seen","state"}],"first_seen","last_seen","nodes",
+  "host_key","unknown","excepted"}`, times in RFC 3339; `host_key` the key of the `GET /hosts`
+  host holding the MAC or one of its addresses (null when none: then `unknown` is true);
+  `excepted` true when an `unknown_device` exception names the MAC; `nodes` the nodes that saw it.
+- **M-18, identifying a device**: Pelagos names a device by its OUI (above) and, for DHCP clients,
+  by the client classes Kea matched on the lease; it does not fingerprint DHCP option 55 (the
+  parameter request list) in 0.4.0: Kea does not keep it in the lease and a fingerprint database
+  would be another table to maintain.
+- **Audit**: none (reads only; the module switch is audited as any `PUT /admin/modules`).
 
 ## 28. Kea 3.x migration
 

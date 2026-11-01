@@ -50,8 +50,11 @@ to run when `cluster.toml` already exists.
 | `--admin-password PASSWORD` | | deprecated: visible in `ps` and the shell history; use `PELAGOS_ADMIN_PASSWORD` or the prompt |
 | `--web-url URL` | `https://<name>:8443` | UI URL advertised to the other nodes |
 | `--replication-url URL` | `https://<name>:<replication port>` | how the other nodes reach this one |
+| `--site LABEL` | none | optional site label grouping this node with others, 1 to 64 characters |
 | `--web-listen HOST:PORT` | `0.0.0.0:8443` | where the UI listens (`node.toml` `web_listen`); the default `--web-url` follows its port |
 | `--replication-listen HOST:PORT` | `0.0.0.0:8444` | where replication listens (`replication_listen`); the default `--replication-url` follows its port |
+
+The site label can be changed later from the Nodes API (`PATCH /api/v1/nodes/{id}`).
 
 ```sh
 sudo pelagos init --name ns1 --web-url https://ns1.example.lan:8443 \
@@ -88,6 +91,7 @@ node already has a `cluster.toml`.
 | `--name NAME` | short hostname | this node's name |
 | `--replication-url URL` | `https://<name>:8444` | how the peers reach this node |
 | `--web-url URL` | `https://<name>:<web port>` | UI URL of this node |
+| `--site LABEL` | none | optional site label for this node, 1 to 64 characters; an issuing node on an older release ignores it and a warning says so |
 | `--web-listen HOST:PORT` | `0.0.0.0:8443` | where the UI listens; checked free like for `init` |
 | `--replication-listen HOST:PORT` | `0.0.0.0:8444` | where replication listens; checked free like for `init` |
 | `--engines LIST` | none | comma list among `bind,kea4,kea6,d2` this node drives (usually left to `pelagos import`) |

@@ -63,6 +63,8 @@ const invocations = [
   () => api.d2.servers(), () => api.d2.stats(), () => api.d2.config(), () => api.d2.configPlan({}),
   () => api.dhcp.configFile('v4'), () => api.dhcp.adoptPlan('v4', 'file'), () => api.d2.configFile(), () => api.d2.adoptPlan('running'),
   () => api.hosts.list({ only_inconsistent: true }), () => api.hosts.get('mac:aa:bb:cc:dd:ee:ff'), () => api.hosts.plan({}),
+  // B1-LEASEHIST
+  () => api.dhcp.leaseHistory('v4', { ip: '192.0.2.10' }), () => api.hosts.timeline('mac:aa:bb:cc:dd:ee:ff', { since: 0 }),
   () => api.plans.get('p1'), () => api.plans.apply('p1', true), () => api.plans.rollback('p1'), () => api.plans.remove('p1'),
   () => api.jobs.get('j1'),
   () => api.alerts.list({ state: 'open' }), () => api.alerts.summary(), () => api.alerts.ack('a1', 'seen'),

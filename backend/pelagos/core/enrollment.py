@@ -734,7 +734,8 @@ def enroll_node(
         raise EnrollError("protocol_error", "the issuing node did not register this node", 502)
     if clean_site(site) and registered.site is None:
         notify(
-            f"warning: the issuing node ignored --site {site!r} (older release); set it with PATCH /nodes/{node.id}"
+            f"warning: the issuing node ignored --site {site!r} (older release); "
+            f"set it later with PATCH /nodes/{node.id}"
         )
     if ca_mod.node_id_from_cert(response.cert_pem.encode()) != node.id:
         raise EnrollError("protocol_error", "the issued certificate is for another node", 502)

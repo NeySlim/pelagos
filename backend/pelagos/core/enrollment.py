@@ -43,7 +43,7 @@ from pelagos.core.repl_http import (
     pinned_context,
     request_json,
 )
-from pelagos.core.secrets import SecretBox, SecretError, write_master_key
+from pelagos.core.secrets import SecretBox, SecretError, replace_session_secret, write_master_key
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import NodeModules, Peer, clean_site, clean_web_url
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
@@ -488,6 +488,7 @@ class EnrollmentService:
             c.nodes = [n for n in c.nodes if n.id != node_id]
             if peer.cert_fingerprint and peer.cert_fingerprint not in c.revoked:
                 c.revoked.append(peer.cert_fingerprint)
+            replace_session_secret(c.secrets, self.paths.master_key)  # B1-SESSIONS: section 16
 
         self.config_store.update_cluster(mutate, updated_by=by)
         self._audit(

@@ -5,6 +5,7 @@ rndc operations, a zone created there and edited by record plan, and a Kea file 
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,13 +13,16 @@ from typing import Any
 
 import pytest
 
+from pelagos.auth.sessions import COOKIE_NAME
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
 from pelagos.core.context import NodeContext
 from pelagos.core.enrollment import enroll_node
 from pelagos.core.replication import ReplicationService
+from pelagos.core.secrets import SESSION_SIGNING
 from pelagos.domain import AuditResult, Engine, Family, PlanState
 from pelagos.domain.common import new_id
+from pelagos.services.admin_service import AdminService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
 from pelagos.services.errors import EngineUnavailable
@@ -29,7 +33,7 @@ from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry, replication_registry
 from pelagos.services.snapshot import engine_snapshot
 from tests.conftest import ADMIN_PASSWORD
-from tests.daemon.api_node import bind_table
+from tests.daemon.api_node import bind_table, make_app
 from tests.daemon.test_bind_backend import setup_includes
 from tests.daemon.test_kea_configfile import split_into_includes
 from tests.fixtures.ports import free_port
@@ -250,16 +254,99 @@ def test_record_plan_rolled_back_hours_later_after_a_restart(pair, monkeypatch):
 
 
 # Sessions resumed on a peer (section 16, "Sessions across nodes"): two web apps over the two
-# nodes, real mTLS replication of cluster.toml and the audit log. Contract skeleton (B1-SESSIONS).
+# nodes, cluster.toml and the audit log replicated over real mTLS by the collectors' push on write.
+
+SESSION = "/api/v1/auth/session"
 
 
-@pytest.mark.skip(reason="B1-SESSIONS: contract skeleton, implemented after the contract review")
-def test_session_from_one_node_resumed_on_the_peer_and_logged_out_everywhere():
-    """Login on node one; GET /auth/session and a POST with its CSRF on node two pass; logout on node one,
-    one replication pass, node two answers 401; a forged cookie is 401 on both."""
+def _wait(what, probe, timeout=20.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if probe():
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"timed out waiting for {what}")
 
 
-@pytest.mark.skip(reason="B1-SESSIONS: contract skeleton, implemented after the contract review")
-def test_secret_generated_on_an_upgraded_cluster_reaches_the_peer():
-    """A cluster without auth/session_signing: the first login on node one writes it, the peer gets it by
-    replication and resumes the cookie."""
+def _login(app, username="admin", password=ADMIN_PASSWORD):
+    c = app.test_client()
+    r = c.post("/api/v1/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.get_json()
+    c.environ_base["HTTP_X_CSRF_TOKEN"] = r.get_json()["csrf_token"]
+    c.csrf = r.get_json()["csrf_token"]
+    c.cookie = c.get_cookie(COOKIE_NAME).value
+    return c
+
+
+def _status(app, cookie):
+    c = app.test_client()
+    c.set_cookie(COOKIE_NAME, cookie)
+    return c.get(SESSION).status_code
+
+
+@pytest.fixture
+def web_pair(pair):
+    one, two = make_app(pair.peer_ctx), make_app(pair.web)
+    return pair, one, two
+
+
+def _add_user(ctx, name):
+    AdminService(ctx).create_user(
+        {"username": name, "password": "Daemon-User-Password-9", "roles": ["viewer"]}, "admin", None
+    )
+
+
+def test_session_from_one_node_resumed_on_the_peer_and_logged_out_everywhere(web_pair):
+    _pair, one, two = web_pair
+    a = _login(one)
+    _wait("the cookie resumed on the peer", lambda: _status(two, a.cookie) == 200)
+    b = two.test_client()
+    b.set_cookie(COOKIE_NAME, a.cookie)
+    b.environ_base["HTTP_X_CSRF_TOKEN"] = a.csrf
+    r = b.put("/api/v1/account/preferences", json={"theme_mode": "dark"})
+    assert r.status_code == 200, r.get_json()
+    assert a.post("/api/v1/auth/logout").status_code == 204
+    _wait("the logout replicated", lambda: _status(two, a.cookie) == 401)
+    forged = a.cookie[:-4] + ("AAAA" if not a.cookie.endswith("AAAA") else "BBBB")
+    assert _status(one, forged) == 401 and _status(two, forged) == 401
+
+
+def test_secret_generated_on_an_upgraded_cluster_reaches_the_peer(web_pair):
+    pair, one, two = web_pair
+    for ctx in (pair.peer_ctx, pair.web):
+        ctx.config_store.update_cluster(lambda c: c.secrets.pop(SESSION_SIGNING, None), "test")
+    _wait(
+        "the secret gone everywhere",
+        lambda: all(SESSION_SIGNING not in c.cluster().secrets for c in (pair.peer_ctx, pair.web)),
+    )
+    a = _login(one)
+    assert SESSION_SIGNING in pair.peer_ctx.cluster().secrets
+    _wait("the secret on the peer", lambda: SESSION_SIGNING in pair.web.cluster().secrets)
+    _wait("the cookie resumed on the peer", lambda: _status(two, a.cookie) == 200)
+
+
+def test_password_change_on_one_node_refuses_the_other_session_on_the_peer(web_pair):
+    pair, one, two = web_pair
+    _add_user(pair.peer_ctx, "vera")
+    _wait("the user on the peer", lambda: pair.web.cluster().user("vera") is not None)
+    first = _login(one, "vera", "Daemon-User-Password-9")
+    second = _login(one, "vera", "Daemon-User-Password-9")
+    _wait("the cookie resumed on the peer", lambda: _status(two, second.cookie) == 200)
+    r = first.post(
+        "/api/v1/auth/password",
+        json={"current_password": "Daemon-User-Password-9", "new_password": "Daemon-New-Password-77"},
+    )
+    assert r.status_code == 204
+    _wait("the change replicated", lambda: _status(two, second.cookie) == 401)
+    _wait("the caller resumed", lambda: _status(two, first.get_cookie(COOKIE_NAME).value) == 200)
+
+
+def test_user_disabled_on_one_node_is_refused_on_the_peer(web_pair):
+    pair, one, two = web_pair
+    _add_user(pair.peer_ctx, "dora")
+    a = _login(one, "dora", "Daemon-User-Password-9")
+    _wait("the cookie resumed on the peer", lambda: _status(two, a.cookie) == 200)
+    dora = pair.peer_ctx.cluster().user("dora")
+    AdminService(pair.peer_ctx).update_user(dora.id, {"enabled": False}, "admin", None)
+    AdminService(pair.peer_ctx).update_user(dora.id, {"enabled": True}, "admin", None)
+    _wait("the disable replicated", lambda: _status(two, a.cookie) == 401)

@@ -12,7 +12,7 @@ from pelagos.core import ca as ca_mod
 from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig
 from pelagos.core.listen import url_with_port
 from pelagos.core.paths import Paths
-from pelagos.core.secrets import SecretBox, write_master_key
+from pelagos.core.secrets import SecretBox, seal_session_secret, write_master_key
 from pelagos.domain.cluster import Peer, User
 from pelagos.domain.common import new_id, utcnow
 
@@ -93,6 +93,7 @@ def bootstrap_first_node(
     )
     # Encrypt a probe secret so a wrong master key is detected at the first start.
     cluster.secrets["pelagos/probe"] = box.encrypt("pelagos/probe", cluster.cluster_id)
+    seal_session_secret(cluster.secrets, box)
     store.init_cluster(cluster)
     return BootstrapResult(node=node, cluster=cluster, admin_username=admin_username)
 

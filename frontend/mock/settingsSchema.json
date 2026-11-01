@@ -53,6 +53,11 @@
       "default": false
     },
     {
+      "key": "auth.session_resume_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
       "key": "auth.webauthn_rp_id",
       "type": "string",
       "default": "auto",

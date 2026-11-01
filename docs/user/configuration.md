@@ -226,6 +226,7 @@ section 10, "Settings naming".
 | `webauthn_rp_id` | `auto` | a DNS name | domain security keys belong to; `auto` takes the domain the nodes' web URLs share; keys registered under another domain stop working when it changes |
 | `require_webauthn_roles` | `[]` | role names | members of these roles sign in with a security key; without one, a sign-in only allows adding one; the TOTP code alone is refused |
 | `api_docs_public_enabled` | `off` |  | serve `/api/v1/docs` and `/api/v1/swagger.json` without a session; by default they need one |
+| `session_resume_enabled` | `on` |  | a session opened on one node is accepted by every node under the same name and survives a web restart ([operations](operations.md#a-load-balancer-in-front-of-the-ui)); off: one login per node and per restart |
 
 ### Plans (`[settings.plans]`)
 

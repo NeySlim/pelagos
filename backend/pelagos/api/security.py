@@ -3,21 +3,34 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from flask import current_app, g, request
+from flask import after_this_request, current_app, g, request
 
 from pelagos import API_VERSION
 from pelagos.api.errors import ApiError
-from pelagos.auth import api_tokens
+from pelagos.auth import api_tokens, twofa
 from pelagos.auth import csrf as csrf_mod
-from pelagos.auth.rbac import has_permission
-from pelagos.auth.sessions import COOKIE_NAME, CSRF_HEADER, Session
+from pelagos.auth.rbac import has_permission, resolve_permissions
+from pelagos.auth.sessions import (
+    CLOCK_SKEW_MS,
+    COOKIE_NAME,
+    CSRF_HEADER,
+    REFRESH_MS,
+    Session,
+    SessionKeys,
+    derive_keys,
+    now_ms,
+    random_keys,
+    verify_cookie,
+)
 from pelagos.core import settings_registry as reg
-from pelagos.core.context import NodeContext
+from pelagos.core.context import REPL_READY, NodeContext
+from pelagos.core.secrets import SESSION_SIGNING, SecretError, seal_session_secret
 from pelagos.domain import AuditEntry, AuditResult
 from pelagos.services.errors import ServiceError
 
@@ -85,6 +98,163 @@ def _token_session(presented: str) -> Session:
     )
 
 
+# Session cookies (section 16, "Sessions across nodes") ----------------------------------------
+
+
+def cluster_keys(c: NodeContext | None = None) -> tuple[SessionKeys, bool]:
+    """The keys derived from the replicated secret and True, or this process's own keys and False
+    (no master key, no secret yet, or one that does not decrypt): sessions then stay on this node."""
+    c = c or ctx()
+    sealed = c.cluster().secrets.get(SESSION_SIGNING)
+    cached = c.extra.get("session_keys")
+    if sealed and cached and cached[0] == sealed:
+        return cached[1], True
+    if sealed and c.secrets is not None:
+        try:
+            raw = base64.b64decode(c.secrets.decrypt(SESSION_SIGNING, sealed))
+        except (SecretError, ValueError):
+            raw = b""
+        if len(raw) == 32:
+            keys = derive_keys(raw)
+            c.extra["session_keys"] = (sealed, keys)
+            return keys, True
+    if "session_process_keys" not in c.extra:
+        log.warning("no usable %s secret: sessions stay on this node until it replicates", SESSION_SIGNING)
+        c.extra["session_process_keys"] = random_keys()
+    return c.extra["session_process_keys"], False
+
+
+def ensure_session_secret(c: NodeContext | None = None) -> None:
+    """Write the signing secret on a cluster without one, only while `ready` (never syncing: the
+    peers may hold one; never isolated: a removed node reaches nobody)."""
+    c = c or ctx()
+    if c.secrets is None or SESSION_SIGNING in c.cluster().secrets or c.replication_state != REPL_READY:
+        return
+    box = c.secrets
+
+    def mutate(cfg) -> None:  # type: ignore[no-untyped-def]
+        if SESSION_SIGNING not in cfg.secrets:
+            seal_session_secret(cfg.secrets, box)
+
+    c.config_store.update_cluster(mutate, updated_by=f"node:{c.node.id}")
+
+
+def follow_revocations(c: NodeContext | None = None) -> None:
+    """Apply the revocations the audit log gained (at most once a second)."""
+    c = c or ctx()
+    try:
+        c.sessions.revocations.refresh(c.audit_log, c.cluster(), c.sessions)
+    except OSError:
+        log.exception("reading session revocations from the audit log failed")
+
+
+def resume_restriction(user, claimed: str | None, settings) -> str | None:  # type: ignore[no-untyped-def]
+    """The restriction of a resumed session: what the user's current state still requires of the cookie's."""
+    if user.must_change_password:
+        return twofa.PASSWORD_CHANGE
+    if claimed == twofa.TOTP_ENROLLMENT and not user.totp_secret and reg.get(settings, "auth.require_totp"):
+        return claimed
+    if claimed == twofa.WEBAUTHN_ENROLLMENT and not user.webauthn and twofa.key_required(user, settings):
+        return claimed
+    return None
+
+
+def _resume(c: NodeContext, value: str) -> Session | None:
+    settings = c.settings()
+    if not reg.get(settings, "auth.session_resume_enabled") or c.replication_state != REPL_READY:
+        return None
+    keys, shared = cluster_keys(c)
+    if not shared:
+        return None
+    claims = verify_cookie(keys, value)
+    if claims is None:
+        log.debug("session cookie refused: signature")
+        return None
+    now = now_ms()
+    ttl_ms = int(reg.get(settings, "auth.session_ttl_seconds")) * 1000
+    idle_ms = int(reg.get(settings, "auth.session_idle_seconds")) * 1000
+    if (
+        now - claims.issued_ms > ttl_ms
+        or now - claims.seen_ms > idle_ms
+        or claims.issued_ms > now + CLOCK_SKEW_MS
+        or claims.seen_ms > now + CLOCK_SKEW_MS
+    ):
+        log.debug("session cookie refused: expired")
+        return None
+    cluster = c.cluster()
+    user = next((u for u in cluster.users if u.id == claims.user_id), None)
+    if user is None or not user.enabled:
+        log.debug("session cookie refused: user")
+        return None
+    if c.sessions.revocations.refused(claims, user):
+        log.debug("session cookie refused: revoked")
+        return None
+    session = c.sessions.resume(
+        claims,
+        user.username,
+        resolve_permissions(user.roles, cluster.roles),
+        resume_restriction(user, claims.restriction, settings),
+        client_ip(),
+        keys=keys,
+    )
+    c.audit_log.append(
+        AuditEntry(
+            node_id=c.node.id,
+            user=user.username,
+            action="auth.resume",
+            target=f"user:{user.username}",
+            request={"session": session.handle.hex(), "from_node": claims.node_id},
+            result=AuditResult.OK,
+            client_ip=client_ip(),
+        )
+    )
+    return session
+
+
+def session_from_cookie(value: str | None, c: NodeContext | None = None) -> Session | None:
+    """The local session of a cookie, or the cookie of another node (or an earlier process) resumed."""
+    c = c or ctx()
+    if not value:
+        return None
+    follow_revocations(c)
+    return c.sessions.get(value) or _resume(c, value)
+
+
+def session_alive(sid: str, c: NodeContext) -> bool:
+    """For long-lived connections: revocations merged from peers end them without an HTTP request."""
+    follow_revocations(c)
+    return c.sessions.peek(sid) is not None
+
+
+def set_session_cookie(resp, session: Session) -> None:  # type: ignore[no-untyped-def]
+    value, max_age = ctx().sessions.cookie(session)
+    resp.set_cookie(
+        COOKIE_NAME,
+        value,
+        httponly=True,
+        secure=request.is_secure,
+        samesite="Strict",
+        path="/",
+        max_age=max_age,
+    )
+
+
+def _refresh_cookie_later(session: Session) -> None:
+    if now_ms() - session.seen_ms < REFRESH_MS:
+        return
+
+    @after_this_request
+    def _refresh(resp):  # type: ignore[no-untyped-def]
+        # Never on a refusal nor over a cookie the view set or deleted (login, logout, password).
+        if resp.status_code >= 400 or any(
+            h.startswith(f"{COOKIE_NAME}=") for h in resp.headers.getlist("Set-Cookie")
+        ):
+            return resp
+        if ctx().sessions.peek(session.id) is session:
+            set_session_cookie(resp, session)
+        return resp
+
+
 def load_session() -> None:
     """before_request: attach the live session (or None), enforce CSRF and the syncing write ban.
 
@@ -96,7 +266,7 @@ def load_session() -> None:
         g.session = _token_session(presented)
         _syncing_ban()
         return
-    session = ctx().sessions.get(request.cookies.get(COOKIE_NAME))
+    session = session_from_cookie(request.cookies.get(COOKIE_NAME))
     g.session = session
     if (
         session is None
@@ -108,6 +278,8 @@ def load_session() -> None:
         session, request.method, request.path, request.headers.get(CSRF_HEADER)
     ):
         raise ApiError("csrf_failed", f"missing or invalid {CSRF_HEADER} header")
+    if session is not None:
+        _refresh_cookie_later(session)
     _syncing_ban()
 
 

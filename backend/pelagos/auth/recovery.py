@@ -93,13 +93,15 @@ def cmd_user(args: argparse.Namespace, paths: Paths) -> int:
         if args.user_command == "reset-password":
             reset_password(paths, args.username, _read_password())
             print(f"password of {args.username} reset; it must be changed at the next login")
+            print("the user's open sessions end on every node once the change has replicated")
         elif args.user_command == "remove-keys":
             count = remove_keys(paths, args.username)
             print(f"{count} security key(s) removed from {args.username}")
         else:
             disable_totp(paths, args.username)
             print(f"one-time codes disabled for {args.username}")
-        print("sessions already open on running nodes stay valid until they expire or pelagos restarts")
+        if args.user_command != "reset-password":
+            print("sessions already open stay valid until they expire")
         return 0
     except (RecoveryError, ServiceError) as exc:
         print(f"pelagos user: {exc}", file=sys.stderr)

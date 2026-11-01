@@ -9,19 +9,34 @@ from flask_restx import Namespace, Resource
 from pelagos.api import models as m
 from pelagos.api.common import json_body
 from pelagos.api.errors import ApiError
-from pelagos.api.security import client_ip, ctx, current_session, require, services
+from pelagos.api.security import (
+    client_ip,
+    cluster_keys,
+    ctx,
+    current_session,
+    ensure_session_secret,
+    require,
+    services,
+    set_session_cookie,
+)
 from pelagos.auth import twofa
 from pelagos.auth.passwords import dummy_hash, verify_password
 from pelagos.auth.rbac import resolve_permissions
 from pelagos.auth.sessions import COOKIE_NAME
-from pelagos.core import settings_registry as reg
 from pelagos.domain.audit import AuditEntry, AuditResult
+from pelagos.domain.common import utcnow
 from pelagos.services.errors import ServiceError
 
 ns = Namespace("auth", description="Authentication and account", path="/auth")
 
 
-def _audit(action: str, user: str | None, result: AuditResult, message: str | None = None) -> None:
+def _audit(
+    action: str,
+    user: str | None,
+    result: AuditResult,
+    message: str | None = None,
+    details: dict | None = None,
+) -> None:
     c = ctx()
     c.audit_log.append(
         AuditEntry(
@@ -29,6 +44,7 @@ def _audit(action: str, user: str | None, result: AuditResult, message: str | No
             user=user,
             action=action,
             target=f"user:{user}" if user else "user:?",
+            request=details or {},
             result=result,
             message=message,
             client_ip=client_ip(),
@@ -102,7 +118,11 @@ def _open_session(user, restriction: str | None, method: str):  # type: ignore[n
     c = ctx()
     cluster = c.cluster()
     perms = resolve_permissions(user.roles, cluster.roles)
-    session = c.sessions.create(user.id, user.username, perms, client_ip(), restriction=restriction)
+    ensure_session_secret(c)
+    keys, _shared = cluster_keys(c)
+    session = c.sessions.create(
+        user.id, user.username, perms, client_ip(), restriction=restriction, keys=keys, node_id=c.node.id
+    )
     # Local only: writing cluster.toml here would bump the version and replicate on every login.
     logins = services().last_login
     logins.record(user.id)
@@ -116,15 +136,7 @@ def _open_session(user, restriction: str | None, method: str):  # type: ignore[n
             "restriction": restriction,
         }
     )
-    resp.set_cookie(
-        COOKIE_NAME,
-        session.id,
-        httponly=True,
-        secure=request.is_secure,
-        samesite="Strict",
-        path="/",
-        max_age=int(reg.get(cluster.settings, "auth.session_ttl_seconds")),
-    )
+    set_session_cookie(resp, session)
     return resp
 
 
@@ -135,8 +147,9 @@ class Logout(Resource):
     def post(self):
         c = ctx()
         session = current_session()
+        # The handle lets every node refuse this cookie once the entry replicates (section 16).
+        _audit("auth.logout", session.username, AuditResult.OK, details={"session": session.handle.hex()})
         c.sessions.revoke(session.id)
-        _audit("auth.logout", session.username, AuditResult.OK)
         resp = make_response("", 204)
         resp.delete_cookie(COOKIE_NAME, path="/")
         return resp
@@ -177,11 +190,15 @@ class Password(Resource):
         )
         sessions = ctx().sessions
         sessions.revoke_user(session.user_id)
+        # After the auth.op entry: the caller's new issued time is past it, on every node.
+        session.issued_at = utcnow()
         # The caller keeps a fresh session with the same CSRF token; others must log in again.
         sessions.adopt(session)
         if session.restriction == "password_change":
             session.restriction = None
-        return "", 204
+        resp = make_response("", 204)
+        set_session_cookie(resp, session)
+        return resp
 
 
 @ns.route("/totp/enroll")
@@ -202,9 +219,11 @@ class TotpConfirm(Resource):
     def post(self):
         session = current_session()
         services().account.totp_confirm(session.user_id, json_body().get("code"), client_ip())
+        resp = make_response("", 204)
         if session.restriction == twofa.TOTP_ENROLLMENT:
             session.restriction = twofa.after_enrollment(services().account.user(session.user_id))
-        return "", 204
+            set_session_cookie(resp, session)
+        return resp
 
 
 @ns.route("/totp")
@@ -320,6 +339,9 @@ class WebAuthnRegisterVerify(Resource):
         created = services().webauthn.register_verify(session.user_id, json_body(), _site(), client_ip())
         if session.restriction in (twofa.WEBAUTHN_ENROLLMENT, twofa.TOTP_ENROLLMENT):
             session.restriction = twofa.after_enrollment(services().account.user(session.user_id))
+            resp = make_response(created, 201)
+            set_session_cookie(resp, session)
+            return resp
         return created, 201
 
 

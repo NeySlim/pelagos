@@ -67,3 +67,22 @@ class SecretBox:
 
 def is_encrypted(value: str) -> bool:
     return value.startswith(PREFIX)
+
+
+# Session cookie signing key (section 16): replicated in [secrets], replaced when a node is removed.
+SESSION_SIGNING = "auth/session_signing"
+
+
+def generate_session_secret() -> str:
+    return base64.b64encode(_secrets.token_bytes(32)).decode()
+
+
+def seal_session_secret(store: dict[str, str], box: SecretBox) -> None:
+    """Put a fresh signing secret into a `[secrets]` table (inside a cluster.toml mutation)."""
+    store[SESSION_SIGNING] = box.encrypt(SESSION_SIGNING, generate_session_secret())
+
+
+def replace_session_secret(store: dict[str, str], master_key: Path) -> None:
+    """Node removal: a new secret, so the removed node can no longer sign cookies; nothing without a key."""
+    if master_key.exists():
+        seal_session_secret(store, SecretBox.from_file(master_key))

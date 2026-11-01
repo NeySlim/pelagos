@@ -72,7 +72,9 @@ class SocketSession:
         self._send_lock = threading.Lock()
 
     def alive(self) -> bool:
-        return self.ctx.sessions.peek(self.session_id) is not None
+        from pelagos.api.security import session_alive  # B1-SESSIONS: merged revocations end sockets
+
+        return session_alive(self.session_id, self.ctx)
 
     def allowed(self, topic: str) -> bool:
         required = TOPIC_PERMISSIONS.get(topic)
@@ -181,7 +183,9 @@ def register_ws(app: Flask, prefix: str) -> None:
                     "validation_error", "WebSocket upgrade required (served by the gevent-websocket worker)"
                 )
             )
-        session = ctx.sessions.get(request.cookies.get(COOKIE_NAME))
+        from pelagos.api.security import session_from_cookie  # B1-SESSIONS: resumes a peer's cookie
+
+        session = session_from_cookie(request.cookies.get(COOKIE_NAME), ctx)
         if session is None:
             log.warning("websocket refused from %s: no session", request.remote_addr)
             close_socket(ws, CLOSE_UNAUTHENTICATED, "authentication required")

@@ -3030,7 +3030,7 @@ class SessionStore:
         # (value re-signed with the session's keys and seen = now, max_age = TTL left in seconds)
 
 class Revocations:   # what the cluster revoked, read from the audit log (below)
-    def refresh(self, audit_log, cluster, sessions: SessionStore, now) -> None   # at most once a second
+    def refresh(self, audit_log, cluster, sessions: SessionStore, now) -> None   # when the log grew
     def refused(self, claims: CookieClaims, user: User) -> bool
 ```
 
@@ -3092,10 +3092,12 @@ stays `204`). Attributes of every `Set-Cookie`: `HttpOnly`, `SameSite=Strict`,
 
 Revocation across nodes. Nodes learn revocations from the replicated audit
 log, so no new protocol and no 0.3.x change (the entry shapes below are those
-0.3.5 writes). `Revocations.refresh` runs at most once a second, from
-`session_from_cookie` and from `SessionStore.peek` callers (the WebSocket
-`alive()` check), so an open socket closes within about a second of a merged
-revocation without any HTTP request. At process start it reads the entries
+0.3.5 writes). `Revocations.refresh` runs from `session_from_cookie` and
+from the WebSocket `alive()` check (`security.session_alive`, once a second
+per socket), so an open socket closes within about a second of a merged
+revocation without any HTTP request. It costs one `stat` of the audit file
+when the file did not grow; otherwise it reads only the new tail. A local
+revocation therefore applies to the next request, with no delay. At process start it reads the entries
 of the last `auth.session_ttl_seconds` through `AuditLog.query(since=...,
 action="auth.")` and `action="admin."` (the `(ts, id)` index: merged entries
 are appended out of `ts` order), then follows the file with
@@ -3137,7 +3139,7 @@ Invariants:
   user `local-recovery`, `op: reset_password`) and by 0.3.x peers apply too.
 
 Delay: a logout on one node is refused by a reachable peer within the audit
-push (about 2 s) plus one second.
+push (about 2 s).
 
 Audit. `auth.logout` gains `request = {"session": hex(handle)}`; new
 `auth.resume` (verb `resume`, section 11), one per resumed session, user the

@@ -316,7 +316,7 @@ test.describe('record types', () => {
       await editor.getByTestId('record-rdata').fill('1 . alpn="h2,h3" port=8443')
       await expect(editor.getByTestId('record-preview')).toContainText('IN HTTPS 1 . alpn="h2,h3" port=8443')
     })
-    const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'svc.example.lan.' })
+    const row = page.getByTestId('records-table').getByTestId('data-table-row').filter({ hasText: 'alpn="h2,h3"' })
     await expect(row).toContainText('HTTPS')
   })
 })

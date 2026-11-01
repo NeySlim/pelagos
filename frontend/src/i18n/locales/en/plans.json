@@ -1,0 +1,40 @@
+{
+  "nav": {
+    "plans": "Plans"
+  },
+  "pages": {
+    "list": {
+      "title": "Plans",
+      "subtitle": "Recent plans, applied or not, and the time left to roll them back",
+      "subtitleNode": "Plans of"
+    }
+  },
+  "columns": {
+    "created": "Created",
+    "state": "State",
+    "user": "Author",
+    "summary": "Summary",
+    "scope": "Scope",
+    "nodes": "Nodes",
+    "rollback": "Rollback"
+  },
+  "filters": {
+    "state": "State",
+    "user": "Author"
+  },
+  "rollback": {
+    "left": "{{left}} left",
+    "closed": "Window closed",
+    "closedOn": "Rollback window closed on {{date}}",
+    "none": "This plan cannot be rolled back"
+  },
+  "detail": {
+    "title": "Plan",
+    "audit": "Audit entries of this plan",
+    "gone": "This plan is no longer held by the node. Its audit entries remain."
+  },
+  "toast": {
+    "view": "View in Plans"
+  },
+  "empty": "No plan matches these filters"
+}

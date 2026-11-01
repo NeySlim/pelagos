@@ -11,12 +11,13 @@ import hosts from './hosts/routes'
 import alerts from './alerts/routes'
 import nodes from './nodes/routes'
 import audit from './audit/routes'
+import plans from './plans/routes'
 import advanced from './advanced/routes'
 import install from './install/routes'
 import admin from './admin/routes'
 import account from './account/routes'
 
-export const areas = [dashboard, dns, dhcp, hosts, alerts, nodes, audit, advanced, install, admin, account]
+export const areas = [dashboard, dns, dhcp, hosts, alerts, nodes, audit, plans, advanced, install, admin, account]
 
 // Sidebar groups in display order; nav items name their group by id.
 export const navGroups = [

@@ -25,7 +25,8 @@
     "node": "Node",
     "result": "Result",
     "from": "From",
-    "to": "To"
+    "to": "To",
+    "plan": "Plan {{id}}"
   },
   "actions": {
     "dns": "DNS",
@@ -55,6 +56,7 @@
     "noDiff": "This entry carries no diff",
     "request": "Request sent",
     "response": "Response received",
-    "empty": "Empty"
+    "empty": "Empty",
+    "viewPlan": "View plan"
   }
 }

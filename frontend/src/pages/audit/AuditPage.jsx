@@ -3,7 +3,7 @@
 // with request, response and diff, NDJSON export. Filters live in the URL so a
 // filtered view can be shared; ?id=<entry> opens that entry.
 import { useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ClipboardText, DownloadSimple, ArrowsClockwise } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, Input } from '../../components'
@@ -96,6 +96,13 @@ export default function AuditPage() {
           <Input label={t('filters.from')} type="datetime-local" value={filters.from} onChange={(e) => setFilter('from', e.target.value)} data-testid="audit-filter-from" />
           <Input label={t('filters.to')} type="datetime-local" value={filters.to} onChange={(e) => setFilter('to', e.target.value)} data-testid="audit-filter-to" />
         </div>
+        {filters.plan_id && (
+          <p className="flex flex-wrap items-center gap-2 text-xs text-text-secondary" data-testid="audit-plan-filter">
+            <span>{t('filters.plan', { id: filters.plan_id })}</span>
+            <Link to={`/plans?id=${encodeURIComponent(filters.plan_id)}`} className="text-accent-primary hover:underline" data-testid="audit-plan-filter-link">{t('detail.viewPlan')}</Link>
+            <button type="button" className="text-accent-primary underline" onClick={() => setFilter('plan_id', '')}>{t('common:table.clearFilters')}</button>
+          </p>
+        )}
         {fresh > 0 && (
           <button type="button" className="text-xs text-accent-primary underline" onClick={() => { setFresh(0); list.setPage(1) }} data-testid="audit-fresh">
             {t('newEntries', { count: fresh })}

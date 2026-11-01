@@ -132,6 +132,10 @@ export function PlanPreview({
   partialOption,
   // 'modal': the body scrolls inside the parent flex column and the action bar is pinned below it.
   layout = 'inline',
+  // The Plans page reads a plan without the controls it does not offer: no Apply, and no
+  // Roll back once the window (rollback_until) is closed.
+  allowApply = true,
+  allowRollback = true,
 }) {
   const { t } = useTranslation()
   const msg = useMessage()
@@ -168,7 +172,7 @@ export function PlanPreview({
   const isConfirmed = confirmed || preConfirmed
   const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || isConfirmed) && !busy
   const applied = (result?.state || plan?.state) === 'applied'
-  const canRollback = applied && !expired && !busy && !isJobScope
+  const canRollback = allowRollback && applied && !expired && !busy && !isJobScope
   const validations = useMemo(() => plan?.validations || [], [plan])
   const ticked = useTickReveal(validations.length, plan?.id)
   const ttlMs = plan?.expires_at && plan?.created_at ? Math.max(1, Date.parse(plan.expires_at) - Date.parse(plan.created_at)) : null
@@ -367,6 +371,7 @@ export function PlanPreview({
   const live = level === 'full' && !expired && !applied && !result
   const targetNames = plan.target_node_ids?.length ? plan.target_node_ids.map(nodeName).join(', ') : t('plan.allNodes')
   const pending = !applied && !result
+  const pendingApply = pending && allowApply
 
   const body = (
     <>
@@ -607,12 +612,12 @@ export function PlanPreview({
 
   const actions = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="plan-actions" role="group" aria-label={t('plan.actionsLabel')}>
-      {plan.requires_confirmation && pending && plan.requires_confirmation_reasons?.length > 0 && (
+      {plan.requires_confirmation && pendingApply && plan.requires_confirmation_reasons?.length > 0 && (
         <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
           {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
         </p>
       )}
-      {partialOption && pending && (
+      {partialOption && pendingApply && (
         <label className="w-full flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
           <input
             type="checkbox"
@@ -625,7 +630,7 @@ export function PlanPreview({
           {partialOption.label || t('plan.partialOption', { nodes: (partialOption.nodeIds || []).map(nodeName).join(', ') })}
         </label>
       )}
-      {plan.requires_confirmation && pending && !preConfirmed && (
+      {plan.requires_confirmation && pendingApply && !preConfirmed && (
         <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
           <input
             type="checkbox"
@@ -649,7 +654,7 @@ export function PlanPreview({
             {t('plan.rollback')}
           </Button>
         )}
-        {pending && plan.state !== 'rolling_back' && (
+        {pendingApply && plan.state !== 'rolling_back' && (
           <Button type="button" variant="primary" size="sm" onClick={handleApply} disabled={!canApply} loading={busy} loadingText={t('status.applying')} data-testid="plan-apply">
             <Lightning size={14} weight="fill" />
             {t('plan.apply')}

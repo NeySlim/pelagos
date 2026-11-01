@@ -2,7 +2,7 @@
 // Audit filters: URL search params <-> GET /audit query (architecture section 17).
 // `from`/`to` are datetime-local strings in the URL and RFC 3339 UTC in the query.
 
-export const FILTER_KEYS = ['user', 'action', 'target', 'node_id', 'engine', 'result', 'from', 'to']
+export const FILTER_KEYS = ['user', 'action', 'target', 'node_id', 'engine', 'result', 'plan_id', 'from', 'to']
 
 // Action prefixes the server matches with startsWith (section 11 vocabulary).
 export const ACTION_PREFIXES = [

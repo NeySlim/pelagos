@@ -15,6 +15,11 @@ describe('audit filters', () => {
     const q = toQuery({ user: 'alice', action: 'dns.', target: '', from: local, to: 'not a date' })
     expect(q).toEqual({ user: 'alice', action: 'dns.', from: new Date(local).toISOString() })
   })
+
+  it('carries the plan_id filter of a link from the Plans page', () => {
+    const f = filtersFromParams(new URLSearchParams('plan_id=01PLAN'))
+    expect(toQuery(f)).toEqual({ plan_id: '01PLAN' })
+  })
 })
 
 describe('toRfc3339', () => {

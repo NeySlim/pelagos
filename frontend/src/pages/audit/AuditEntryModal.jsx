@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // One audit entry: who, what, where, the request sent to the engine, its answer
 // and the diff. Engine payloads are untrusted and render as text only.
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
 import { Modal, StatusBadge, Badge, JsonTree, DiffView, LoadingSpinner } from '../../components'
@@ -47,7 +48,14 @@ export function AuditEntryDetail({ entry, nodeName = (id) => id }) {
         <Field label={t('columns.engine')}>{entry.engine ? <Badge variant="outline" size="sm" className="font-mono">{entry.engine}</Badge> : '-'}</Field>
         <Field label={t('columns.node')}>{nodeName(entry.node_id)}</Field>
         <Field label={t('detail.clientIp')} mono>{entry.client_ip}</Field>
-        <Field label={t('detail.plan')} mono>{entry.plan_id}</Field>
+        <Field label={t('detail.plan')} mono>
+          {entry.plan_id}
+          {entry.plan_id && /\.(apply|rollback)$/.test(entry.action) && (
+            <Link to={`/plans?id=${encodeURIComponent(entry.plan_id)}`} className="ml-2 font-sans text-xs text-accent-primary hover:underline" data-testid="audit-entry-plan-link">
+              {t('detail.viewPlan')}
+            </Link>
+          )}
+        </Field>
         <Field label={t('detail.id')} mono>{entry.id}</Field>
       </dl>
       {entry.request?.summary && (

@@ -29,15 +29,15 @@ export function NotificationProvider({ children }) {
   }, [])
 
   // Radix runs the timer and pauses it while the toast is hovered or focused; the duration
-  // hairline drains with it. `action` ({ label, onClick, testId }) is a button in the toast.
+  // hairline drains with it. `action` and `secondaryAction` ({ label, onClick, testId }) are buttons in the toast.
   const addToast = useCallback((type, message, duration = 5000, extra = {}) => {
     const id = Date.now() + Math.random() // unique even when called in a tight loop
-    setToasts(prev => [...prev, { id, type, message, duration, open: true, detail: extra.detail, action: extra.action }])
+    setToasts(prev => [...prev, { id, type, message, duration, open: true, detail: extra.detail, action: extra.action, secondaryAction: extra.secondaryAction }])
     return id
   }, [])
 
   const showToast = useCallback(
-    ({ type = 'info', message, detail, action, duration = action ? 9000 : 5000 }) => addToast(type, message, duration, { detail, action }),
+    ({ type = 'info', message, detail, action, secondaryAction, duration = action ? 9000 : 5000 }) => addToast(type, message, duration, { detail, action, secondaryAction }),
     [addToast],
   )
 
@@ -146,17 +146,21 @@ export function NotificationProvider({ children }) {
                   {toast.message}
                 </Toast.Description>
                 {toast.detail && <p className="ui-toast-detail mt-0.5 font-mono text-xs text-text-secondary break-all">{toast.detail}</p>}
-                {toast.action && (
-                  <Toast.Action asChild altText={toast.action.label}>
-                    <button
-                      type="button"
-                      className="ui-toast-action mt-2 inline-flex items-center h-6 px-2 rounded border border-border text-xs text-text-primary hover:bg-bg-tertiary"
-                      onClick={() => toast.action.onClick?.()}
-                      data-testid={toast.action.testId || 'toast-action'}
-                    >
-                      {toast.action.label}
-                    </button>
-                  </Toast.Action>
+                {(toast.action || toast.secondaryAction) && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {[toast.action, toast.secondaryAction].filter(Boolean).map((action, i) => (
+                      <Toast.Action key={action.testId || i} asChild altText={action.label}>
+                        <button
+                          type="button"
+                          className="ui-toast-action inline-flex items-center h-6 px-2 rounded border border-border text-xs text-text-primary hover:bg-bg-tertiary"
+                          onClick={() => action.onClick?.()}
+                          data-testid={action.testId || 'toast-action'}
+                        >
+                          {action.label}
+                        </button>
+                      </Toast.Action>
+                    ))}
+                  </div>
                 )}
               </div>
               {/* Toast.Close renders the button itself: no nested <button>. */}

@@ -25,7 +25,8 @@
     "node": "Nœud",
     "result": "Résultat",
     "from": "Depuis",
-    "to": "Jusqu'à"
+    "to": "Jusqu'à",
+    "plan": "Plan {{id}}"
   },
   "actions": {
     "dns": "DNS",
@@ -55,6 +56,7 @@
     "noDiff": "Cette entrée n'a pas de diff",
     "request": "Requête envoyée",
     "response": "Réponse reçue",
-    "empty": "Vide"
+    "empty": "Vide",
+    "viewPlan": "Voir le plan"
   }
 }

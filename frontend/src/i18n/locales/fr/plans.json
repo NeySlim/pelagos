@@ -1,0 +1,40 @@
+{
+  "nav": {
+    "plans": "Plans"
+  },
+  "pages": {
+    "list": {
+      "title": "Plans",
+      "subtitle": "Plans récents, appliqués ou non, et le temps restant pour les annuler",
+      "subtitleNode": "Plans de"
+    }
+  },
+  "columns": {
+    "created": "Créé",
+    "state": "État",
+    "user": "Auteur",
+    "summary": "Résumé",
+    "scope": "Portée",
+    "nodes": "Nœuds",
+    "rollback": "Retour arrière"
+  },
+  "filters": {
+    "state": "État",
+    "user": "Auteur"
+  },
+  "rollback": {
+    "left": "{{left}} restantes",
+    "closed": "Fenêtre fermée",
+    "closedOn": "Fenêtre de retour arrière fermée le {{date}}",
+    "none": "Ce plan ne peut pas être annulé"
+  },
+  "detail": {
+    "title": "Plan",
+    "audit": "Entrées d'audit de ce plan",
+    "gone": "Le nœud ne conserve plus ce plan. Ses entrées d'audit restent consultables."
+  },
+  "toast": {
+    "view": "Voir dans Plans"
+  },
+  "empty": "Aucun plan ne correspond à ces filtres"
+}

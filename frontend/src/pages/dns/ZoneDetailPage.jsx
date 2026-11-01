@@ -63,7 +63,8 @@ function useZoneError() {
   }
 }
 function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameOf }) {
-  const { t } = useTranslation(['dns', 'common'])
+  const { t } = useTranslation(['dns', 'common', 'plans'])
+  const navigate = useNavigate()
   const msg = useMessage()
   const { isMobile } = useMobile()
   const { showToast, showError } = useNotification()
@@ -102,6 +103,7 @@ function RecordsTab({ zone, view, editable, home, mode, onChanged, status, nameO
           }
         },
       },
+      secondaryAction: { label: t('plans:toast.view'), testId: 'toast-view-plan', onClick: () => navigate(`/plans?id=${encodeURIComponent(plan.id)}`) },
     })
   }
 

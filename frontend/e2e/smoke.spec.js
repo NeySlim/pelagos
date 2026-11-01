@@ -35,6 +35,7 @@ const PAGES = [
   ['/alerts', 'page-alerts-list', 'alerts-table'],
   ['/nodes', 'page-nodes-list', 'nodes-table'],
   ['/audit', 'page-audit-list', 'audit-table'],
+  ['/plans', 'page-plans-list', 'plans-table'],
   ['/advanced/bind', 'page-advanced-bind', 'bind-tree'],
   ['/advanced/kea', 'page-advanced-kea', 'kea-tree'],
   ['/advanced/history', 'page-advanced-history', 'history-table'],

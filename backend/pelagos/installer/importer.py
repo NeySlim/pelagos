@@ -290,6 +290,7 @@ def render_diff(changes: list[Change]) -> str:
         elif c.target.endswith("/include-tree"):
             out.append(f"~ {a['conf']}: one <?include?> per section, {a['comments']} comment(s) kept")
             out.extend(f"+ {f}" for f in a.get("files", []))
+            out.append(f"~ {a['conf']}: Kea reloads the tree (config-reload), its HA service restarts once")
     return "\n".join(out)
 
 

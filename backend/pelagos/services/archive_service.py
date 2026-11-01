@@ -1039,9 +1039,11 @@ class ArchiveService:
         when this node holds one encrypted to it, a real archive. The key is never kept."""
         entry = next((r for r in keys.recipients(self._settings()) if r.get("recipient") == recipient), None)
         if entry is None:
+            self.refuse_verify(recipient, actor, client_ip, "unknown recipient")
             raise NotFound("unknown recipient")
         text = body.get("identity")
         if not isinstance(text, str) or not text.strip() or len(text) > IDENTITY_MAX:
+            self.refuse_verify(recipient, actor, client_ip, "no identity, or too long")
             raise ValidationError("identity is required", [field_error("identity", "required")])
         identity = keys.matching_identity(text, recipient)
         checks: list[dict[str, Any]] = []
@@ -1077,6 +1079,19 @@ class ArchiveService:
         self._update(actor, mutate)
         self._audit("admin.archive.op", TARGET_IDENTITY, actor, request, client_ip, response=response)
         return {"recipient": proven[0], "recipients": keys.recipients(self._settings()), "checks": checks}
+
+    def refuse_verify(self, recipient: str, actor: str, client_ip: str | None, reason: str) -> None:
+        """Audits a key test refused before any decryption (never the pasted text)."""
+        self._audit(
+            "admin.archive.op",
+            TARGET_IDENTITY,
+            actor,
+            {"op": "verify_key", "recipient": str(recipient)[:LABEL_MAX]},
+            client_ip,
+            response={"ok": False, "reason": reason},
+            ok=False,
+            message=f"archive key test refused: {reason}",
+        )
 
     def _open_with(self, identity: str, recipient: str) -> list[dict[str, Any]]:
         probe = os.urandom(32)

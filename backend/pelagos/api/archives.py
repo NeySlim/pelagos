@@ -141,6 +141,7 @@ class VerifyKey(Resource):
         svc = archives()
         user = username()
         if not svc.verify_limiter.allow(user):
+            svc.refuse_verify(recipient, user, client_ip(), "rate limited")
             retry = svc.verify_limiter.retry_after(user)
             raise ApiError("rate_limited", "too many key tests", headers={"Retry-After": str(retry)})
         return svc.verify_key(recipient, json_body(), user, client_ip())

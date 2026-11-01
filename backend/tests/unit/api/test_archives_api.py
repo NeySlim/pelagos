@@ -368,7 +368,8 @@ def test_key_proof_never_keeps_the_key(admin, node_ctx, role_client, caplog):
         held not in trail and held not in node_ctx.paths.cluster_toml.read_text() and held not in caplog.text
     )
     results = [e.result.value for e in node_ctx.audit_log.read() if e.request.get("op") == "verify_key"]
-    assert results == ["error", "ok"]
+    # Unknown recipient, no identity, a foreign key, then the proof.
+    assert results == ["error", "error", "error", "ok"]
 
 
 def test_key_proof_rate_limited(admin, node_ctx):
@@ -379,6 +380,8 @@ def test_key_proof_rate_limited(admin, node_ctx):
         for _ in range(7)
     ]
     assert codes[:6] == [400] * 6 and codes[6] == 429
+    last = [e for e in node_ctx.audit_log.read() if e.request.get("op") == "verify_key"][-1]
+    assert last.response["reason"] == "rate limited" and last.result.value == "error"
 
 
 def test_schedule_already_on_keeps_working_without_proof(admin, node_ctx):

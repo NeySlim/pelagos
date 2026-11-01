@@ -99,11 +99,12 @@ def test_add_renew_delete_and_reassign(node_ctx, kea_dhcp4, tmp_root):
     add(kea_dhcp4, "192.0.2.151", MAC_A, t0 + 300)
     walk(collector)
     got = history(store, "192.0.2.151")
+    # In time order: the re-add carries its own cltt, earlier than the delete seen at the walk.
     assert [(g[0], g[2]) for g in got] == [
         ("new", MAC_A),
         ("reassign", MAC_B),
-        ("delete", MAC_B),
         ("reassign", MAC_A),
+        ("delete", MAC_B),
     ]
 
     # since/until through the service; retention purges past the setting.

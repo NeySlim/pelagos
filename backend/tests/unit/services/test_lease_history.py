@@ -186,3 +186,38 @@ def test_routes(admin_client, local):
     assert [i["event"] for i in body["items"]] == ["delete", "renew", "new"]
     assert body["meta"]["key"] == f"mac:{MAC}"
     assert api.get("/api/v1/hosts/ip:192.0.2.11/timeline").get_json()["total"] == 1
+
+
+@pytest.mark.parametrize("key", ["mac:", "mac: ", "name:", "name: ", "name:.", "ip:"])
+def test_an_empty_host_key_never_lists_the_whole_history(node_ctx, local, key):
+    service = LeaseHistoryService(node_ctx, SeriesCache(node_ctx.paths.series_db), FakePeers([], {}))
+    with pytest.raises(ValidationError):
+        service.timeline(key, None, None, v6=True)
+
+
+def test_empty_host_key_route_is_400(admin_client, local):
+    for key in ("mac:", "name:", "name:%20"):
+        assert admin_client.get(f"/api/v1/hosts/{key}/timeline").status_code == 400, key
+
+
+def test_peer_action_checks_its_numbers(node_ctx, local):
+    actions = PeerActions(node_ctx, registry=None)
+    base = {"engine": "kea4", "since": TS - 10, "until": TS + 10_000}
+    assert len(actions(LEASE_HISTORY, {**base, "limit": -1}, "B")["items"]) == 1
+    got = actions(LEASE_HISTORY, {**base, "limit": 2}, "B")
+    assert len(got["items"]) == 2 and got["truncated"] is True
+    assert len(actions(LEASE_HISTORY, {**base, "limit": 10**9}, "B")["items"]) == 4
+    from pelagos.core.replication import PeerActionError
+
+    for bad in ({"since": "abc"}, {"until": [1]}, {"limit": "x"}, {"since": 10**30}, {"until": True}):
+        with pytest.raises((PeerActionError, ValidationError)):
+            actions(LEASE_HISTORY, {**base, **bad}, "B")
+
+
+def test_incomplete_peer_rows_are_skipped(node_ctx, local):
+    broken = [{"ts": TS}, {"node_id": "B", "event": "new"}, "text", {**row("B", "new", TS), "ts": "soon"}]
+    peers = FakePeers([peer("B")], {"B": {"items": [*broken, row("B", "new", TS)]}})
+    service = LeaseHistoryService(node_ctx, SeriesCache(node_ctx.paths.series_db), peers)
+    items, _ = service.history(Family.V4, {"ip": "192.0.2.10"}, at(TS - 10), at(TS + 10_000))
+    assert [(i["event"], i["nodes"]) for i in items][-1] == ("new", sorted([local, "B"]))
+    assert merge(broken) == []

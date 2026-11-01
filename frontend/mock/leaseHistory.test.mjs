@@ -51,5 +51,6 @@ describe('lease history mock', () => {
     expect(res.data.items.map((i) => [i.source, i.event])).toEqual([['lease', 'reassign'], ['lease', 'delete'], ['lease', 'new']])
     expect(res.data.meta.key).toBe(`ip:${row.ip_address}`)
     expect((await get('/hosts/zone:x/timeline')).status).toBe(400)
+    for (const key of ['mac:', 'name:', 'name:%20', 'name:.', 'ip:']) expect((await get(`/hosts/${key}/timeline`)).status).toBe(400)
   })
 })

@@ -56,6 +56,15 @@ def _time(ts: int | None) -> str | None:
     return to_rfc3339(datetime.fromtimestamp(ts, tz=UTC)) if ts else None
 
 
+def complete(row: Any) -> bool:
+    """A row a peer sent has the fields the merge and the API need (an incomplete one is skipped)."""
+    return (
+        isinstance(row, dict)
+        and isinstance(row.get("ts"), int)
+        and all(isinstance(row.get(k), str) and row.get(k) for k in ("node_id", "engine", "event", "ip"))
+    )
+
+
 def to_item(row: dict[str, Any]) -> dict[str, Any]:
     """A lease_events row (or a merged one, with `nodes`) as the API's LeaseEvent."""
     cltt, valid = row.get("cltt"), row.get("valid_lft")
@@ -84,6 +93,9 @@ def merge(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     earliest ts of the copies wins and `nodes` lists every node that recorded it."""
     merged: dict[tuple[Any, ...], dict[str, Any]] = {}
     for row in rows:
+        if not complete(row):
+            log.warning("lease history: incomplete row skipped: %r", row)
+            continue
         key = tuple(row.get(k) for k in MERGE_KEY)
         held = merged.get(key)
         if held is None:
@@ -111,7 +123,7 @@ def read_local(store: Any, node_id: str, query: dict[str, Any]) -> tuple[list[di
             node_id=node_id,
             since=int(query["since"]),
             until=int(query["until"]),
-            limit=min(int(query.get("limit") or MAX_ROWS), MAX_ROWS),
+            limit=max(1, min(int(query.get("limit") or MAX_ROWS), MAX_ROWS)),
             **{k: query.get(k) for k in series_mod.LEASE_EVENT_FILTERS},
         )
     except sqlite3.OperationalError as exc:
@@ -119,11 +131,31 @@ def read_local(store: Any, node_id: str, query: dict[str, Any]) -> tuple[list[di
         return [], False
 
 
+def _number(body: dict[str, Any], name: str, default: int) -> int:
+    value = body.get(name)
+    if value is None:
+        return default
+    try:
+        if isinstance(value, bool):
+            raise TypeError(name)
+        number = int(value)
+        if abs(number) > 2**62:  # SQLite integers are 64-bit
+            raise OverflowError(name)
+        return number
+    except (TypeError, ValueError, OverflowError):
+        raise ValidationError(f"invalid {name}", [field_error(name, "integer")]) from None
+
+
 def peer_answer(series_db: Path, node_id: str, body: dict[str, Any]) -> dict[str, Any]:
     """The `lease.history` peer action: this node's rows from its own cache."""
     engine = body.get("engine")
     if engine not in ENGINES:
         raise ValidationError("unknown engine", [field_error("engine", "kea4 or kea6")])
+    numbers = {
+        "since": _number(body, "since", 0),
+        "until": _number(body, "until", 0),
+        "limit": _number(body, "limit", MAX_ROWS),
+    }
     if not series_db.exists():
         return {"node_id": node_id, "items": [], "truncated": False}
     try:
@@ -131,8 +163,7 @@ def peer_answer(series_db: Path, node_id: str, body: dict[str, Any]) -> dict[str
     except sqlite3.Error as exc:
         raise PeerActionError("engine_unavailable", f"series cache unreadable: {exc}") from None
     try:
-        query = {"engine": engine, "since": int(body.get("since") or 0), "until": int(body.get("until") or 0)}
-        query["limit"] = body.get("limit") or MAX_ROWS
+        query: dict[str, Any] = {"engine": engine, **numbers}
         for k in series_mod.LEASE_EVENT_FILTERS:
             if body.get(k) is not None:
                 query[k] = str(body[k])
@@ -204,6 +235,9 @@ class LeaseHistoryService:
             filters, families = {"hostname": value}, [Family.V4, Family.V6] if v6 else [Family.V4]
         else:
             raise ValidationError("unknown host key", [field_error("key", "mac:, ip: or name:")])
+        # read:hosts alone must never list the whole history: a key always narrows it.
+        if not self._filters(filters):
+            raise ValidationError("empty host key", [field_error("key", f"{kind}: needs a value")])
         items: list[dict[str, Any]] = []
         meta: dict[str, Any] = {"key": key, "unavailable": [], "truncated": False}
         for family in families:
@@ -223,8 +257,9 @@ class LeaseHistoryService:
             out["hw"] = normalize_hex_id(str(filters["mac"]), "mac")
         if filters.get("duid"):
             out["duid"] = normalize_hex_id(str(filters["duid"]), "duid")
-        if filters.get("hostname"):
-            out["hostname"] = normalize_hostname(str(filters["hostname"]))
+        hostname = normalize_hostname(str(filters.get("hostname") or ""))
+        if hostname:
+            out["hostname"] = hostname
         return out
 
     def _read(

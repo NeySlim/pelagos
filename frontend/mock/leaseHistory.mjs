@@ -102,11 +102,14 @@ export function leaseHistoryHandlers(state, { invalid, notFound }) {
         if (!hex || hex.length % 2) throw invalid('key', 'mac:, ip: or name:')
         f = { hw: pairs(hex) }
       } else if (kind === 'ip') {
+        if (!value) throw invalid('key', 'ip: needs a value')
         families = [value.includes(':') ? 'v6' : 'v4']
         if (families[0] === 'v6' && !v6On()) throw notFound(`host ${key}`)
         f = { ip: value }
       } else if (kind === 'name') {
+        // A key always narrows the history (read:hosts alone never lists all of it).
         f = { hostname: value.replace(/\.$/, '') }
+        if (!f.hostname) throw invalid('key', 'name: needs a value')
       } else {
         throw invalid('key', 'mac:, ip: or name:')
       }

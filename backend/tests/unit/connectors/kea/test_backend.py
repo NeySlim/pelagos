@@ -670,11 +670,16 @@ def test_d2_running_clear_secret_stays_out_of_plans(tmp_root):
     assert "b2xkc2VjcmV0b2xk" not in json.dumps(plan.to_dict())
     assert d2.apply(plan).ok
     assert d2.rollback(plan).ok and fake.cfg == original
-    # Once the private copy is gone, a masked before state is never written back.
+    # Once the private copy is gone (a restart), the rollback is refused before anything is written.
     plan = d2.plan_config_replace({"DhcpDdns": new})
+    assert d2.apply(plan).ok
+    applied = json.loads(json.dumps(fake.cfg))
     d2._private.clear()
-    result = d2.rollback(plan)
-    assert not result.ok and "backup" in result.message
+    with pytest.raises(PreconditionFailed, match="no longer held"):
+        d2.check_rollback(plan)
+    with pytest.raises(PreconditionFailed, match="no longer held"):
+        d2.rollback(plan)
+    assert fake.cfg == applied
 
 
 def test_d2_rollback_refused_after_a_later_change(tmp_root):

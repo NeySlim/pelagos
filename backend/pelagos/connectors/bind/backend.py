@@ -1136,11 +1136,43 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             )
 
     def _backup_dir(self, plan: Plan) -> Path | None:
+        """The plan's backup set, while the retention purge has not removed it."""
         recorded = self.details.get(plan.id, {}).get("response", {}).get("backup_dir")
-        if recorded:
+        if recorded and Path(recorded).is_dir():
             return Path(recorded)
-        found = sorted(self.ctx.backup_root.glob(f"*-{plan.id}"))
+        found = sorted(p for p in self.ctx.backup_root.glob(f"*-{plan.id}") if p.is_dir())
         return found[-1] if found else None
+
+    @staticmethod
+    def _restores_files(plan: Plan) -> bool:
+        """Plans whose rollback restores their backup set (the rest send inverse changes)."""
+        first = plan.changes[0] if plan.changes else None
+        if plan.scope is PlanScope.DNS_ZONE and first is not None:
+            if zonerestore.is_content(first) or ops.is_op(first) or _added_zone_plan(plan):
+                return False
+        return plan.scope in (PlanScope.DNS_ZONE, PlanScope.DNS_CONFIG, PlanScope.DNS_KEY, PlanScope.DNS_ACL)
+
+    def check_rollback(self, plan: Plan) -> None:
+        """Refuse, writing nothing, the rollback of a file-backed plan whose backup set is gone (the
+        retention purge) or whose written files changed since. Reads a few files, no rndc."""
+        if self._restores_files(plan):
+            self._rollback_backup(plan)
+
+    def _rollback_backup(self, plan: Plan) -> Path:
+        backup = self._backup_dir(plan)
+        if backup is None:
+            message = (
+                f"no backup found for plan {plan.id} in {self.ctx.backup_root}"
+                " (removed by the backup retention); rollback refused"
+            )
+            where = str(self.ctx.backup_root)
+            exc = PreconditionFailed(
+                Precondition(PreconditionKind.FILE_SHA256, where, "backup", self.ctx.node_id), message
+            )
+            exc.args = (message,)
+            raise exc
+        self._check_rollback_safe(backup)
+        return backup
 
     # Apply and rollback ---------------------------------------------------------------
 
@@ -1192,12 +1224,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
                     result = self._send_rrset(plan, rcs, "rollback")
                 result.rolled_back = result.ok
                 return result
-            backup = self._backup_dir(plan)
-            if backup is None:
-                return NodeApplyResult(
-                    node_id=self.ctx.node_id, ok=False, message="no backup found for this plan"
-                )
-            self._check_rollback_safe(backup)
+            backup = self._rollback_backup(plan)
             pipeline = self._config_pipeline(
                 backup_root=self.ctx.backup_root,
                 validate=lambda: run_checkconf(self.checkconf, self.named_conf),

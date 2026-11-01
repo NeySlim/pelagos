@@ -109,7 +109,10 @@ READ_COMMANDS = frozenset(
 READ_SUFFIXES = ("-get", "-get-all", "-get-page", "-list")
 KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "class_cmds")
 LEASE_PAGE = 1000
+# Rollback guards: the newest records stay in memory, the files in <backups>/applied/ for the longest
+# rollback window the settings allow, whatever the current setting.
 APPLIED_KEPT = 256
+APPLIED_KEPT_SECONDS = int(reg.BY_KEY["plans.rollback_window_seconds"].max or 7 * 86400)
 HA_PEERS_TTL = 30.0  # seconds the configured HA peers are reused between config-get reads
 # HA repair: a reset server leaves `terminated` at once; the pair needs a few heartbeats (and a
 # lease sync) to serve again. Peers answer a plan within peers.plan_timeout_seconds (300).
@@ -133,6 +136,13 @@ SCOPE_TARGETS = {
 }
 # Top-level keys holding objects that have their own plans (and permissions).
 OBJECT_KEYS = frozenset({"subnet4", "subnet6", "shared-networks", "reservations", "client-classes"})
+
+
+def guard_refused(precondition: Precondition, message: str) -> PreconditionFailed:
+    """A rollback guard's refusal with its own message (409 precondition_failed)."""
+    exc = PreconditionFailed(precondition, message)
+    exc.args = (message,)
+    return exc
 
 
 def is_read_command(command: str) -> bool:
@@ -928,7 +938,6 @@ class KeaBackend(DhcpBackend):
             return
         backup = self._last_backup
         self._applied[plan_id] = (after, backup)
-        # Bounded: only the plans still inside their rollback window matter.
         while len(self._applied) > APPLIED_KEPT:
             self._applied.pop(next(iter(self._applied)))
         self._persist_applied(plan_id, after, backup)
@@ -944,9 +953,10 @@ class KeaBackend(DhcpBackend):
             tmp = d / f".{plan_id}.tmp"
             tmp.write_text(json.dumps({"after_hash": after, "backup": str(backup) if backup else None}))
             tmp.replace(d / f"{plan_id}.json")
-            files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime)
-            for old in files[:-APPLIED_KEPT]:
-                old.unlink(missing_ok=True)
+            cutoff = time.time() - APPLIED_KEPT_SECONDS
+            for old in d.glob("*.json"):
+                if old.stat().st_mtime < cutoff:
+                    old.unlink(missing_ok=True)
         except OSError:
             pass  # memory still holds it for this process
 
@@ -966,24 +976,37 @@ class KeaBackend(DhcpBackend):
         if _PLAN_ID.match(plan_id):
             (self._applied_dir() / f"{plan_id}.json").unlink(missing_ok=True)
 
+    def check_rollback(self, plan: Plan) -> None:
+        """Refuse, writing nothing, a rollback whose guard is gone or no longer holds: the running
+        configuration moved since the apply (another plan, a hand edit), which a blind inverse would
+        silently undo. One config-hash-get, so it may run under the plan service's lock."""
+        if plan.scope in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+            return
+        subject = f"{self.engine_name}:config"
+        recorded = self._recorded(plan.id)
+        if recorded is None:
+            raise guard_refused(
+                Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
+                f"rollback guard lost: no configuration hash recorded for plan {plan.id} on this node;"
+                " build a new plan",
+            )
+        observed = self.config_hash()
+        if observed != recorded[0]:
+            raise PreconditionFailed(
+                Precondition(PreconditionKind.CONFIG_HASH, subject, recorded[0], self.ctx.node_id), observed
+            )
+        adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
+        if adopt is not None and adopt.target != ADOPT_FILE and not (recorded[1] and recorded[1].is_dir()):
+            raise guard_refused(
+                Precondition(PreconditionKind.FILE_SHA256, str(self.conf_path), "backup", self.ctx.node_id),
+                f"no backup left for plan {plan.id}; restore {self.conf_path} from {self.backup_root}",
+            )
+
     def rollback(self, plan: Plan) -> NodeApplyResult:
         """Apply the inverse changes through the same path; a config replace restores the exact JSON.
-
-        Refused when the running configuration moved since this plan was applied (another plan or a
-        hand edit), which a blind inverse would silently undo."""
+        `check_rollback` runs first, under the engine lock."""
+        self.check_rollback(plan)
         recorded = self._recorded(plan.id)
-        if recorded is not None and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
-            observed = self.config_hash()
-            if observed != recorded[0]:
-                raise PreconditionFailed(
-                    Precondition(
-                        PreconditionKind.CONFIG_HASH,
-                        f"{self.engine_name}:config",
-                        recorded[0],
-                        self.ctx.node_id,
-                    ),
-                    observed,
-                )
         if plan.scope is PlanScope.DHCP_LEASE and any(c.target.startswith("resend/") for c in plan.changes):
             # A resent DNS update is not undone (D2 settles names by DHCID); there is nothing to revert.
             return NodeApplyResult(

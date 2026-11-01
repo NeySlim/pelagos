@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, PreconditionFailed
+from pelagos.connectors.kea.backend import guard_refused
 from pelagos.connectors.kea.commands import normalize_version
 from pelagos.connectors.kea.config import canonical, config_diff, normalize_root, version_tuple
 from pelagos.connectors.kea.configfile import (
@@ -128,6 +129,7 @@ class _PlanPrivate:
     before: dict[str, Any] | None = None  # the real before state when it holds clear secrets
     backup: Path | None = None
     after_hash: str | None = None  # config-hash right after the apply: rollback refuses once it moved
+    applied: bool = False  # kept for the rollback window from then on
 
 
 def unmask_d2_keys(config: dict[str, Any], running: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -194,7 +196,8 @@ class D2Backend(DdnsBackend):
         )
         self.secret_group: str | None = cfg.get("kea_group")
         self.backup_root = Path(ctx.backup_root) / "d2"
-        # Per plan id, never serialized; dropped once the plan can no longer be applied or rolled back.
+        # Per plan id, in memory only (a restart drops it): the preview TTL before the apply, the
+        # rollback window after it.
         self._private: dict[str, _PlanPrivate] = {}
         self.file = KeaConfigFile(
             self.conf_path,
@@ -211,6 +214,12 @@ class D2Backend(DdnsBackend):
     def plan_ttl(self) -> int:
         """Read at each plan: a TTL changed from the settings screen applies without a restart."""
         return int(reg.get(self.ctx.current_settings(), "plans.ttl_seconds"))
+
+    @property
+    def rollback_window(self) -> int:
+        """How long an applied plan's private state stays: as long as the plan can be rolled back."""
+        settings = self.ctx.current_settings()
+        return max(int(reg.get(settings, "plans.rollback_window_seconds")), self.plan_ttl)
 
     # Observation ----------------------------------------------------------------------
 
@@ -544,9 +553,8 @@ class D2Backend(DdnsBackend):
         secrets = private.secrets if private else {}
         inline = private.inline if private else {}
         if private:
-            # Secrets are no longer needed; what rollback needs stays for the rollback window.
+            # Secrets are no longer needed; what rollback needs stays (see _remember).
             private.secrets, private.inline = {}, {}
-            private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
         new_cfg, missing = self._clear_after(dict(change.after), inline)
         if missing:
             return NodeApplyResult(
@@ -571,31 +579,51 @@ class D2Backend(DdnsBackend):
 
     def _remember(self, plan_id: str, result: NodeApplyResult) -> NodeApplyResult:
         if result.ok:
-            private = self._private.setdefault(
-                plan_id, _PlanPrivate(expires_at=utcnow() + timedelta(seconds=self.plan_ttl), secrets={})
-            )
+            expires = utcnow() + timedelta(seconds=self.rollback_window)
+            private = self._private.setdefault(plan_id, _PlanPrivate(expires_at=expires, secrets={}))
+            private.expires_at, private.applied = expires, True
             try:
                 private.after_hash = self.config_hash()
             except ConnectorError:
                 private.after_hash = None
         return result
 
-    def _check_stale(self, plan: Plan) -> None:
-        """A rollback after a later D2 change (another plan, the key switch, a hand edit) would undo
-        it with this plan's whole before state: refused once the running hash moved."""
+    def check_rollback(self, plan: Plan) -> None:
+        """Refuse, writing nothing, a rollback this process can no longer guard or carry out: private
+        state gone (a restart, past the window), or the running hash moved since the apply (another
+        plan, the key switch, a hand edit) that this plan's whole before state would undo."""
+        self._sweep()
         private = self._private.get(plan.id)
-        if private is None or private.after_hash is None:
-            return
+        subject = "d2:config"
+        lost = f"the rollback state of plan {plan.id} is no longer held (kept in memory: a restart drops it)"
+        if private is None or not private.applied or private.after_hash is None:
+            raise guard_refused(
+                Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
+                f"{lost}; restore from the backup directory or build a new plan",
+            )
         observed = self.config_hash()
         if observed != private.after_hash:
             raise PreconditionFailed(
-                Precondition(PreconditionKind.CONFIG_HASH, "d2:config", private.after_hash, self.ctx.node_id),
+                Precondition(PreconditionKind.CONFIG_HASH, subject, private.after_hash, self.ctx.node_id),
                 observed,
+            )
+        adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
+        if adopt is None:
+            before = private.before if private.before is not None else self._config_change(plan).before
+            missing = has_masked_secrets(before)
+        elif adopt.target == ADOPT_FILE:
+            missing = private.before is None
+        else:
+            missing = private.backup is None or not private.backup.is_dir()
+        if missing:
+            raise guard_refused(
+                Precondition(PreconditionKind.CONFIG_HASH, subject, "recorded at apply", self.ctx.node_id),
+                f"{lost}; restore from the backup directory",
             )
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
-        self._sweep()
-        self._check_stale(plan)
+        """`check_rollback` first, under the engine lock; the private state is spent by the rollback."""
+        self.check_rollback(plan)
         adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
         if adopt is not None:
             return self._rollback_adopt(plan, adopt)
@@ -679,7 +707,6 @@ class D2Backend(DdnsBackend):
             plan.id, _PlanPrivate(expires_at=utcnow() + timedelta(seconds=self.plan_ttl), secrets={})
         )
         private.backup = backup
-        private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
         return self._remember(plan.id, NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message))
 
     def _rollback_adopt(self, plan: Plan, change: Change) -> NodeApplyResult:

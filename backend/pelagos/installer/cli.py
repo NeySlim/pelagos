@@ -219,7 +219,7 @@ def cmd_import(args: argparse.Namespace) -> int:
             print("no installed engine with a configuration found", file=sys.stderr)
             return EXIT_USAGE
     try:
-        plan = build_import_plan(env, engines, created_by="cli")
+        plan = build_import_plan(env, engines, created_by="cli", include_tree=args.kea_include_tree)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -317,6 +317,13 @@ def add_parsers(sub: Any) -> None:
     m.add_argument(
         "--engines",
         help="comma list (default: installed engines with a configuration that run or are enabled)",
+    )
+    m.add_argument(
+        "--kea-include-tree",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="split each Kea file without includes into one file per section so its comments "
+        "survive later writes (default: only the files with comments)",
     )
     _common(m)
     m.set_defaults(func=cmd_import)

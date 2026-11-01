@@ -166,7 +166,12 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
         if op == "plan_import":
             from pelagos.installer.importer import build_import_plan
 
-            return _record(build_import_plan(env, list(request["engines"]), created_by))
+            tree = request.get("kea_include_tree")
+            return _record(
+                build_import_plan(
+                    env, list(request["engines"]), created_by, tree if isinstance(tree, bool) else None
+                )
+            )
         if op == "plan_security":
             from pelagos.installer.security_audit import build_security_plan
 

@@ -176,7 +176,7 @@ def test_import_kea_adds_socket_and_dropin_logic(tmp_path):
     original = conf.read_text()
     without = original.replace('"control-socket": {', '"x-removed": {', 1)
     conf.write_text(without)
-    plan = build_import_plan(env, ["kea4"])
+    plan = build_import_plan(env, ["kea4"], include_tree=False)
     sock = next(c for c in plan.changes if c.target == "import/kea4/socket")
     assert sock.after["add"] is True
     job = apply_plan(plan, env)

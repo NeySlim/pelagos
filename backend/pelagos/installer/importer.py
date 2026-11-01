@@ -9,11 +9,14 @@ the update-policy proposal per primary zone (applied later by the security plan,
 
 from __future__ import annotations
 
+import grp
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+from pelagos.core.keadoc import KeaDocument, KeaEditError
 from pelagos.core.write_pipeline import sha256_file
 from pelagos.domain import (
     Change,
@@ -88,7 +91,48 @@ def _change(target: str, env: Any, after: Any, before: Any = None, op: ChangeOp 
     return Change(op=op, target=target, before=before, after=after, node_ids=[env.node_id])
 
 
-def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Plan:
+def include_tree_dir(conf: Path, engine: str) -> Path:
+    return conf.parent / f"{engine}.d"
+
+
+def _include_tree_change(env: Any, engine: str, conf: Path, wanted: bool | None) -> Change | None:
+    """`import/<engine>/include-tree`: the file split into one file per section so later writes
+    patch it and its comments stay. `wanted` None proposes it only for a file with comments."""
+    if wanted is False:
+        return None
+    try:
+        doc = KeaDocument(conf)
+        if doc.has_includes:
+            return None
+        notes = [c for c in doc.comments if any(ch.isalnum() for ch in c.text)]
+        if wanted is None and not notes:
+            return None
+        directory = include_tree_dir(conf, engine)
+        if directory.exists() and any(directory.iterdir()):
+            raise ValueError(f"{directory} already exists and is not empty")
+        tree = doc.include_tree(keaconf.root_key(doc.value), directory)
+    except (ValueError, OSError) as exc:  # KeaEditError is a ValueError
+        if wanted:
+            raise ValueError(f"{conf} cannot be split into an include tree: {exc}") from None
+        return None
+    return _change(
+        f"import/{engine}/include-tree",
+        env,
+        {
+            "conf": str(conf),
+            "dir": str(directory),
+            "files": [str(p) for p in tree if p != conf],
+            "comments": len(notes),
+        },
+        op=ChangeOp.REPLACE,
+    )
+
+
+def build_import_plan(
+    env: Any, engines: list[str], created_by: str = "", include_tree: bool | None = None
+) -> Plan:
+    """`include_tree`: split each Kea file without includes into an include tree (True), never
+    (False), or only the files with comments (None, the default)."""
     unknown = [e for e in engines if e not in ENGINES]
     if unknown:
         raise ValueError(f"unknown engine(s) {', '.join(unknown)}")
@@ -201,6 +245,9 @@ def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Pla
                 {"conf": str(conf), "add": sock is None, "socket": str(sock or paths.kea_socket(engine))},
             )
         )
+        tree = _include_tree_change(env, engine, conf, include_tree)
+        if tree is not None:
+            changes.append(tree)
         if paths.kea_group not in groups:
             groups.append(paths.kea_group)
 
@@ -240,6 +287,9 @@ def render_diff(changes: list[Change]) -> str:
             out.append(f"? {c.target.split('/', 3)[3]}: proposal {a.get('proposal')} (not applied by import)")
         elif c.target.endswith("/socket") and a.get("add"):
             out.append(f"+ {a['conf']}: unix control socket {Path(a['socket']).name}")
+        elif c.target.endswith("/include-tree"):
+            out.append(f"~ {a['conf']}: one <?include?> per section, {a['comments']} comment(s) kept")
+            out.extend(f"+ {f}" for f in a.get("files", []))
     return "\n".join(out)
 
 
@@ -300,6 +350,32 @@ def step_kea_socket(env: Any, engine: str, change: Change, ctx: dict[str, Any]) 
     return "\n".join(o for o in out if o)
 
 
+def step_kea_include_tree(env: Any, engine: str, change: Change) -> str:
+    """Splits the Kea file into its include tree (read again now: the socket step may have added
+    to it); Kea validates and reloads it, the running configuration does not move."""
+    daemon = KEA_DAEMONS[engine]
+    conf = Path(change.after["conf"])
+    doc = KeaDocument(conf)
+    if doc.has_includes:
+        return f"{conf} already uses <?include?>"
+    directory = Path(change.after["dir"])
+    try:
+        tree = doc.include_tree(keaconf.root_key(doc.value), directory)
+    except KeaEditError as exc:
+        raise RuntimeError(f"{conf} cannot be split into an include tree: {exc}") from None
+    if env.dry_run:
+        return f"dry run: would split {conf} into {len(tree) - 1} file(s) under {directory}"
+    # Kea reads the folder through its group; the service user patches the files later.
+    directory.mkdir(mode=0o750, exist_ok=True)
+    group = env.file_group(env.paths.kea_group)
+    if group is not None:
+        os.chown(directory, 0, grp.getgrnam(group).gr_gid)
+    directory.chmod(0o750)
+    out = [keasetup.write_files(env, engine, conf, tree, f"import-{engine}-tree", restart=False)]
+    out.append(keasetup.ensure_config_writable(env, conf, daemon))
+    return "\n".join(o for o in out if o)
+
+
 def step_user(env: Any, change: Change) -> str:
     if env.dry_run:
         return "dry run: user not changed"
@@ -333,6 +409,9 @@ def import_steps(plan: Plan, env: Any) -> list[Step]:
             steps.append(Step(t, lambda c=c: step_user(env, c)))
         elif t == "import/bind/adopt":
             steps.append(Step(t, lambda c=c: step_bind_adopt(env, c, ctx), weight=2))
+        elif t.endswith("/include-tree"):
+            engine = t.split("/")[1]
+            steps.append(Step(t, lambda e=engine, c=c: step_kea_include_tree(env, e, c), weight=2))
         elif t.endswith("/socket"):
             engine = t.split("/")[1]
             steps.append(Step(t, lambda e=engine, c=c: step_kea_socket(env, e, c, ctx), weight=2))
@@ -415,12 +494,14 @@ def verify_import(env: Any, engines: list[str], reads: dict[str, Any] | None = N
 # Compatibility entry points named in the package skeleton ---------------------------------------
 
 
-def plan_import(paths: Any, engines: list[str], created_by: str, node_id: str) -> Plan:
+def plan_import(
+    paths: Any, engines: list[str], created_by: str, node_id: str, include_tree: bool | None = None
+) -> Plan:
     from pelagos.installer.env import InstallerEnv
 
     env = InstallerEnv.detect(node_id=node_id)
     env.paths = paths
-    return build_import_plan(env, engines, created_by)
+    return build_import_plan(env, engines, created_by, include_tree)
 
 
 def run_import(plan: Plan, job: Job, progress: Any) -> Job:

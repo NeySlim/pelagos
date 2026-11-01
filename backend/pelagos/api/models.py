@@ -703,6 +703,10 @@ InstallBody = model(
         "engines": fields.List(fields.String(enum=["bind", "kea4", "kea6", "d2"]), required=True),
         "source": fields.String(enum=["distro", "isc"]),
         "isc_series": fields.String(example="3.2"),
+        "kea_include_tree": fields.Boolean(
+            description="import only: split each Kea file without includes into an include tree "
+            "(true), never (false), only the files with comments (null, the default)"
+        ),
     },
 )
 FindingIds = model(

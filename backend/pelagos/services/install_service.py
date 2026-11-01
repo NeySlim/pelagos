@@ -97,15 +97,22 @@ class InstallService:
         from pelagos.installer.importer import build_import_plan
 
         engines = self._engines(body.get("engines"))
+        include_tree = body.get("kea_include_tree")
+        if include_tree is not None and not isinstance(include_tree, bool):
+            raise ValidationError(
+                "kea_include_tree must be true, false or null",
+                [field_error("kea_include_tree", "not a boolean")],
+            )
         if "bind" in engines:
             self._pull_shared_keys()
         client = self.helper()
         if client is not None:
-            return self.ctx.plan_store.put(
-                self._helper_plan(client, "plan_import", created_by, engines=engines)
-            )
+            args: dict[str, Any] = {"engines": engines}
+            if include_tree is not None:
+                args["kea_include_tree"] = include_tree
+            return self.ctx.plan_store.put(self._helper_plan(client, "plan_import", created_by, **args))
         try:
-            plan = build_import_plan(self.env_factory(), engines, created_by)
+            plan = build_import_plan(self.env_factory(), engines, created_by, include_tree)
         except ValueError as exc:
             raise ValidationError(str(exc)) from None
         return self.ctx.plan_store.put(plan)

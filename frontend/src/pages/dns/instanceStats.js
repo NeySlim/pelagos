@@ -9,20 +9,6 @@ export function formatCount(value, language) {
   return new Intl.NumberFormat(language).format(num(value))
 }
 
-const BYTE_UNITS = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte']
-
-// Binary multiples shown with the SI unit names Intl knows (kB, MB, GB).
-export function formatBytes(value, language) {
-  if (value === null || value === undefined) return '-'
-  let n = num(value)
-  let i = 0
-  while (n >= 1024 && i < BYTE_UNITS.length - 1) {
-    n /= 1024
-    i += 1
-  }
-  return new Intl.NumberFormat(language, { style: 'unit', unit: BYTE_UNITS[i], unitDisplay: 'short', maximumFractionDigits: 1 }).format(n)
-}
-
 export function formatPercent(ratio, language) {
   return new Intl.NumberFormat(language, { style: 'percent', maximumFractionDigits: 1 }).format(num(ratio))
 }

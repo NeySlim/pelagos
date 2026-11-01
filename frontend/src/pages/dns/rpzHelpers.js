@@ -14,15 +14,18 @@ export function formatMib(mib) {
   return formatSize(mib * 1024 ** 2)
 }
 
+// A named log time ("26-Oct-2026 10:41:02.114", node local time) as a Date; null when unreadable.
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+export function parseLogTime(text) {
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2})/.exec(text || '')
+  const month = m ? MONTHS.indexOf(m[2].toLowerCase()) : -1
+  return month < 0 ? null : new Date(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6]))
+}
+
 // Estimates (entries_mb, estimatedMb) are decimal MB.
 export function formatMb(mb) {
   if (mb === null || mb === undefined) return ''
   return formatSize(mb >= 1000 ? mb * 1e6 : Math.round(mb) * 1e6)
-}
-
-export function formatBytes(bytes) {
-  if (!bytes) return ''
-  return formatSize(bytes)
 }
 
 // Epoch seconds as a local date and time; empty when unknown.

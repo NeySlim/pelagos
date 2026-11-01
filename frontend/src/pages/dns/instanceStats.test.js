@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { formatBytes, formatCount, formatPercent, headlineCounters, topCounters, uptimeSeconds } from './instanceStats'
+import { formatCount, formatPercent, headlineCounters, topCounters, uptimeSeconds } from './instanceStats'
 import { latestValue, splitStatistics, subnetColumns } from '../dhcp/keaStats'
 
 // Intl uses narrow no-break spaces in French; compare on plain spaces.
@@ -15,13 +15,10 @@ describe('BIND instance counters', () => {
     resstats: { ValOk: 3022, ValNegOk: 120, ValFail: 1 },
   }
 
-  it('formats counts, bytes and shares in the UI language', () => {
+  it('formats counts and shares in the UI language', () => {
     expect(formatCount(184233, 'en')).toBe('184,233')
     expect(plain(formatCount(184233, 'fr'))).toBe('184 233')
     expect(formatCount(null, 'en')).toBe('-')
-    expect(formatBytes(23456789, 'en')).toBe('22.4 MB')
-    expect(plain(formatBytes(23456789, 'fr'))).toBe('22,4 Mo')
-    expect(formatBytes(512, 'en')).toBe('512 byte')
     expect(formatPercent(0.923, 'en')).toBe('92.3%')
     expect(plain(formatPercent(0.923, 'fr'))).toBe('92,3 %')
   })

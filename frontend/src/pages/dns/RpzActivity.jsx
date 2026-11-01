@@ -11,7 +11,8 @@ import { useApi } from '../../hooks/useApi'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
-import { formatCount } from './rpzHelpers'
+import { formatDate } from '../../lib/utils'
+import { formatCount, parseLogTime } from './rpzHelpers'
 
 const ACTION_VARIANT = { NXDOMAIN: 'danger', NODATA: 'warning', PASSTHRU: 'success' }
 
@@ -82,7 +83,7 @@ export default function RpzActivity({ canWrite }) {
           <DataTable
             title={t('rpzsub.activity.recent')}
             columns={[
-              { key: 'time', label: t('rpzsub.activity.time'), mono: true },
+              { key: 'time', label: t('rpzsub.activity.time'), mono: true, render: (r) => formatDate(parseLogTime(r.time), { second: '2-digit' }) },
               { key: 'client', label: t('rpzsub.activity.client'), mono: true },
               { key: 'qname', label: t('rpzsub.activity.name'), mono: true },
               { key: 'qtype', label: t('rpzsub.activity.type') },

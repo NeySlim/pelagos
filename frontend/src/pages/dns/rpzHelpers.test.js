@@ -7,9 +7,9 @@ import {
   defaultSelection,
   estimatedMb,
   formFromSelection,
-  formatBytes,
   formatCount,
   formatMb,
+  parseLogTime,
   formatMib,
   latestStatus,
   levelsOf,
@@ -35,10 +35,13 @@ describe('rpz helpers', () => {
     expect(formatCount(118000)).toBe('118 000')
     expect(formatMb(94.4)).toBe('90 MiB')
     expect(formatMb(1520)).toBe('1.4 GiB')
-    expect(formatBytes(7_300_000)).toBe('7 MiB')
     expect(formatMib(4096)).toBe('4 GiB')
-    expect(formatBytes(48_000)).toBe('47 KiB')
     expect(estimatedMb(118000, 800)).toBe(94.4)
+  })
+
+  it('reads a named log time', () => {
+    expect(parseLogTime('26-Oct-2026 10:41:02.114')).toEqual(new Date(2026, 9, 26, 10, 41, 2))
+    expect(parseLogTime('garbage')).toBeNull()
   })
 
   it('offers the levels a category defines, and custom when it has several lists', () => {

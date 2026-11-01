@@ -1439,13 +1439,18 @@ function buildHandlers(state, emit) {
         command: `sudo pelagos enroll --url https://ns1.example.lan:8444 --token ${token} --ca-fingerprint sha256:4f2a9c... --name <name> --web-url https://<name>.example.lan:8443 --replication-url https://<name>.example.lan:8444`,
       }
     },
-    'PATCH /nodes/{id}': ({ params, body }) => {
+    'PATCH /nodes/{id}': ({ params, body, user }) => {
       const node = state.nodes.find((n) => n.peer.id === params.id)
       if (!node) throw notFound(`node ${params.id}`)
-      const site = body.site == null ? '' : body.site
-      if (typeof site !== 'string' || site.trim().length > 64 || [...site].some((c) => c.charCodeAt(0) < 32 || c === '\x7f')) throw invalid('site', '1 to 64 characters without control characters')
-      if (site.trim()) node.peer.site = site.trim()
+      if (Object.keys(body).length !== 1 || !('site' in body)) throw invalid('site', 'the body must be {"site": string or null}')
+      if (body.site !== null && typeof body.site !== 'string') throw invalid('site', 'string or null expected')
+      const site = (body.site || '').trim()
+      // Same rule as the API: 64 code points, no Unicode Cc, Cf, Zl or Zp character.
+      if ([...site].length > 64 || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(site)) throw invalid('site', '1 to 64 characters without control or format characters')
+      const before = node.peer.site || null
+      if (site) node.peer.site = site
       else delete node.peer.site
+      auditEntry(state, user, { action: 'admin.node.replace', target: `node:${node.peer.name}`, message: `site: ${before || '(none)'} -> ${site || '(none)'}` })
       return node
     },
     'DELETE /nodes/{id}': ({ params, user }) => {

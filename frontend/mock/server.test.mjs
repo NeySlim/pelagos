@@ -85,6 +85,7 @@ function concrete(spec, state) {
 }
 
 const BODIES = {
+  'PATCH /nodes/{id}': { site: 'dc2' },
   'POST /admin/notifications/channels': { type: 'gotify', name: 'Gotify', params: { url: 'https://gotify.example.lan' }, secrets: { token: 'app-token' } },
   'POST /admin/notifications/test': { channel_id: 'ch-ntfy' },
   'PUT /admin/notifications/order': (state) => ({ node_ids: state.nodes.map((n) => n.peer.id).reverse() }),
@@ -825,6 +826,23 @@ describe('mock server', () => {
     expect(messages.find((m) => m.event === 'pong')).toBeTruthy()
     expect(messages.find((m) => m.topic === 'alerts' && m.event === 'acked')?.data.id).toBe(alert.id)
     expect(messages.find((m) => m.topic === 'audit')).toBeUndefined()
+  })
+
+  it('sets, validates and audits the site of a node like the API', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const id = mock.state.nodeIds.ns2
+    const set = await admin('PATCH', `/nodes/${id}`, { site: '  paris ' })
+    expect(set.status).toBe(200)
+    expect(set.data.peer.site).toBe('paris')
+    for (const body of [{}, { site: 'a', name: 'b' }, { site: 3 }, { site: 'x'.repeat(65) }, { site: 'a\nb' }, { site: 'a\u200bb' }, { site: 'a\u202eb' }]) {
+      expect((await admin('PATCH', `/nodes/${id}`, body)).status).toBe(400)
+    }
+    expect((await admin('PATCH', `/nodes/${id}`, { site: '\u00e9'.repeat(64) })).status).toBe(200)
+    expect((await admin('PATCH', '/nodes/nope', { site: 'a' })).status).toBe(404)
+    const cleared = await admin('PATCH', `/nodes/${id}`, { site: null })
+    expect(cleared.data.peer.site).toBeUndefined()
+    const audit = (await admin('GET', '/audit?action=admin.node.replace')).data
+    expect(audit.items.length).toBeGreaterThanOrEqual(3)
   })
 
   // Last: it changes the admin password and deletes users and nodes.

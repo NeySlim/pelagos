@@ -33,6 +33,7 @@ export const ENDPOINTS = [
   'GET /nodes/self',
   'GET /nodes/{id}',
   'POST /nodes/enroll-token',
+  'PATCH /nodes/{id}',
   'DELETE /nodes/{id}',
   'POST /nodes/{id}/sync',
   'GET /nodes/replication',

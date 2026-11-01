@@ -648,12 +648,23 @@ class Collector:
             from pelagos.services.peers import PeerGateway
 
             gateway = PeerGateway(self.ctx)
+        subnets: list[Any] = []
+        try:
+            for backend in self.backends.dhcp:
+                if backend.family is Family.V4:
+                    with self.backend_lock:
+                        subnets += backend.list_subnets()
+        except (ConnectorError, NotImplementedError) as exc:
+            log.info("unknown_device kept as it was: subnets unread (%s)", exc)
+            return []
+        since = int(self.clock()) - discovery.since_seconds(settings)
         g = discovery_service.gather(
             self.node_id,
-            lambda: obs_store.neighbor_payload(self.store.conn, self.node_id),
+            lambda: obs_store.neighbor_payload(self.store.conn, self.node_id, since),
             gateway,
             [n.id for n in cluster.nodes],
             timeout=5.0,
+            since=since,
         )
         if not g.complete:
             log.info("unknown_device kept as it was: %s", ", ".join(u["node_id"] for u in g.unavailable))
@@ -667,6 +678,7 @@ class Collector:
             int(self.clock()),
             discovery.after_seconds(settings),
             discovery.present_seconds(settings),
+            discovery.served_subnets(subnets),
         )
         self._finish(PollOutcome(alerts=alerts, kinds=kinds))
         return alerts

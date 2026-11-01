@@ -127,8 +127,28 @@ def test_discovery_sees_the_client_in_ipv4_with_its_vendor(tmp_path):
         assert vendor(mac) == "Proxmox Server Solutions"
     neighbors = obs_store.neighbor_rows(store.conn)
     later = now + 2 * 3600
-    alerts = discovery.unknown_devices(neighbors, [], [], [], [], later, 3600, 3 * 3600)
+    alerts = discovery.unknown_devices(
+        neighbors,
+        [],
+        [],
+        [],
+        [],
+        later,
+        3600,
+        3 * 3600,
+        [ipaddress.IPv4Network(f"{client}/24", strict=False)],
+    )
     assert f"mac:{mac}" in {a.subject for a in alerts}
     a = RRset("client.example.lan.", "A", 300, [client])
-    alerts = discovery.unknown_devices(neighbors, [], [], [a], [], later, 3600, 3 * 3600)
+    alerts = discovery.unknown_devices(
+        neighbors,
+        [],
+        [],
+        [a],
+        [],
+        later,
+        3600,
+        3 * 3600,
+        [ipaddress.IPv4Network(f"{client}/24", strict=False)],
+    )
     assert f"mac:{mac}" not in {a.subject for a in alerts}

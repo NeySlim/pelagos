@@ -114,6 +114,8 @@ def payload(conn: sqlite3.Connection | None, node_id: str, since: int | None = N
 
 NEIGHBOR_STATUS_META = "discovery.status"
 NEIGHBORS_MAX = 65536
+# Largest `discovery.neighbors` answer: the latest sightings first, `truncated` set past it.
+ANSWER_MAX = 20000
 NEIGHBOR_SCHEMA = """
 CREATE TABLE IF NOT EXISTS neighbor_observations (
   family INTEGER NOT NULL, mac TEXT NOT NULL, address TEXT NOT NULL, node_id TEXT NOT NULL,
@@ -152,11 +154,15 @@ def prune_neighbors(conn: sqlite3.Connection, now: int, days: int) -> int:
     return conn.execute("DELETE FROM neighbor_observations WHERE last_seen < ?", (now - days * DAY,)).rowcount
 
 
-def neighbor_rows(conn: sqlite3.Connection, since: int | None = None) -> list[dict[str, Any]]:
-    """NeighborObservation dicts, oldest first; `since` keeps rows seen at or after it."""
+def neighbor_rows(
+    conn: sqlite3.Connection, since: int | None = None, limit: int | None = None
+) -> list[dict[str, Any]]:
+    """NeighborObservation dicts, latest sighting first; `since` keeps rows seen at or after it,
+    `limit` caps how many."""
     rows = conn.execute(
-        "SELECT * FROM neighbor_observations WHERE last_seen >= ? ORDER BY first_seen, mac, address",
-        (int(since or 0),),
+        "SELECT * FROM neighbor_observations WHERE last_seen >= ?"
+        " ORDER BY last_seen DESC, mac, address LIMIT ?",
+        (int(since or 0), -1 if limit is None else int(limit)),
     ).fetchall()
     return [
         {
@@ -193,13 +199,14 @@ def neighbor_payload(
 ) -> dict[str, Any]:
     """The answer of the `discovery.neighbors` peer action (empty before the first pass)."""
     if conn is None:
-        return {"node_id": node_id, "neighbors": [], "status": None}
+        return {"node_id": node_id, "neighbors": [], "status": None, "truncated": False}
     try:
-        found = neighbor_rows(conn, since)
+        found = neighbor_rows(conn, since, ANSWER_MAX + 1)
     except sqlite3.OperationalError:  # table not created yet on a read-only connection
         found = []
+    truncated = len(found) > ANSWER_MAX
     try:
         status = read_neighbor_status(conn)
     except sqlite3.OperationalError:
         status = None
-    return {"node_id": node_id, "neighbors": found, "status": status}
+    return {"node_id": node_id, "neighbors": found[:ANSWER_MAX], "status": status, "truncated": truncated}

@@ -2417,7 +2417,7 @@ run under the collector's backend lock):
 | `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
-| `discovery.neighbors` | `{"since"?}` | `{"node_id","neighbors": [NeighborObservation],"status": NeighborStatus|null}`: the IPv4 neighbors this node recorded (section 27, IPv4 neighbors); a peer without the action (`not_supported`) counts as observing nothing |
+| `discovery.neighbors` | `{"since"?}` | `{"node_id","neighbors": [NeighborObservation],"status": NeighborStatus|null,"truncated"}` (latest sightings first, at most 20000): the IPv4 neighbors this node recorded (section 27, IPv4 neighbors); a peer without the action (`not_supported`) counts as observing nothing |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26), plus `analysis`: the last report kept on this node (taken out of `nodes[]` by the caller) |
 | `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
@@ -3859,8 +3859,8 @@ divergence and reconciliation"), at build and at apply.
 | --- | --- | --- | --- |
 | `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest; sources come through the host join cache (section 15): a zone is read again only when its serial moved, a source at the latest after `collector.hosts_cache_max_age_seconds` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
-| `GET /hosts/discovered?filter=&q=&page=&per_page=` | `read:hosts` | | `404 module_disabled` without the `discovery` module. Paginated `Discovered` (section 27, IPv4 neighbors), one row per MAC seen over the cluster, latest `last_seen` first; `filter` `unknown` (no host of `GET /hosts` holds the MAC or one of its addresses, excepted rows left out) or `known`; `q` part of the MAC, an address or the vendor; `meta.unavailable` `[{"node_id","error"}]` for the nodes that did not answer or whose last read failed, `meta.errors` as `GET /hosts` |
-| `GET /hosts/vendor/{mac}` | `read:hosts` | | `404 module_disabled` without the `discovery` module; `{"mac","vendor","prefix"}` (`vendor` and `prefix` null when no OUI matches or the MAC is locally administered); `400 validation_error` for a value that is not a MAC |
+| `GET /hosts/discovered?filter=&q=&page=&per_page=` | `read:hosts` | | `404 module_disabled` without the `discovery` module. Paginated `Discovered` (section 27, IPv4 neighbors), one row per MAC seen over the cluster, latest `last_seen` first; `filter` `unknown` (no host of `GET /hosts` holds the MAC or one of its addresses, excepted rows left out) or `known`; `q` part of the MAC, an address or the vendor (at most 64 characters); `meta.unavailable` `[{"node_id","error"}]` for the nodes that did not answer or whose last read failed, `meta.errors` as `GET /hosts` |
+| `GET /hosts/vendor/{mac}` | `read:hosts` | | `404 module_disabled` without the `discovery` module; `{"mac","vendor","prefix"}` (`vendor` and `prefix` null when no OUI matches or the MAC is locally administered); `400 validation_error` for a value that is not a MAC (accepted: `aa:bb:cc:dd:ee:ff`, `aa-bb-...`, `aabbccddeeff`, `aabb.ccdd.eeff`) |
 | `GET /hosts/{key}/timeline?since=&until=&page=&per_page=` | `read:hosts` | | paginated `{"ts","source": "lease","event",...LeaseEvent}` of one host, newest first, `meta` as `GET /dhcp/{family}/leases/history` plus `key`: `mac:` the events of that hardware address, `ip:` of that address, `name:` of that hostname, both families (DHCPv6 with the `dhcpv6` module); the key need not be a current host. Later sources (DNS changes) add items with another `source` |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
 
@@ -5803,13 +5803,16 @@ re-exports it), the table in `collector/ipv6/store.py`, the pass and the check i
   leaves its sightings out.
 - **`unknown_device`** (section 15 table): judged in the consistency pass of each node with a
   DHCPv4 backend and primary forward zones, over the leases, reservations and primary zones that
-  pass already read and every node's neighbors (`discovery.neighbors`, 5 s, in parallel). A MAC
+  pass already read and every node's neighbors (`discovery.neighbors`, 5 s, in parallel, `since`
+  `now - unknown_after_minutes - 3 x poll_seconds`). Only addresses inside the DHCPv4 subnets of the
+  judging node's Kea count (subnets unread: alerts kept), and never a locally administered MAC. A MAC
   is unknown when no lease nor reservation names it (hardware address) or holds one of its
   addresses and no A record nor PTR (primary zones of the judging node) is about one of its
   addresses. It is reported once its first sighting is `unknown_after_minutes` old and while it
   was seen within `3 x discovery.poll_seconds`. A node without a DHCPv4 backend or primary
   forward zone reports none; while a node does not answer, the alerts stay as they were. An
-  exception on `mac:<mac>` (the alert subject, lower-case) silences one device.
+  exception on `mac:<mac>` silences one device; the key is compared normalized (case and
+  separators), as for the `ipv6_*` kinds.
 - **Discovered** (`GET /hosts/discovered`): `{"mac","vendor","mac_random","addresses":
   [{"address","node_id","first_seen","last_seen","state"}],"first_seen","last_seen","nodes",
   "host_key","unknown","excepted"}`, times in RFC 3339; `host_key` the key of the `GET /hosts`

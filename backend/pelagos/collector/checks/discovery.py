@@ -163,6 +163,30 @@ def known_sets(
     return macs, ips
 
 
+def _served(address: str, nets: list[ipaddress.IPv4Network]) -> bool:
+    try:
+        addr = ipaddress.IPv4Address(address)
+    except ValueError:
+        return False
+    return any(addr in net for net in nets)
+
+
+def served_subnets(subnets: Iterable[Any]) -> list[ipaddress.IPv4Network]:
+    """IPv4 networks of Kea subnets (`Subnet.subnet`); unparsable ones left out."""
+    out = []
+    for s in subnets:
+        try:
+            out.append(ipaddress.IPv4Network(str(s.subnet), strict=False))
+        except ValueError:
+            continue
+    return out
+
+
+def since_seconds(settings: dict[str, Any]) -> int:
+    """How far back the alert path reads neighbors: a sighting older than this decides nothing."""
+    return after_seconds(settings) + present_seconds(settings)
+
+
 def unknown_devices(
     neighbors: Iterable[dict[str, Any]],
     leases: Iterable[Lease],
@@ -172,18 +196,28 @@ def unknown_devices(
     now: int,
     after_seconds: int,
     present_seconds: int,
+    subnets: Iterable[ipaddress.IPv4Network],
 ) -> list[Alert]:
     """`unknown_device` for each MAC first seen `after_seconds` ago, seen within `present_seconds`,
-    that no lease, reservation, A record or PTR accounts for (by MAC or by one of its addresses)."""
-    from pelagos.services.discovery_service import devices, rfc3339, vendor
+    that no lease, reservation, A record or PTR accounts for (by MAC or by one of its addresses).
+    Only addresses inside the served DHCPv4 `subnets` count, and never a locally administered MAC
+    (container bridges, VMs, randomised clients)."""
+    from pelagos.services.discovery_service import devices, mac_random, rfc3339, vendor
+
+    nets = list(subnets)
 
     macs, ips = known_sets(leases, reservations, forward, reverse)
     alerts: list[Alert] = []
     for mac, dev in sorted(devices(neighbors).items()):
-        if mac in macs or now - dev["first_seen"] < after_seconds or now - dev["last_seen"] > present_seconds:
+        if mac in macs or mac_random(mac):
+            continue
+        if now - dev["first_seen"] < after_seconds or now - dev["last_seen"] > present_seconds:
             continue
         addresses = sorted(dev["addresses"].values(), key=lambda a: (-a["last_seen"], a["address"]))
         if any(a["address"] in ips for a in addresses):
+            continue
+        addresses = [a for a in addresses if _served(a["address"], nets)]
+        if not addresses:
             continue
         name = vendor(mac)
         params = {"mac": mac, "address": addresses[0]["address"]}

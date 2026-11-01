@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import subprocess
 import sys
 import time
@@ -29,6 +30,7 @@ PI = "b8:27:eb:5a:01:22"
 PI_IP = "192.0.2.231"
 SOA = "ns1.example.lan. root.example.lan. 1 2 3 4 5"
 HOUR = 3600
+NETS = [ipaddress.IPv4Network("192.0.2.0/24")]
 
 
 def obs(mac, address, first, last, node="n1", state="reachable"):
@@ -49,7 +51,7 @@ def obs(mac, address, first, last, node="n1", state="reachable"):
 def test_unknown_device_after_the_delay_while_present():
     now = 100 * HOUR
     seen = [obs(PI, PI_IP, now - 2 * HOUR, now - 60), obs(PI, PI_IP, now - HOUR, now - 30, node="n2")]
-    [alert] = discovery.unknown_devices(seen, [], [], [], [], now, HOUR, 900)
+    [alert] = discovery.unknown_devices(seen, [], [], [], [], now, HOUR, 900, NETS)
     assert alert.kind is AlertKind.UNKNOWN_DEVICE and alert.node_id is None
     assert alert.subject == f"mac:{PI}"
     assert alert.details == {
@@ -65,16 +67,35 @@ def test_unknown_device_after_the_delay_while_present():
     )
     assert alert.title_message["key"] == "alert.unknown_device_vendor"
     # Too recent, then gone.
-    assert discovery.unknown_devices(seen, [], [], [], [], now - HOUR - 61, HOUR, 900) == []
-    assert discovery.unknown_devices(seen, [], [], [], [], now + 901, HOUR, 900) == []
+    assert discovery.unknown_devices(seen, [], [], [], [], now - HOUR - 61, HOUR, 900, NETS) == []
+    assert discovery.unknown_devices(seen, [], [], [], [], now + 901, HOUR, 900, NETS) == []
 
 
-def test_a_randomised_mac_has_no_vendor():
+def test_no_vendor_title_and_the_noise_left_out():
     now = 10 * HOUR
+    # No OUI match: the title without vendor.
     [alert] = discovery.unknown_devices(
-        [obs("3a:11:7f:00:42:10", PI_IP, 0, now)], [], [], [], [], now, HOUR, 900
+        [obs("fc:ff:00:00:42:10", PI_IP, 0, now)], [], [], [], [], now, HOUR, 900, NETS
     )
     assert alert.details["vendor"] is None and alert.title_message["key"] == "alert.unknown_device"
+    noise = [
+        obs("3a:11:7f:00:42:10", PI_IP, 0, now),  # randomised client MAC
+        obs("02:42:ac:11:00:02", "172.17.0.2", 0, now),  # docker bridge
+        obs("00:00:0c:9f:f0:01", "203.0.113.1", 0, now),  # WAN gateway, outside every served subnet
+    ]
+    assert discovery.unknown_devices(noise, [], [], [], [], now, HOUR, 900, NETS) == []
+    # A device with one address in a served subnet is reported with that address only.
+    both = [obs(PI, "203.0.113.9", 0, now), obs(PI, PI_IP, 0, now - 5)]
+    [alert] = discovery.unknown_devices(both, [], [], [], [], now, HOUR, 900, NETS)
+    assert alert.details["addresses"] == [PI_IP]
+
+
+def test_served_subnets_and_since():
+    from pelagos.domain import Subnet
+
+    nets = discovery.served_subnets([Subnet(1, "192.0.2.0/24", Family.V4), Subnet(2, "bogus", Family.V4)])
+    assert nets == NETS
+    assert discovery.since_seconds({}) == 3600 + 900
 
 
 @pytest.mark.parametrize(
@@ -97,13 +118,16 @@ def test_lease_reservation_or_record_accounts_for_the_device(what):
         forward = [RRset("pi.example.lan.", "A", 300, [PI_IP])]
     else:
         reverse = [RRset("231.2.0.192.in-addr.arpa.", "PTR", 300, ["pi.example.lan."])]
-    assert discovery.unknown_devices(seen, leases, reservations, forward, reverse, now, HOUR, 900) == []
+    assert discovery.unknown_devices(seen, leases, reservations, forward, reverse, now, HOUR, 900, NETS) == []
 
 
 def test_a_released_lease_does_not_account_for_the_device():
     now = 10 * HOUR
     gone = Lease(PI_IP, 1, Family.V4, hw_address=PI, state=LeaseState.RELEASED)
-    assert len(discovery.unknown_devices([obs(PI, PI_IP, 0, now)], [gone], [], [], [], now, HOUR, 900)) == 1
+    assert (
+        len(discovery.unknown_devices([obs(PI, PI_IP, 0, now)], [gone], [], [], [], now, HOUR, 900, NETS))
+        == 1
+    )
 
 
 # Collector -------------------------------------------------------------------------------------
@@ -395,6 +419,9 @@ def test_consistency_pass_cost_with_5000_leases(rig):
     engines for far longer (the fakes here read nothing: the bound is absolute)."""
     collector, backends, _source, now = rig
     n = 5000
+    from pelagos.domain import Subnet
+
+    backends.kea4.subnets.append(Subnet(id=2, subnet="198.18.0.0/15", family=Family.V4))
     backends.kea4.lease_list = [
         Lease(
             f"198.18.{i // 250}.{i % 250 + 1}",
@@ -434,3 +461,41 @@ def test_consistency_pass_cost_with_5000_leases(rig):
     print(f"consistency, 5000 leases: discovery off {base * 1000:.1f} ms, on {cost * 1000:.1f} ms")
     assert cost - base < 0.3
     assert "discover" not in collector.live.__code__.co_names
+
+
+def test_a_peer_is_asked_since_the_alert_window(rig):
+    collector, _backends, _source, now = rig
+    asked = []
+
+    class Spy(Gateway):
+        def action(self, peer, name, body, timeout=None):
+            asked.append(body)
+            return {"node_id": peer, "neighbors": [], "status": None}
+
+    collector.ctx.config_store.update_cluster(
+        lambda c: c.nodes.append(
+            type(c.nodes[0]).from_dict({**c.nodes[0].to_dict(), "id": "n2", "name": "ns2"})
+        ),
+        updated_by="test",
+    )
+    collector.discovery_gateway = Spy({"n2": {}})
+    collector.consistency()
+    assert asked == [{"since": int(now[0]) - 3600 - 900}]
+
+
+def test_hand_typed_exception_keys_match():
+    from pelagos.services import consistency
+
+    excepted = consistency.excepted_from(
+        [{"id": "1", "kind": "unknown_device", "key": "mac:B8-27-EB-5A-01-22"}]
+    )
+    assert excepted("unknown_device", f"mac:{PI}")
+    excepted = consistency.excepted_from([{"id": "1", "kind": "unknown_device", "key": "mac:b827.eb5a.0122"}])
+    assert excepted("unknown_device", f"mac:{PI}")
+    assert not excepted("unknown_device", "mac:b8:27:eb:5a:01:23")
+
+
+def test_parse_mac_forms():
+    for form in ("B8:27:EB:5A:01:22", "b8-27-eb-5a-01-22", "b827eb5a0122", "b827.eb5a.0122"):
+        assert discovery_service.parse_mac(form) == PI
+    assert discovery_service.parse_mac("b827eb5a01") is None

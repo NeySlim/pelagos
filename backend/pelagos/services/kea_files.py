@@ -146,7 +146,7 @@ def status(alerts: Any, engine: Engine, self_id: str, local: Any) -> list[dict[s
                 item["syntax_warnings"] = doc.syntax_warnings()
                 item["includes"] = doc.has_includes
                 # B1-KEACOMMENTS: without includes, config-write moves comments into user-context.
-                item["comments"] = len(doc.comments)
+                item["comments"] = len(getattr(doc, "comments", ()))
                 diffs = file.differences(local.config_get(), doc)
                 item["differences"] = diffs[:50]
                 item["count"] = len(diffs)

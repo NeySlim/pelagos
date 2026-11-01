@@ -1137,7 +1137,10 @@ two possible refusals when the state moved since the apply:
   `PlanService._rollback` calls it on every local target of every part to undo, before the plan
   goes `APPLYING`. A refusal answers `409 precondition_failed`: the plan stays `APPLIED`,
   `rollback_until` unchanged, no audit entry (nothing happened, like `preflight_failed`).
-  The test fakes implement it; the BIND, Kea and D2 connectors gain it in W1-ROLLBACK-GUARDS.
+  It runs under `PlanService`'s lock, which every apply and rollback of the process takes: a
+  guard reads a hash or a few files and returns, it never waits on an engine operation.
+  `RolloutWriter` (scope `update`) and the test fakes implement it; the BIND, Kea and D2
+  connectors gain it in W1-ROLLBACK-GUARDS.
 - Inside the connector's `rollback` (a connector without the hook): the current behaviour,
   `200 ApplyResult` with state `failed`, the plan `FAILED` and terminal.
 
@@ -1158,6 +1161,10 @@ Guards per scope today:
   web process's memory for `settings.plans.ttl_seconds` after the apply; past that, or after a
   restart, the rollback answers "the before state of this plan is no longer held", whatever
   `rollback_until` says. W1-ROLLBACK-GUARDS keeps it for the window.
+- `update`: only the rollout this plan wrote, still `running` with every node `pending`, can be
+  withdrawn; once a node started, the rollout finished (moved to `updates.history`) or another
+  rollout replaced it, `check_rollback` refuses (`409`) and `RolloutWriter.rollback` refuses too,
+  never a success without effect. The Updates screen's actions (cancel, roll back) handle the rest.
 - Peers: the rollback of a part sent to a peer goes again over `/repl/v1/plans/rollback` with the
   whole plan; peers store nothing and check their own guards the same way.
 

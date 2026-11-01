@@ -96,6 +96,8 @@ guards checked against the state now, on every node that applied it.
   plan first, or build a new plan.
 - A D2 configuration rollback works for `plans.ttl_seconds` after the apply
   and not after a restart, whatever the window says.
+- An update plan rolls back only while no node has started the rollout;
+  afterwards use the Updates screen (cancel, roll back).
 - Installer, import, security and Kea migration plans do not roll back as
   a whole: each of their steps restores its own files when it fails.
 - DNSSEC key rollovers and DS state changes cannot be rolled back.

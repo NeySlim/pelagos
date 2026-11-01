@@ -23,13 +23,34 @@ deadline: the preview TTL until the plan finishes, then `finished_at` plus the w
 `interrupted`; never for job scopes); a failed rollback is terminal.
 `PlanStore(ttl_seconds, rollback_window_seconds)`, `PlanStore.finish` replaces `touch`,
 `PlanStore.list` and `on_expired` are new. Optional connector hook `check_rollback(plan)`, called
-before a rollback starts: a refusal is `409 precondition_failed` and leaves the plan `APPLIED`.
+before a rollback starts: a refusal is `409 precondition_failed` and leaves the plan `APPLIED`;
+`RolloutWriter` implements it (an `update` plan withdraws only a rollout not started).
 Rollback answers `410 plan_expired` past `rollback_until`. New `GET /plans` (paginated
 `PlanSummary`, every plan with `read:audit`, else the caller's own), `GET /plans/{id}` readable with
 `read:audit`, `GET /audit?plan_id=`, WebSocket event `plans`/`expired`. Every plan carries a
 `summary_message`. Sections 6, 17 and 18 updated. WP-FRONTEND (U1-PLANS) builds the Plans page on
 this contract and the mock. WP-BIND, WP-KEA (W1-ROLLBACK-GUARDS) implement `check_rollback` and keep
 their rollback guards for the whole window.
+
+## 2026-10-31, F0-REPL (WP-CORE, WP-COLLECTOR, WP-API-AUTH): generic replicated collections and merge conflicts
+Additive. Section 10 "Generic collections": `core/collections.py` (`COLLECTIONS`, `Collection(key,
+secret_fields)`, `peers_missing`; empty in 0.4.0), `ClusterConfig.collections`, `collection()`,
+`record()`, `digest(without=...)`, `ConfigStore.update_collection`, `cluster_merge.records()`; a
+cluster without collection records keeps the same `cluster.toml` bytes and digest; a node that does
+not know a collection drops it on read and never tombstones it (guarantee, tested); epic services
+answer `409 collection_unavailable` while a peer does not know the collection. Section 13 "Merge
+conflicts": write bases in `cluster.bases.json` (outside `cluster.toml`), `bases` in `GET`/`PUT
+/repl/v1/config`, `collections` in `/repl/v1/status` and `PeerStatus.collections`,
+`cluster_merge.merge_report` (reasons `stamp`, `record_deleted`, `record_recreated`, `username`),
+`ConfigStore.merge_remote(toml_text, bases=None, *, on_conflict=None)`, audit action
+`replication.conflict` (section 11 verb `conflict`), alert `replication_conflict` (info, section 15).
+Section 29: rollout `convergence` compares `digest(without=...)` with a peer that lacks a non-empty
+collection. Files outside WP-CORE, in delimited blocks: `domain/alerts.py` (`REPLICATION_CONFLICT`),
+`collector/checks/replication_conflicts.py` (new) and its registration, `domain/messages.py`
+(`alert.replication_conflict`), `frontend/src/i18n/locales/{en,fr}/messages.json` and
+`dashboard.json`, `collector/rollout.py` (`convergence`), `docs/user/operations.md`. Older nodes
+ignore the new members. Epics adding a collection (E2-IPAM-1, E2-SSO-OIDC, E2-TEMPLATES, E3-DELEG,
+E3-APPROVAL) add one line to `COLLECTIONS` and use `cfg.collection()`.
 
 ## 2026-10-31, F0-DESIRED: desired state verbs
 Section 17 gains "Desired state verbs": `GET|PUT|DELETE /dns/zones/{zone}/rrsets/{owner}/{type}`,
@@ -2350,6 +2371,7 @@ and the mock server (`mock/updates.mjs`: signed, unsigned, unknown-key and alter
 with the extra confirmation and the password, a rollout that advances with `updateStepMs`, a
 failing node rolled back, resume, cancel, rollback, history, engine packages) for U6. WP-PACKAGING
 (U1): `make release` writes `release.json` and signs only when `PELAGOS_RELEASE_KEY` names a key.
+
 
 ## 2026-10-30, 0.3.0 (item 81, lot F6): hosts, PTR and alerts
 Sections 15 and 17. `ptr_mismatch` is grouped by cause: subjects `ptr:missing` (warning) and

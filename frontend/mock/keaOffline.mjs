@@ -64,6 +64,12 @@ export function keaOfflineHandlers(state, { invalid, createPlan, Problem }) {
         tool: 'config-test',
         requires_confirmation: true,
       })
+      const warn = (kind, key, params, text, count, examples) => ({ kind, severity: 'warning', text, message: { key: `plan.impact.${key}`, params }, count, examples })
+      plan.impact = [
+        warn('reconcile_overwrites', 'reconcile_overwrites', { node: name(state, target), count: 2, plans: 'P1' }, `${name(state, target)} changed too: 2 differences are overwritten (plans P1)`, 2, ['/subnet4/0/pools', '/option-data']),
+        warn('reconcile_residual', 'reconcile_residual', { count: 1 }, '1 differences stay after the copy (hooks, keys outside the shared view)', 1, ['/hooks-libraries']),
+        warn('ha_restart', 'ha_restart', { node: name(state, target), seconds: 12, max_response_delay: 10000, heartbeat_delay: 10000 }, `${name(state, target)} reloads Kea: its HA service restarts in waiting`, null, []),
+      ]
       plan.requires_confirmation_reasons = ['reconcile']
       plan.preconditions = [{ kind: 'config_hash', subject: `reconcile:${engine}`, value: 'mock', node_id: source }]
       return plan

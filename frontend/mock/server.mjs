@@ -153,7 +153,7 @@ const notFound = (what) => new Problem(404, 'not_found', `${what} not found`)
 // Section 9: a diverged Kea file blocks configuration plans of that engine (409 config_divergence).
 function fileStatus(state, engine) {
   const f = state.keaFiles[engine]
-  return { node_id: state.selfId, path: f.path, readable: true, files: [f.path], includes: false, diverged: f.diverged, differences: f.differences, count: f.differences.length, alert_id: null }
+  return { node_id: state.selfId, path: f.path, readable: true, files: [f.path], includes: false, comments: f.comments || 0, diverged: f.diverged, differences: f.differences, count: f.differences.length, alert_id: null }
 }
 function assertFileAgrees(state, engine) {
   const f = state.keaFiles[engine]

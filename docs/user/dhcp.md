@@ -72,6 +72,9 @@ major Kea version. Applying it reloads Kea on the target: its HA service
 restarts and synchronizes the leases for a few seconds. If the relationship
 terminated meanwhile, repair it afterwards (below).
 
+In the interface, open the `config_divergence` alert on the Alerts page and use
+**Reconcile from <node>**; both directions are offered when both sides changed.
+
 On the survivor, a partial change made by Kea commands (Kea 3.x with
 `subnet_cmds` and `host_cmds`) does not interrupt DHCP. A change made by
 `config-set` (Kea 2.6, options, global keys) restarts its HA service: it
@@ -747,7 +750,7 @@ comments. Pelagos keeps them in one of two ways.
   `"kea_include_tree": false` in `POST /install/import/plan` leaves the
   file as it is, `true` splits a file without comments too. A file that
   already uses includes, or a `<engine>.d` folder that is not empty, is
-  left alone.
+  left alone. The import screen shows this as a checkbox, checked when a file has comments.
 - **Without the tree**: before the first `config-write`, each comment is
   copied into `user-context` of the nearest object that can hold one (a
   subnet, shared network, pool, reservation, option, option definition or

@@ -11,6 +11,8 @@ vi.mock('../../services/api', () => {
     install: { detect: vi.fn(), plan: vi.fn(), importPlan: vi.fn() },
     plans: { apply: vi.fn(), get: vi.fn(), rollback: vi.fn() },
     jobs: { get: vi.fn() },
+    dhcp: { configFile: vi.fn() },
+    d2: { configFile: vi.fn() },
   }
   return { api, default: api }
 })
@@ -86,6 +88,35 @@ describe('InstallPage', () => {
     fireEvent.click(screen.getByTestId('wizard-next'))
     fireEvent.click(screen.getByTestId('wizard-build'))
     await waitFor(() => expect(api.install.plan).toHaveBeenCalledWith({ engines: ['d2'], source: 'isc', isc_series: '3.0' }))
+  })
+
+  it('offers the include tree, checked when a Kea file has comments, and sends the choice', async () => {
+    api.dhcp.configFile.mockResolvedValue({ items: [{ includes: false, comments: 4 }] })
+    api.install.importPlan.mockResolvedValue(plan('import'))
+    renderPage()
+    await screen.findByTestId('install-wizard')
+    fireEvent.click(screen.getByTestId('wizard-next'))
+    fireEvent.click(screen.getByTestId('wizard-next'))
+    const box = await screen.findByTestId('wizard-include-tree')
+    await waitFor(() => expect(box.querySelector('input')).toBeChecked())
+    expect(box).toHaveTextContent('Comments stay next to the settings they describe')
+    fireEvent.click(screen.getByTestId('wizard-build'))
+    await waitFor(() => expect(api.install.importPlan).toHaveBeenCalledWith(['bind', 'kea4'], { kea_include_tree: true }))
+  })
+
+  it('leaves the include tree unchecked without comments, and lets the user check it', async () => {
+    api.dhcp.configFile.mockResolvedValue({ items: [{ includes: false, comments: 0 }] })
+    api.install.importPlan.mockResolvedValue(plan('import'))
+    renderPage()
+    await screen.findByTestId('install-wizard')
+    fireEvent.click(screen.getByTestId('wizard-next'))
+    fireEvent.click(screen.getByTestId('wizard-next'))
+    const input = (await screen.findByTestId('wizard-include-tree')).querySelector('input')
+    await waitFor(() => expect(api.dhcp.configFile).toHaveBeenCalled())
+    expect(input).not.toBeChecked()
+    fireEvent.click(input)
+    fireEvent.click(screen.getByTestId('wizard-build'))
+    await waitFor(() => expect(api.install.importPlan).toHaveBeenCalledWith(['bind', 'kea4'], { kea_include_tree: true }))
   })
 
   it('does not go past the engines step without an engine', async () => {

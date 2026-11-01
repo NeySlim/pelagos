@@ -40,8 +40,9 @@ const NODE_IDS = {
 export const SELF_ID = NODE_IDS.ns1
 // Nodes of each scenario; ns3 and ns4 are Kea HA backups and BIND secondaries. In `hub` (Kea 3
 // hub and spoke) ns1 is the standby of two relationships, one with ns2, one with ns3.
+// `reconcile`: ns2 missed a partial apply and both sides changed since; the v4 file has comments.
 // `terminated`: the pair after a clock drift, NTP fixed since, Kea's DHCPv4 HA still terminated.
-export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'], hub: ['ns1', 'ns2', 'ns3'], terminated: ['ns1', 'ns2'] }
+export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'], hub: ['ns1', 'ns2', 'ns3'], terminated: ['ns1', 'ns2'], reconcile: ['ns1', 'ns2'] }
 const NTP_SYNCED = { source: 'chrony', synchronized: true, ntp_enabled: true, offset: 0.0004, stratum: 3, reference: '192.0.2.1' }
 const FINGERPRINTS = { ns1: 'a3f1c2', ns2: 'b7e9d4', ns3: 'c4d8e1', ns4: 'd2a7f9' }
 const isBackup = (name) => name === 'ns3' || name === 'ns4'
@@ -843,6 +844,37 @@ function dhcpCapabilities(engine) {
 // A backend message (architecture section 19): the UI renders it, `title` is its English.
 const msg = (key, params = {}) => ({ key, params })
 
+// The reconcile scenario: a partial apply left ns2 behind and ns2 changed too, so both directions exist.
+function reconcileAlerts() {
+  const [s1, s2] = [NODE_IDS.ns1, NODE_IDS.ns2]
+  return [
+    {
+      id: 'ALRT0000000000000000000030',
+      kind: 'config_divergence',
+      severity: 'critical',
+      state: 'open',
+      engine: 'kea4',
+      node_id: null,
+      subject: 'kea4:config-hash',
+      title: 'kea4 configuration differs between ns1 and ns2',
+      title_message: msg('alert.config_divergence', { engine: 'kea4' }),
+      details: {
+        hashes: { [s1]: 'a1b2c3', [s2]: 'd4e5f6' },
+        expected_from_plan: [{ source_node_id: s1, target_node_id: s2, since: ago(3600), plan_count: 1, plans: [] }],
+        reconcile: [
+          { source_node_id: s1, target_node_id: s2 },
+          { source_node_id: s2, target_node_id: s1 },
+        ],
+      },
+      acked_by: null,
+      acked_at: null,
+      first_seen: ago(3600),
+      last_seen: ago(30),
+      resolved_at: null,
+    },
+  ]
+}
+
 // The terminated scenario: HA stopped days ago on clock skew; the clock alert resolved once NTP
 // was fixed, the HA alert stays until the servers are restarted.
 function terminatedAlerts() {
@@ -1137,10 +1169,10 @@ export function createState(scenario = 'pair') {
     },
     availableHooks: [['lease_cmds', 'Lease commands (lease4-get, lease4-del, ...)'], ['host_cmds', 'Host reservation commands'], ['subnet_cmds', 'Subnet and shared network commands'], ['stat_cmds', 'Lease statistics per subnet and pool'], ['ha', 'High availability'], ['flex_id', 'Flexible identifier'], ['class_cmds', 'Client class commands'], ['run_script', 'External script hook'], ['bootp', 'BOOTP support'], ['limits', 'Rate limits per class or subnet']].map(([name, description]) => ({ name, description })),
     d2: { [NODE_IDS.ns1]: d2Stats(NODE_IDS.ns1, 0), [NODE_IDS.ns2]: d2Stats(NODE_IDS.ns2, 4) },
-    alerts: [...makeAlerts(names), ...(scenario === 'terminated' ? terminatedAlerts() : [])],
+    alerts: [...makeAlerts(names), ...(scenario === 'terminated' ? terminatedAlerts() : []), ...(scenario === 'reconcile' ? reconcileAlerts() : [])],
     // Section 9: the D2 file of this node was edited by hand; the Kea files agree.
     keaFiles: {
-      v4: { path: '/etc/kea/kea-dhcp4.conf', diverged: false, differences: [] },
+      v4: { path: '/etc/kea/kea-dhcp4.conf', diverged: false, differences: [], comments: scenario === 'reconcile' ? 3 : 0 },
       v6: { path: '/etc/kea/kea-dhcp6.conf', diverged: false, differences: [] },
       d2: { path: '/etc/kea/kea-dhcp-ddns.conf', diverged: true, differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"] },
     },

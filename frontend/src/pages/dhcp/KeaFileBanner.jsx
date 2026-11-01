@@ -4,14 +4,14 @@
 // adopt plans, built by the node that holds the file.
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileX } from '@phosphor-icons/react'
+import { FileX, Info } from '@phosphor-icons/react'
 import { Button } from '../../components/Button'
 import { usePermission } from '../../hooks/usePermission'
 import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { useNodeNames, usePlanFlow } from './hooks'
-import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, warnedFiles } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, commentedFiles, divergedFiles, warnedFiles } from './keaFile'
 
 // The status read runs a config-get plus a parse of the file tree: bursts of alerts read it once.
 const REFETCH_DEBOUNCE_MS = 2000
@@ -38,6 +38,7 @@ export function KeaFileBanner({ engine }) {
   const selfId = nodes.find((n) => n.is_self)?.peer?.id
   const diverged = divergedFiles(status.data?.items)
   const warned = warnedFiles(status.data?.items)
+  const commented = commentedFiles(status.data?.items)
   // The modal keeps its place whether the banner shows or not: a refetch that clears the
   // divergence mid-review must not remount it and drop its state.
   return (
@@ -102,6 +103,17 @@ export function KeaFileBanner({ engine }) {
             </ul>
           </div>
         </div>
+      ))}
+      {commented.map((item) => (
+        <p
+          key={`comments-${item.node_id}`}
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-secondary"
+          data-testid={`kea-comments-banner-${engine}`}
+        >
+          <Info size={16} className="shrink-0 mt-0.5" />
+          <span className="min-w-0">{t('keaFile.comments', { count: item.comments, path: item.path || '-', node: nameOf(item.node_id) })}</span>
+        </p>
       ))}
       {flow.modal}
     </>

@@ -226,9 +226,10 @@ a stopped Kea. `plan_service.JOB_SCOPES` is now `core.plans.NO_ROLLBACK_SCOPES`.
 handles `409 node_unreachable` itself (its own "apply only on the reachable nodes" box when the
 caller passes no `partialOption`, only when `partial_allowed`) and sends `{partial: true}` through
 `applyFn(id, confirm, extra)`. Desired state verbs never apply in part. Debt closed: `409 collection_unavailable`, promised by
-F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table (`problem.collection_unavailable`). Pending, WP-FRONTEND
-after U1-HOSTS: the Alerts page action "Reconcile from <node>" when `details.reconcile` is present
-(the route, `api.dhcp.reconcilePlan` and the mock exist; the action itself is not built yet).
+F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table (`problem.collection_unavailable`). Alerts page (U1-RECONCILE): a
+`config_divergence` alert with `details.reconcile` offers "Reconcile from <node>" for each listed direction
+(`api.dhcp.reconcilePlan`, family from the alert engine), read-only note without `write:dhcp.config`;
+`PlanPreview` names the nodes and the source of a `409 reconcile_required` (`problem.divergences`).
 
 ## 2026-11-01, B1-RRTYPES: record types SSHFP, TLSA, HTTPS, SVCB, NAPTR, LOC, DNAME, DS, URI
 `domain.zone_updates.ADMIN_UPDATE_TYPES` gains the nine types; new `PREVIOUS_ADMIN_UPDATE_TYPES`

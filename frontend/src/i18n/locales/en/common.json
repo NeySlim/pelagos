@@ -249,7 +249,8 @@
       "engine_down": "skipped: Kea not running",
       "ha_partner_in_touch": "skipped"
     },
-    "actionsLabel": "Plan actions"
+    "actionsLabel": "Plan actions",
+    "reconcileRequired": "{{nodes}} missed a partial apply: reconcile it from {{source}} first (Alerts page, Reconcile from {{source}})."
   },
   "readOnly": {
     "permission": "Read only: your roles do not have {{permission}}",

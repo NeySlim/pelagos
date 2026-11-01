@@ -249,7 +249,8 @@
       "engine_down": "ignoré : Kea arrêté",
       "ha_partner_in_touch": "ignoré"
     },
-    "actionsLabel": "Actions du plan"
+    "actionsLabel": "Actions du plan",
+    "reconcileRequired": "{{nodes}} a raté une application partielle : réconciliez-le depuis {{source}} d'abord (page Alertes, Réconcilier depuis {{source}})."
   },
   "readOnly": {
     "permission": "Lecture seule : vos rôles n'ont pas {{permission}}",

@@ -86,6 +86,8 @@
       "source": "Packages",
       "build": "Build the plan",
       "another": "Start over",
+      "includeTree": "Split each Kea file into an include tree",
+      "includeTreeHelp": "Comments stay next to the settings they describe; checked by default when a file has comments.",
       "help": {
         "import": "The plan lists what was read and what will be added. Each step is backed up, validated and rolled back if it fails.",
         "install": "The plan lists the packages and files. Applying it runs a job on this node; progress shows below."

@@ -25,6 +25,7 @@ import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
 import { notificationsOfAlert } from '../admin/notifications/notifyForm'
 import { IncidentTrace } from '../../components/motion'
 import { IgnoreDialog } from './IgnoreDialog'
+import { ReconcileActions } from './ReconcileActions'
 
 import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
@@ -259,6 +260,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, ignoring, onIgnore, onIgn
           ) : (
             <div className="flex flex-wrap justify-end gap-2">
               <FileAdoptActions alert={alert} />
+              <ReconcileActions alert={alert} />
               {link && (
                 <Button variant="secondary" size="sm" onClick={() => navigate(link.to)} data-testid="alert-open-subject">
                   <ArrowSquareOut size={14} />

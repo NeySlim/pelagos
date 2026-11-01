@@ -85,6 +85,8 @@
       "engines": "Moteurs",
       "source": "Paquets",
       "build": "Construire le plan",
+      "includeTree": "Découper chaque fichier Kea en arbre d'inclusions",
+      "includeTreeHelp": "Les commentaires restent à côté des réglages qu'ils décrivent ; coché par défaut quand un fichier en contient.",
       "another": "Recommencer",
       "help": {
         "import": "Le plan liste ce qui a été lu et ce qui sera ajouté. Chaque étape est sauvegardée, validée et annulée si elle échoue.",

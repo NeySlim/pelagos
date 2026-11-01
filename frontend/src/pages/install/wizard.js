@@ -105,6 +105,12 @@ export function prev(state) {
 export const needsSeries = (state) => state.source === 'isc' && state.engines.some((e) => KEA.has(e))
 
 // Request body and API call for the review step.
+// Kea files the import can split into an include tree.
+export const keaFileEngines = (engines) => engines.filter((e) => KEA.has(e)).map((e) => (e === 'kea4' ? 'v4' : e === 'kea6' ? 'v6' : 'd2'))
+
+// A file without includes that holds comments: the split keeps them in place.
+export const hasKeaComments = (items) => (items || []).some((i) => i && !i.includes && i.comments > 0)
+
 export function buildRequest(state) {
   if (state.mode === 'import') return { kind: 'import', body: { engines: state.engines } }
   const body = { engines: state.engines, source: state.source }

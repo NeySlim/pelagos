@@ -621,6 +621,14 @@ export function PlanPreview({
           {offline?.inTouch?.length > 0 && (
             <p data-testid="plan-partner-in-touch">{t('plan.partnerInTouch', { nodes: offline.inTouch.map(nodeName).join(', ') })}</p>
           )}
+          {error.code === 'reconcile_required' && error.problem?.divergences?.length > 0 && (
+            <p data-testid="plan-reconcile-required">
+              {t('plan.reconcileRequired', {
+                nodes: [...new Set(error.problem.divergences.map((d) => d.node_name || nodeName(d.node_id)))].join(', '),
+                source: [...new Set(error.problem.divergences.map((d) => nodeName(d.source_node_id)))].join(', '),
+              })}
+            </p>
+          )}
           {error.errors?.length > 0 && (
             <ul className="list-disc ml-4 font-mono text-2xs whitespace-pre-wrap">
               {error.errors.map((e, i) => (

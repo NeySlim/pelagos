@@ -249,7 +249,7 @@ export const ops = {
 export const install = {
   detect: () => apiClient.get('/install/detect'),
   plan: (body) => apiClient.post('/install/plan', body),
-  importPlan: (engines) => apiClient.post('/install/import/plan', { engines }),
+  importPlan: (engines, opts) => apiClient.post('/install/import/plan', { engines, ...opts }),
   security: (node) => apiClient.get(`/install/security${node ? buildQueryString({ node }) : ''}`),
   // A list of finding ids of this node, or a selection {node id: [finding ids]} across nodes.
   securityPlan: (selection) => apiClient.post('/install/security/plan', Array.isArray(selection) ? { finding_ids: selection } : { selection }),

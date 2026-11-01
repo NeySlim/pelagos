@@ -41,6 +41,8 @@
     "openZone": "Ouvrir la zone",
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
+    "reconcileFrom": "Réconcilier depuis {{node}}",
+    "reconcileHelp": "Copie la configuration partagée de {{source}} sur {{target}}",
     "adoptOn": "Sur {{node}}, le nœud qui porte le fichier",
     "ignore": "Ignorer (exception)",
     "openCertificates": "Ouvrir les certificats",

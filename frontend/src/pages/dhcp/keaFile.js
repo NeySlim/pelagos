@@ -27,6 +27,11 @@ export function warnedFiles(items) {
   return (items || []).filter((item) => item && item.syntax_warnings?.length > 0)
 }
 
+// Files with comments and no include: the next Kea write copies the comments into user-context.
+export function commentedFiles(items) {
+  return (items || []).filter((item) => item && !item.includes && item.comments > 0)
+}
+
 // The engine a config_syntax_warning alert is about (subject `<engine>:config-syntax`), else null.
 export function syntaxAlertEngine(alert) {
   if (!alert || alert.kind !== 'config_syntax_warning') return null
@@ -47,4 +52,21 @@ export function affectsFileStatus(message, engine) {
   const alert = message?.data
   if (!alert || typeof alert !== 'object') return false
   return fileAlertEngine(alert) === engine || syntaxAlertEngine(alert) === engine
+}
+
+// The reconcile directions of a `<engine>:config-hash` config_divergence alert: one
+// { family, source, target } per `details.reconcile` entry (two when both sides changed).
+export function reconcileOptions(alert) {
+  if (!alert || alert.kind !== 'config_divergence') return []
+  const family = { kea4: 'v4', kea6: 'v6' }[alert.engine]
+  if (!family) return []
+  const seen = new Set()
+  const out = []
+  for (const r of alert.details?.reconcile || []) {
+    const key = `${r?.source_node_id}>${r?.target_node_id}`
+    if (!r?.source_node_id || !r?.target_node_id || r.source_node_id === r.target_node_id || seen.has(key)) continue
+    seen.add(key)
+    out.push({ family, source: r.source_node_id, target: r.target_node_id })
+  }
+  return out
 }

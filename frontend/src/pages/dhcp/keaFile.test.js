@@ -8,7 +8,7 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, fileAlertEngine, syntaxAlertEngine, warnedFiles } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, commentedFiles, divergedFiles, reconcileOptions, fileAlertEngine, syntaxAlertEngine, warnedFiles } from './keaFile'
 import { nextCursor, previousCursor } from './lib'
 
 describe('kea file divergence', () => {
@@ -72,5 +72,20 @@ describe('kea syntax warnings', () => {
     const warned = { topic: 'alerts', data: { kind: 'config_syntax_warning', subject: 'kea4:config-syntax' } }
     expect(affectsFileStatus(warned, 'v4')).toBe(true)
     expect(affectsFileStatus(warned, 'v6')).toBe(false)
+  })
+})
+
+describe('kea file comments and reconcile', () => {
+  it('lists the files with comments and no include', () => {
+    const items = [{ node_id: 'a', comments: 2, includes: false }, { node_id: 'b', comments: 2, includes: true }, { node_id: 'c', comments: 0 }]
+    expect(commentedFiles(items).map((i) => i.node_id)).toEqual(['a'])
+    expect(commentedFiles(undefined)).toEqual([])
+  })
+
+  it('reads the reconcile directions of a config-hash alert', () => {
+    const alert = { kind: 'config_divergence', engine: 'kea6', details: { reconcile: [{ source_node_id: 'a', target_node_id: 'b' }, { source_node_id: 'b', target_node_id: 'a' }, { source_node_id: 'a', target_node_id: 'b' }, { source_node_id: 'a', target_node_id: 'a' }] } }
+    expect(reconcileOptions(alert)).toEqual([{ family: 'v6', source: 'a', target: 'b' }, { family: 'v6', source: 'b', target: 'a' }])
+    expect(reconcileOptions({ ...alert, engine: 'bind' })).toEqual([])
+    expect(reconcileOptions({ kind: 'pool_full' })).toEqual([])
   })
 })

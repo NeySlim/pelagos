@@ -2,7 +2,7 @@
 // Install and import: what detection found on this node, then a step by step
 // wizard (mode, engines, package source, review) that builds an install or
 // import plan; applying it runs a Job whose steps PlanPreview follows live.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { DownloadSimple, ArrowsClockwise, CheckCircle, XCircle, CaretLeft, CaretRight, Lightning, ShieldWarning, Package, ArrowsLeftRight } from '@phosphor-icons/react'
@@ -14,7 +14,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import {
   stepsFor, engineChoices, initialState, setMode, toggleEngine, validateStep, canGoNext, next, prev,
-  buildRequest, needsSeries, SOURCES, ISC_SERIES,
+  buildRequest, needsSeries, keaFileEngines, hasKeaComments, SOURCES, ISC_SERIES,
 } from './wizard'
 
 function Check({ ok, label }) {
@@ -131,6 +131,10 @@ function Wizard({ detect, onDone }) {
   const [plan, setPlan] = useState(null)
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState(null)
+  // null until the user decides: then the box follows whether a Kea file has comments.
+  const [treeChoice, setTreeChoice] = useState(null)
+  const [fileStatus, setFileStatus] = useState([])
+  const keaEngines = useMemo(() => (state.mode === 'import' ? keaFileEngines(state.engines) : []), [state.mode, state.engines])
   const steps = stepsFor(state.mode)
   const error = validateStep(state, detect, modules)
   const choices = engineChoices(state.mode, detect, modules)
@@ -138,11 +142,25 @@ function Wizard({ detect, onDone }) {
   useEffect(() => {
     setPlan(null)
     setBuildError(null)
-  }, [state.mode, state.engines, state.source, state.iscSeries])
+  }, [state.mode, state.engines, state.source, state.iscSeries, treeChoice])
+
+  // The status read is a hint for the default only: a node without read access keeps it unchecked.
+  useEffect(() => {
+    if (state.step !== 'review' || !keaEngines.length) return undefined
+    let alive = true
+    Promise.all(keaEngines.map((e) => Promise.resolve().then(() => (e === 'd2' ? api.d2.configFile() : api.dhcp.configFile(e))).catch(() => null)))
+      .then((answers) => alive && setFileStatus(answers.flatMap((a) => a?.items || [])))
+    return () => {
+      alive = false
+    }
+  }, [state.step, keaEngines])
+  const withComments = hasKeaComments(fileStatus)
+  const includeTree = treeChoice ?? withComments
 
   const request = () => {
     const { kind, body } = buildRequest(state)
-    return kind === 'import' ? api.install.importPlan(body.engines) : api.install.plan(body)
+    if (kind !== 'import') return api.install.plan(body)
+    return keaEngines.length ? api.install.importPlan(body.engines, { kea_include_tree: includeTree }) : api.install.importPlan(body.engines)
   }
   // Same wizard answers, planned again: the server forgot the old plan (expired or restarted).
   const recompute = async () => {
@@ -224,6 +242,15 @@ function Wizard({ detect, onDone }) {
             )}
           </dl>
           <p className="text-xs text-text-secondary">{t(`wizard.review.help.${state.mode}`)}</p>
+          {keaEngines.length > 0 && !plan && (
+            <label className="flex items-start gap-2 text-xs cursor-pointer" data-testid="wizard-include-tree">
+              <input type="checkbox" className="mt-0.5" checked={includeTree} onChange={(e) => setTreeChoice(e.target.checked)} />
+              <span>
+                <span className="block text-text-primary">{t('wizard.review.includeTree')}</span>
+                <span className="block text-text-tertiary">{t('wizard.review.includeTreeHelp')}</span>
+              </span>
+            </label>
+          )}
           {!plan && (
             <Button onClick={build} loading={building} data-testid="wizard-build">
               <Lightning size={14} weight="fill" />

@@ -481,7 +481,8 @@
         "send_timeout_seconds": "Délai d'envoi",
         "login_failures": "Échecs de connexion avant un événement",
         "login_failures_window_seconds": "Fenêtre des échecs de connexion",
-        "local_targets_enabled": "Autoriser les cibles locales et de la grappe"
+        "local_targets_enabled": "Autoriser les cibles locales et de la grappe",
+        "login_failures_names_enabled": "Nommer les tentatives dans les événements"
       },
       "archives": {
         "schedule_enabled": "Archives planifiées",
@@ -598,7 +599,8 @@
         "confirm_seconds": "Une alerte doit rester ouverte ce temps avant de partir ; les alertes critiques partent tout de suite.",
         "messages_max_per_hour": "Au-delà, un seul message indique combien d’événements ont été retenus.",
         "login_failures": "Un événement auth.login_failed part quand autant de connexions échouent dans la fenêtre.",
-        "local_targets_enabled": "Désactivé : webhooks, ntfy, Gotify, Matrix et Home Assistant refusent le loopback, le lien local et les nœuds de la grappe."
+        "local_targets_enabled": "Désactivé : webhooks, ntfy, Gotify, Matrix et Home Assistant refusent le loopback, le lien local et les nœuds de la grappe.",
+        "login_failures_names_enabled": "Activé : les événements auth.login_failed listent les noms saisis (tels quels, 10 au plus) ; désactivé : nombres et adresses seulement."
       },
       "archives": {
         "schedule_enabled": "Désactivé tant qu'aucune clé d'archive n'existe et que sa clé privée n'a pas été testée.",

@@ -225,7 +225,13 @@ def login_failed(clock: Clock, user: str = "mallory") -> AuditEntry:
 
 
 def test_failed_sign_ins_past_the_threshold_make_one_event_per_window(tmp_path, clock):
-    node = Node(tmp_path, clock, [channel(events=["auth.login_failed"])], login_failures=3)
+    node = Node(
+        tmp_path,
+        clock,
+        [channel(events=["auth.login_failed"])],
+        login_failures=3,
+        login_failures_names_enabled=True,
+    )
     for _ in range(2):
         node.append(login_failed(clock))
         clock.advance(10)
@@ -250,6 +256,32 @@ def test_failed_sign_ins_past_the_threshold_make_one_event_per_window(tmp_path, 
         node.append(login_failed(clock))
     node.tick()
     assert len(node.transport.batches) == 2
+
+
+def test_typed_sign_in_names_stay_home_by_default(tmp_path, clock):
+    node = Node(tmp_path, clock, [channel(events=["auth.login_failed"])], login_failures=2)
+    node.append(login_failed(clock, "hunter2-typed-as-name"))
+    node.append(login_failed(clock))
+    node.tick()
+    payload = render.webhook_payload(node.transport.batches[0])
+    assert payload["events"][0]["data"]["users"] == [] and payload["events"][0]["data"]["count"] == 2
+    assert "hunter2" not in json.dumps(payload)
+
+
+def test_audit_lines_are_filtered_by_needle_before_decoding(tmp_path, clock, monkeypatch):
+    from pelagos.core import audit_log as audit_mod
+
+    node = Node(tmp_path, clock, [channel(events=["plan.applied"])])
+    for i in range(5):
+        node.append(AuditEntry(node_id="N1", ts=clock(), user="u", action="dns.zone.op", target=f"z{i}",
+                               result=AuditResult.OK))  # fmt: skip
+    node.append(summary(clock))
+    decoded: list[bytes] = []
+    real = audit_mod._decode
+    monkeypatch.setattr(audit_mod, "_decode", lambda line: decoded.append(line) or real(line))
+    node.tick()
+    assert node.transport.kinds() == ["plan.applied"]
+    assert not any(b"dns.zone.op" in line for line in decoded)
 
 
 def test_conflict_event_names_the_path_and_authors_never_the_values(tmp_path, clock):

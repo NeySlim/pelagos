@@ -1145,6 +1145,11 @@
       "default": false
     },
     {
+      "key": "notifications.login_failures_names_enabled",
+      "type": "boolean",
+      "default": false
+    },
+    {
       "key": "archives.schedule_enabled",
       "type": "boolean",
       "default": false

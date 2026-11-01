@@ -481,7 +481,8 @@
         "send_timeout_seconds": "Send timeout",
         "login_failures": "Failed sign-ins before an event",
         "login_failures_window_seconds": "Failed sign-in window",
-        "local_targets_enabled": "Allow local and cluster targets"
+        "local_targets_enabled": "Allow local and cluster targets",
+        "login_failures_names_enabled": "Name sign-in attempts in events"
       },
       "archives": {
         "schedule_enabled": "Scheduled archives",
@@ -598,7 +599,8 @@
         "confirm_seconds": "An alert must stay open this long before it is sent; critical alerts are sent at once.",
         "messages_max_per_hour": "Beyond it, one message says how many events were held back.",
         "login_failures": "An auth.login_failed event is sent when this many sign-ins fail within the window.",
-        "local_targets_enabled": "Off: webhooks, ntfy, Gotify, Matrix and Home Assistant refuse loopback, link-local and the nodes of the cluster."
+        "local_targets_enabled": "Off: webhooks, ntfy, Gotify, Matrix and Home Assistant refuse loopback, link-local and the nodes of the cluster.",
+        "login_failures_names_enabled": "On: auth.login_failed events list the user names typed (as typed, up to 10); off: counts and addresses only."
       },
       "archives": {
         "schedule_enabled": "Off until an archive key exists and its private key was tested.",

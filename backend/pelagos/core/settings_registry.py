@@ -275,6 +275,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("notifications.login_failures", "integer", 5, 2, 1000, "failures"),
     S("notifications.login_failures_window_seconds", "integer", 600, 60, 86400, "seconds"),
     S("notifications.local_targets_enabled", "boolean", False),
+    S("notifications.login_failures_names_enabled", "boolean", False),
     # Scheduled archives (section 23)
     S("archives.schedule_enabled", "boolean", False),
     S("archives.start_time", "string", "03:15", pattern=TIME_OF_DAY_PATTERN),

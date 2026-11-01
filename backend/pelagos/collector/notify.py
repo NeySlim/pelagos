@@ -472,28 +472,35 @@ def _change_entry(entry: AuditEntry) -> bool:
     )
 
 
+# Byte needles of the audit lines change events come from (lines are compact JSON): only those
+# lines are decoded. Plan summaries are `<scope>.apply|rollback`, so the needle is their entry tag.
+AUDIT_SOURCES = (b'"entry":"summary"', b'"action":"auth.login_failed"', b'"action":"replication.conflict"')
+
+
 @dataclass(slots=True)
 class AuditSource:
     """The audit entries change events come from (plan summaries, failed sign-ins, conflicts) of the
-    last LEDGER_DAYS, read incrementally like the ledger."""
+    last LEDGER_DAYS, read incrementally like the ledger, one cursor per needle."""
 
     audit_log: Any
-    offset: int = 0
-    inode: int | None = None
+    cursors: dict[bytes, tuple[int, int | None]] = field(default_factory=dict)
     started: bool = False
     entries: dict[str, AuditEntry] = field(default_factory=dict)
 
     def refresh(self, now: datetime) -> None:
         horizon = now - timedelta(days=LEDGER_DAYS)
         tail = getattr(self.audit_log, "tail", None)
-        if not self.started and callable(tail):
-            fresh, self.offset, self.inode = tail(horizon)
-        else:
-            fresh, self.offset, self.inode = self.audit_log.scan(self.offset, self.inode)
+        for needle in AUDIT_SOURCES:
+            if needle not in self.cursors and callable(tail):
+                fresh, offset, inode = tail(horizon, needle)
+            else:
+                offset, inode = self.cursors.get(needle, (0, None))
+                fresh, offset, inode = self.audit_log.scan(offset, inode, needle)
+            self.cursors[needle] = (offset, inode)
+            for entry in fresh:
+                if entry.ts >= horizon and _change_entry(entry):
+                    self.entries[entry.id] = entry
         self.started = True
-        for entry in fresh:
-            if entry.ts >= horizon and _change_entry(entry):
-                self.entries[entry.id] = entry
         for entry_id in [i for i, e in self.entries.items() if e.ts < horizon]:
             del self.entries[entry_id]
 
@@ -519,6 +526,7 @@ def audit_changes(
     login_threshold: int,
     login_window_seconds: int,
     names: dict[str, str],
+    login_names: bool = False,
     web_urls: dict[str, str | None],
     base_url: str | None,
     now: datetime,
@@ -541,7 +549,9 @@ def audit_changes(
             while logins and entry.ts - logins[0].ts > login_window:
                 logins.popleft()
             if len(logins) >= login_threshold:
-                users = list(dict.fromkeys(str(e.user) for e in logins if e.user))[:10]
+                # The identifiers typed at sign-in (a password typed in the name field included) only
+                # leave with notifications.login_failures_names_enabled.
+                users = list(dict.fromkeys(str(e.user) for e in logins if e.user))[:10] if login_names else []
                 ips = list(dict.fromkeys(str(e.client_ip) for e in logins if e.client_ip))[:10]
                 out.append(
                     ChangeEvent(
@@ -996,6 +1006,7 @@ class Dispatcher:
                 window_seconds=int(reg.get(settings, "plans.rollback_window_seconds")),
                 login_threshold=int(reg.get(settings, "notifications.login_failures")),
                 login_window_seconds=int(reg.get(settings, "notifications.login_failures_window_seconds")),
+                login_names=bool(reg.get(settings, "notifications.login_failures_names_enabled")),
                 names=names,
                 web_urls=web_urls,
                 base_url=base_url,
@@ -1066,7 +1077,8 @@ class Dispatcher:
         due = self.due_changes(channel, changes, settings, now)
         muted, _ended = active_mute(settings, now)
         if muted or in_quiet(schedule_of(channel).get("quiet"), now):
-            # Held, never dropped: they leave when the mute or the quiet hours end.
+            # Held: they leave when the mute or the quiet hours end, if still inside their look-back
+            # (7 days for audit-derived events, 1 hour for leases; older ones are dropped).
             self.pending += len(due)
             return
         if not due:

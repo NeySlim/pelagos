@@ -124,7 +124,14 @@ test.describe('at 1440 px', () => {
     await scenario(page, 'four')
     await signIn(page)
     await page.goto('/nodes')
-    await expect(page.getByTestId('nodes-table').locator('tbody tr')).toHaveCount(4)
+    // Two sites: one table per site, the label as heading.
+    const sites = page.getByTestId('nodes-site')
+    await expect(sites).toHaveCount(2)
+    await expect(sites.nth(0)).toHaveAttribute('data-site', 'dc1')
+    await expect(sites.nth(0).locator('tbody tr')).toHaveCount(2)
+    await expect(sites.nth(1)).toHaveAttribute('data-site', 'dc2')
+    await expect(sites.nth(1).locator('tbody tr')).toHaveCount(2)
+    await expect(page.locator('[data-testid="nodes-table"] tbody tr')).toHaveCount(4)
     await expect(page.getByTestId('node-ha-roles').first()).toContainText('v4')
     await expect(page.getByTestId('replication-link')).toHaveCount(3)
 
@@ -157,6 +164,7 @@ test.describe('at 400 px', () => {
     await expect(tile.getByTestId('trace-topology')).toHaveAttribute('data-nodes', '4')
     await expect(tile.getByTestId('trace-node')).toHaveCount(4)
     for (const card of await tile.getByTestId('trace-node').all()) await expect(card).toBeVisible()
+    await expect(tile.getByTestId('node-site')).toHaveText(['dc1', 'dc1', 'dc2', 'dc2'])
     await expect(tile.getByTestId('trace-mesh-status')).toContainText('ns4 behind by 1')
     expect(await noOverflow(page)).toBe(true)
 

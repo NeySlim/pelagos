@@ -21,7 +21,8 @@
     "url": "Address",
     "version": "Version",
     "haRole": "Kea HA",
-    "clock": "Clock"
+    "clock": "Clock",
+    "site": "Site"
   },
   "clock": {
     "reference": "reference",
@@ -32,7 +33,8 @@
   },
   "list": {
     "empty": "No node",
-    "self": "this node"
+    "self": "this node",
+    "noSite": "No site"
   },
   "modules": {
     "bind": "BIND",
@@ -43,7 +45,8 @@
   "sync": {
     "adopted": "Its configuration was adopted.",
     "button": "Sync",
-    "done": "Synchronized with {{name}}: {{n}} audit entries added."
+    "done": "Synchronized with {{name}}: {{n}} audit entries added.",
+    "hint": "Forces a replication pass with this node"
   },
   "remove": {
     "button": "Remove",

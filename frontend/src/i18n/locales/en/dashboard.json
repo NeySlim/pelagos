@@ -29,7 +29,15 @@
       "unsent": "Unsent",
       "notInTouch": "not in touch",
       "empty": "HA is not configured",
-      "receives": "receives updates"
+      "receives": "receives updates",
+      "short": {
+        "hot-standby": "Hot",
+        "load-balancing": "Balanced",
+        "in-maintenance": "Maint.",
+        "partner-in-maintenance": "Maint.",
+        "partner-down": "Down",
+        "communication-recovery": "Recovery"
+      }
     },
     "inconsistencies": {
       "title": "Alerts",

@@ -230,6 +230,17 @@ describe('HostCard', () => {
     }
     expect(screen.getByTestId('host-open-lease')).toBeInTheDocument()
     expect(mocks.api.dns.zones).not.toHaveBeenCalled()
+    // One note for the whole card, not one per section.
+    expect(screen.getAllByTestId('read-only-note')).toHaveLength(1)
+    expect(screen.getByTestId('read-only-note')).toHaveTextContent('write:hosts')
+  })
+
+  it('says nothing about read only when one action is allowed', async () => {
+    mocks.permissions = new Set(['read:hosts', 'read:dhcp', 'write:dhcp.reservations'])
+    mocks.api.hosts.get.mockResolvedValue(host())
+    renderCard()
+    expect(await screen.findByTestId('host-card')).toBeInTheDocument()
+    expect(screen.queryByTestId('read-only-note')).not.toBeInTheDocument()
   })
 
   it('reports a host that cannot be read', async () => {

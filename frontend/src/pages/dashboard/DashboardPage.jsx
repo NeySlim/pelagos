@@ -36,6 +36,8 @@ const TILE_COMPONENTS = {
   nodes: NodesTile, ha: HaTile, inconsistencies: InconsistenciesTile, zones: ZoneSyncTile, pools: PoolsTile, d2: D2Tile,
   resolver: ResolverTile,
 }
+// On a phone the trace's plot flexes: the tile needs less height than the desktop hero row.
+const MOBILE_TRACE_ROWS = 8
 const REFRESH_MS = 30000
 const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 }
 
@@ -244,7 +246,7 @@ export default function DashboardPage() {
           {[...ordered.filter((it) => it.i === 'trace'), ...ordered.filter((it) => it.i !== 'trace')].map((item, i) => {
             const Tile = TILE_COMPONENTS[item.i]
             return (
-              <div key={item.i} className="fx-stagger-item" style={{ height: item.h * ROW_HEIGHT, '--fx-i': i }}>
+              <div key={item.i} className="fx-stagger-item" style={{ height: (item.i === 'trace' ? Math.min(item.h, MOBILE_TRACE_ROWS) : item.h) * ROW_HEIGHT, '--fx-i': i }}>
                 <Tile {...tileProps} />
               </div>
             )

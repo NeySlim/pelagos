@@ -18,6 +18,8 @@ import { AmbientTile, CountUp, MiniHistogram, RegMarks, RollingNumber, StatusDot
 import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, mergePools, poolThresholds, formatErrorRate } from './summary'
 import { PoolPressure } from './poolPressure'
+import { SiteTag } from './SiteTag'
+import { spansSites } from './sites'
 import { flattenHa } from '../dhcp/haSetup'
 import { DdnsFailoverLine } from './ddnsFailoverLine'
 import { partnerLost } from '../../lib/ha'
@@ -74,6 +76,7 @@ export function NodesTile({ summary, editing, live }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const nodes = summary?.nodes || []
   const offline = nodes.filter((n) => n.status !== 'online').length
+  const sites = spansSites(nodes)
   return (
     <TileFrame
       id="nodes"
@@ -102,6 +105,7 @@ export function NodesTile({ summary, editing, live }) {
                         {t('tiles.nodes.self')}
                       </Badge>
                     )}
+                    {sites && <SiteTag node={n} />}
                   </div>
                   <div className="text-2xs text-text-tertiary font-mono truncate">
                     {t('tiles.nodes.meta', { version: n.version || '?', config: n.config_version ?? '?', audit: n.audit_count ?? '?' })}
@@ -119,6 +123,12 @@ export function NodesTile({ summary, editing, live }) {
       )}
     </TileFrame>
   )
+}
+
+// Narrow columns take the short form of a long state ("Hot", "Maint."); the badge title keeps the full one.
+const SHORT_STATES = new Set(['hot-standby', 'load-balancing', 'in-maintenance', 'partner-in-maintenance', 'partner-down', 'communication-recovery'])
+function shortState(t, state) {
+  return SHORT_STATES.has(state) ? t(`tiles.ha.short.${state}`) : undefined
 }
 
 export function HaTile({ summary, editing, nameOf }) {
@@ -171,7 +181,7 @@ export function HaTile({ summary, editing, nameOf }) {
                 </td>
                 <td className="py-1 pr-2">
                   <span className="flex min-w-0">
-                    <StatusBadge status={h.state || 'unknown'} truncate />
+                    <StatusBadge status={h.state || 'unknown'} truncate label={shortState(t, h.state)} title={t(`common:status.${h.state || 'unknown'}`, { defaultValue: h.state })} />
                   </span>
                 </td>
                 <td className="py-1 pr-2">
@@ -182,7 +192,7 @@ export function HaTile({ summary, editing, nameOf }) {
                     </span>
                   ) : h.partner ? (
                     <span className="flex items-center gap-1 min-w-0">
-                      <StatusBadge status={h.partner.state || 'unknown'} dot={false} truncate />
+                      <StatusBadge status={h.partner.state || 'unknown'} truncate label={shortState(t, h.partner.state)} title={t(`common:status.${h.partner.state || 'unknown'}`, { defaultValue: h.partner.state })} dot={false} />
                       {partnerLost(h.partner) && <StatusDot tone="danger" pulse className="shrink-0" label={t('tiles.ha.notInTouch')} title={t('tiles.ha.notInTouch')} data-testid="tile-ha-not-in-touch" />}
                     </span>
                   ) : (
@@ -241,7 +251,7 @@ export function InconsistenciesTile({ summary, alerts, editing }) {
           {alerts.map((a) => (
             <li key={a.id} className="flex items-start gap-2 text-xs" data-testid="tile-alert">
               <StatusBadge status={a.severity} />
-              <span className="flex-1 min-w-0 text-text-primary truncate" title={msg(a.title_message, a.title)}>
+              <span className="flex-1 min-w-0 text-text-primary line-clamp-2" title={msg(a.title_message, a.title)}>
                 {msg(a.title_message, a.title)}
               </span>
               <span className="text-2xs text-text-tertiary font-mono whitespace-nowrap">{t(`kinds.${a.kind}`, { defaultValue: a.kind })}</span>

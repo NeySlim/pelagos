@@ -286,6 +286,25 @@ describe('AlertsPage', () => {
     expect(screen.queryByTestId('alerts-consistency')).toBeNull()
     expect(screen.queryByTestId('alert-row-ack')).toBeNull()
   })
+
+  it('explains in the detail why a viewer cannot acknowledge', async () => {
+    canWrite = false
+    renderPage()
+    fireEvent.click(await screen.findByText('Pool is full'))
+    const detail = await screen.findByTestId('alert-detail')
+    expect(within(detail).getByTestId('read-only-note')).toHaveTextContent('write:alerts')
+    expect(within(detail).queryByTestId('alert-ack')).toBeNull()
+  })
+
+  it('ignores inside the detail, without a second dialog over it', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))
+    const detail = await screen.findByTestId('alert-detail')
+    fireEvent.click(within(detail).getByTestId('alert-ignore'))
+    expect(within(detail).getByTestId('ignore-dialog')).toBeInTheDocument()
+    expect(within(detail).queryByTestId('alert-ack')).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  })
 })
 
 describe('alert subjects', () => {
@@ -297,6 +316,11 @@ describe('alert subjects', () => {
     expect(subjectLink({ subject: 'ns-primary:2.0.192.in-addr.arpa' }).to).toBe('/dns/zones/2.0.192.in-addr.arpa')
     expect(subjectLink({ subject: 'kea6:subnet:1:pool:2001:db8::/64' }).to).toBe('/dhcp/v6/subnets')
     expect(subjectLink({ subject: 'peer:01JB' }).to).toBe('/nodes')
+    // The button names where it leads.
+    expect(subjectLink({ subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' })).toEqual({ to: '/dhcp/v4/subnets', label: 'openSubnet', params: { id: '3' } })
+    expect(subjectLink({ subject: 'ha:kea4' })).toEqual({ to: '/dhcp/v4/ha', label: 'openHa', params: { family: 'DHCPv4' } })
+    expect(subjectLink({ subject: 'ha-backup:kea6' }).params).toEqual({ family: 'DHCPv6' })
+    expect(subjectLink({ subject: 'peer:01JB' }).label).toBe('openNodes')
     expect(subjectLink({ subject: 'engine:bind' })).toBeNull()
   })
 

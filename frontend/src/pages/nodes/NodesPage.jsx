@@ -9,9 +9,12 @@ import { HardDrives, Key, ArrowsClockwise, CheckCircle, Warning, Trash } from '@
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
+import { NodeLink } from '../../components/NodeLink'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { DataTable } from '../../components/DataTable'
 import { useAuth } from '../../contexts/AuthContext'
+import { useMobile } from '../../contexts/MobileContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
@@ -33,6 +36,7 @@ import { formatOffset, ntpState, skewTone } from './clock'
 import { safeWebUrl } from './webUrl'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
+const shortName = (name) => (/^[0-9.:[\]]+$/.test(name || '') ? name : String(name || '').split('.')[0])
 const NODES_POLL_MS = 10000
 
 // This node and one peer joined by the replication link: when the peer's configuration
@@ -83,6 +87,7 @@ export default function NodesPage() {
   const { t } = useTranslation(['nodes', 'common'])
   const { hasPermission } = usePermission()
   const isAdmin = hasPermission('admin:nodes')
+  const { isMobile } = useMobile()
   const { showSuccess, showError } = useNotification()
   const nodes = useApi(() => api.nodes.list(), [])
   const replication = useApi(() => api.nodes.replication(), [])
@@ -144,6 +149,9 @@ export default function NodesPage() {
   const self = items.find((n) => n.is_self)
   const peers = replication.data?.peers || []
   const nameOf = (id) => items.find((n) => n.peer.id === id)?.peer.name || id
+  // Nodes group by site once two sites exist; with one site (or on a phone card) it is a column.
+  const siteNames = [...new Set(items.map((n) => n.peer.site).filter(Boolean))].sort()
+  const grouped = siteNames.length >= 2
 
   const sync = async (node) => {
     setBusy(node.peer.id)
@@ -181,11 +189,14 @@ export default function NodesPage() {
       sortValue: (n) => n.peer.name,
       render: (n) => (
         <span className="inline-flex items-center gap-1.5">
-          <span className="font-medium">{n.peer.name}</span>
+          {n.is_self ? <span className="font-medium" title={n.peer.name}>{shortName(n.peer.name)}</span> : <NodeLink nodeId={n.peer.id} name={n.peer.name} short />}
           {n.is_self && <Badge variant="primary" size="sm">{t('list.self')}</Badge>}
         </span>
       ),
     },
+    ...(siteNames.length && (!grouped || isMobile)
+      ? [{ key: 'site', label: t('fields.site'), sortable: true, sortValue: (n) => n.peer.site || '', render: (n) => n.peer.site || '-' }]
+      : []),
     { key: 'status', label: t('fields.status'), render: (n) => <StatusBadge status={n.status} /> },
     { key: 'version', label: t('fields.version'), mono: true },
     {
@@ -274,15 +285,20 @@ export default function NodesPage() {
     {
       key: 'url',
       label: t('fields.url'),
-      className: 'font-mono text-2xs break-all',
+      className: 'font-mono text-2xs',
       render: (n) => {
         const webUrl = safeWebUrl(n.peer.web_url)
-        return webUrl && !n.is_self ? (
-          <a href={webUrl} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
-            {webUrl}
-          </a>
-        ) : (
-          n.peer.url
+        const shown = webUrl && !n.is_self ? webUrl : n.peer.url
+        return (
+          <span className="inline-block max-w-[18rem] truncate align-bottom" title={shown}>
+            {webUrl && !n.is_self ? (
+              <a href={webUrl} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">
+                {webUrl}
+              </a>
+            ) : (
+              n.peer.url
+            )}
+          </span>
         )
       },
     },
@@ -294,7 +310,7 @@ export default function NodesPage() {
           render: (n) =>
             n.is_self ? null : (
               <span className="inline-flex gap-1">
-                <Button variant="ghost" size="xs" onClick={() => sync(n)} loading={busy === n.peer.id} title={t('sync.button')} data-testid="node-sync">
+                <Button variant="ghost" size="xs" onClick={() => sync(n)} loading={busy === n.peer.id} title={t('sync.hint')} data-testid="node-sync">
                   <ArrowsClockwise size={13} />
                   {t('sync.button')}
                 </Button>
@@ -339,6 +355,32 @@ export default function NodesPage() {
     { key: 'error', label: t('fields.error'), truncate: true, render: (p) => (p.error ? <span className="status-danger-text">{p.error}</span> : '') },
   ]
 
+  const nodesTable = (rows) => (
+    <DataTable
+      columns={columns}
+      rows={rows}
+      rowKey={(n) => n.peer.id}
+      loading={nodes.loading && !nodes.data}
+      highlightChanges={['config_version', 'audit_count']}
+      error={nodes.error}
+      onRetry={nodes.refetch}
+      clientSort
+      mobileCard={{
+        title: (n) => (
+          <span className="inline-flex items-center gap-1.5">
+            <span title={n.peer.name}>{shortName(n.peer.name)}</span>
+            {n.is_self && <Badge variant="primary" size="sm">{t('list.self')}</Badge>}
+          </span>
+        ),
+        status: (n) => <StatusBadge status={n.status} />,
+        fields: siteNames.length ? ['version', 'site'] : ['version'],
+      }}
+      emptyTitle={t('list.empty')}
+      emptyIcon={HardDrives}
+      testId="nodes-table"
+    />
+  )
+
   const inSync = peers.every((p) => p.reachable && self && p.config_version === self.config_version && p.audit_count === self.audit_count)
 
   return (
@@ -358,19 +400,26 @@ export default function NodesPage() {
       }
     >
       <div className="space-y-4">
-        <DataTable
-          columns={columns}
-          rows={items}
-          rowKey={(n) => n.peer.id}
-          loading={nodes.loading && !nodes.data}
-          highlightChanges={['config_version', 'audit_count']}
-          error={nodes.error}
-          onRetry={nodes.refetch}
-          clientSort
-          emptyTitle={t('list.empty')}
-          emptyIcon={HardDrives}
-          testId="nodes-table"
-        />
+        {!isAdmin && <ReadOnlyNote permission="admin:nodes" />}
+        {grouped ? (
+          <div className="space-y-4" data-testid="nodes-sites">
+            {[...siteNames, null].map((site) => {
+              const rows = items.filter((n) => (n.peer.site || null) === site)
+              if (!rows.length) return null
+              return (
+                <section key={site || '-'} data-testid="nodes-site" data-site={site || ''}>
+                  <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                    {site || t('list.noSite')}
+                    <Badge variant="gray" size="sm">{rows.length}</Badge>
+                  </h3>
+                  {nodesTable(rows)}
+                </section>
+              )
+            })}
+          </div>
+        ) : (
+          nodesTable(items)
+        )}
         <Card className="p-3 space-y-3" hover={false} data-testid="replication">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('replication.title')}</h3>

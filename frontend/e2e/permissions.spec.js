@@ -95,3 +95,41 @@ test('a viewer sees why each DNS action is missing on a zone and on the RPZ page
   await page.getByRole('button', { name: 'Activity' }).click()
   await expect(page.getByTestId('rpz-read-only-note')).toContainText('write:dns.config')
 })
+
+async function signInAs(page, username, password, totp) {
+  await page.goto('/login')
+  await page.getByTestId('login-username').fill(username)
+  await page.getByTestId('login-password').fill(password)
+  await page.getByTestId('login-submit').click()
+  if (totp) {
+    await page.getByTestId('login-totp').fill(totp)
+    await page.getByTestId('login-submit').click()
+  }
+  await expect(page.getByTestId('sidebar')).toBeVisible()
+}
+
+// A role without the permission is told why the action is missing (ReadOnlyNote), not left to guess.
+for (const [username, password, totp] of [['bob', 'bob', '123456'], ['viewer', 'viewer']]) {
+  test(`${username} sees why hosts cannot be created`, async ({ page }) => {
+    await signInAs(page, username, password, totp)
+    await page.goto('/hosts')
+    await expect(page.getByTestId('host-create')).toHaveCount(0)
+    await expect(page.getByTestId('host-facets').getByTestId('read-only-note')).toContainText('write:hosts')
+  })
+}
+
+test('viewer sees why an alert cannot be acknowledged', async ({ page }) => {
+  await signInAs(page, 'viewer', 'viewer')
+  await page.goto('/alerts')
+  await page.getByTestId('alerts-table').getByTestId('data-table-row').first().click()
+  const detail = page.getByTestId('alert-detail')
+  await expect(detail.getByTestId('read-only-note')).toContainText('write:alerts')
+  await expect(detail.getByTestId('alert-ack')).toHaveCount(0)
+})
+
+test('alice sees why nodes cannot be enrolled', async ({ page }) => {
+  await signInAs(page, 'alice', 'alice')
+  await page.goto('/nodes')
+  await expect(page.getByTestId('enroll-open')).toHaveCount(0)
+  await expect(page.getByTestId('read-only-note')).toContainText('admin:nodes')
+})

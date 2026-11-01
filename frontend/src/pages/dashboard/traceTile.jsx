@@ -15,6 +15,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { DEFAULT_WINDOW, TRACE_WINDOWS, formatJitter, scaleBar } from '../../lib/trace'
 import { cn, formatRelativeTime } from '../../lib/utils'
 import { LiveStatus, TileFrame } from './tiles'
+import { SiteTag } from './SiteTag'
+import { spansSites } from './sites'
 import { TileRefresh } from './tileRefresh'
 import { rateFormat, splitRate } from './summary'
 import { clockOffset, haFamilies, heartbeatOf, heartbeatReadout, linkOf, meshModel, nodeEngines, topology, traceLanes } from './traceModel'
@@ -38,7 +40,7 @@ const readWindow = () => {
   }
 }
 
-function NodeCard({ node, self, engines, families, heartbeats, testId }) {
+function NodeCard({ node, self, engines, families, heartbeats, showSite, testId }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const online = !node.status || node.status === 'online'
   return (
@@ -55,6 +57,7 @@ function NodeCard({ node, self, engines, families, heartbeats, testId }) {
         <span className={cn('fx-dot', online ? 'fx-tone-success' : 'fx-tone-danger')} role="img" aria-label={t(`common:status.${node.status || 'unknown'}`)} />
         <span className="font-mono">{node.peer.name}</span>
         {self && <span className="trace-node-self">{t('tiles.nodes.self')}</span>}
+        {showSite && <SiteTag node={node} />}
       </div>
       <div className="trace-node-meta">
         <span>v{node.version || '?'}</span>
@@ -122,6 +125,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
   const linkRef = useRef(null)
   // Three nodes or more: one mesh of links, signals go from one node to another.
   const mesh = nodes.length > 2
+  const showSite = spansSites(nodes)
   const meshRef = useRef(null)
   const ends = useRef({ self: null, pair: null })
   ends.current = { self: self?.peer.id || null, pair: mesh ? haPairOf(nodes, ha) : null }
@@ -263,7 +267,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
         )}
         {self && !mesh && (
           <div className={cn('trace-topo', !peer && 'is-single')} data-testid="trace-topology">
-            <NodeCard node={self} self engines={nodeEngines(self, engineOpts)} families={families} heartbeats={heartbeats} testId="trace-node" />
+            <NodeCard node={self} self showSite={showSite} engines={nodeEngines(self, engineOpts)} families={families} heartbeats={heartbeats} testId="trace-node" />
             {peer && (
               <SignalLink
                 ref={linkRef}
@@ -278,7 +282,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
             )}
             {peer && (
               <div className="trace-peer">
-                <NodeCard node={peer} engines={nodeEngines(peer, engineOpts)} families={families} heartbeats={heartbeats} testId="trace-node" />
+                <NodeCard node={peer} showSite={showSite} engines={nodeEngines(peer, engineOpts)} families={families} heartbeats={heartbeats} testId="trace-node" />
                 {more > 0 && <span className="trace-more">{t('trace.more', { count: more })}</span>}
               </div>
             )}

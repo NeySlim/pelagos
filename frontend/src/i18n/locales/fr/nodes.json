@@ -21,7 +21,8 @@
     "url": "Adresse",
     "version": "Version",
     "haRole": "HA Kea",
-    "clock": "Horloge"
+    "clock": "Horloge",
+    "site": "Site"
   },
   "clock": {
     "reference": "référence",
@@ -32,7 +33,8 @@
   },
   "list": {
     "empty": "Aucun nœud",
-    "self": "ce nœud"
+    "self": "ce nœud",
+    "noSite": "Sans site"
   },
   "modules": {
     "bind": "BIND",
@@ -43,7 +45,8 @@
   "sync": {
     "adopted": "Sa configuration a été adoptée.",
     "button": "Synchroniser",
-    "done": "Synchronisé avec {{name}} : {{n}} entrées d'audit ajoutées."
+    "done": "Synchronisé avec {{name}} : {{n}} entrées d'audit ajoutées.",
+    "hint": "Force une passe de réplication avec ce nœud"
   },
   "remove": {
     "button": "Retirer",

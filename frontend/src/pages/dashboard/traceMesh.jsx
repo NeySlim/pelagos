@@ -9,10 +9,12 @@ import { useTranslation } from 'react-i18next'
 import { HeartbeatTrace, MeshLinks, RollingNumber, SwapText } from '../../components/motion'
 import { cn } from '../../lib/utils'
 import { meshModel, meshStatus, nodeEngines } from './traceModel'
+import { SiteTag } from './SiteTag'
+import { spansSites } from './sites'
 
 const ENGINE_INK = { dns: 'var(--accent-primary)', dhcp: 'var(--accent-pro)', ok: 'var(--accent-success)' }
 
-function MeshCard({ card, engines, families, heartbeats }) {
+function MeshCard({ card, engines, families, heartbeats, showSite }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const { node, role } = card
   const online = !node.status || node.status === 'online'
@@ -28,6 +30,7 @@ function MeshCard({ card, engines, families, heartbeats }) {
         <span className={cn('fx-dot', online ? 'fx-tone-success' : 'fx-tone-danger')} role="img" aria-label={t(`common:status.${node.status || 'unknown'}`)} />
         <span className="font-mono truncate">{node.peer.name}</span>
         {node.is_self && <span className="trace-node-self">{t('tiles.nodes.self')}</span>}
+        {showSite && <SiteTag node={node} />}
       </div>
       <div className="trace-node-role">
         {role ? (
@@ -67,6 +70,7 @@ export const TraceMesh = forwardRef(function TraceMesh({ nodes, ha, self, engine
   const ids = useMemo(() => cards.map((c) => c.id), [cards])
   const status = meshStatus(self, nodes)
   const label = t(`trace.mesh.${status.status}`, { count: status.count, names: status.names.join(', ') })
+  const sites = spansSites(nodes)
   const hasHa = links.some((l) => l.kind === 'ha')
   const hasFeed = links.some((l) => l.kind === 'feed')
   return (
@@ -74,7 +78,7 @@ export const TraceMesh = forwardRef(function TraceMesh({ nodes, ha, self, engine
       <div ref={rowRef} className="trace-mesh-row" style={{ '--mesh-n': cards.length, '--mesh-narrow': Math.min(cards.length, 4) }}>
         <MeshLinks ref={ref} containerRef={rowRef} nodes={ids} links={links} testId="trace-mesh-links" />
         {cards.map((c) => (
-          <MeshCard key={c.id} card={c} engines={nodeEngines(c.node, engineOpts)} families={families} heartbeats={heartbeats} />
+          <MeshCard key={c.id} card={c} engines={nodeEngines(c.node, engineOpts)} families={families} heartbeats={heartbeats} showSite={sites} />
         ))}
       </div>
       <div className="trace-mesh-foot">

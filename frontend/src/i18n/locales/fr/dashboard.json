@@ -29,7 +29,15 @@
       "unsent": "Non envoyés",
       "notInTouch": "sans contact",
       "empty": "La HA n'est pas configurée",
-      "receives": "reçoit les mises à jour"
+      "receives": "reçoit les mises à jour",
+      "short": {
+        "hot-standby": "Chaud",
+        "load-balancing": "Réparti",
+        "in-maintenance": "Maint.",
+        "partner-in-maintenance": "Maint.",
+        "partner-down": "HS",
+        "communication-recovery": "Reprise"
+      }
     },
     "inconsistencies": {
       "title": "Alertes",

@@ -389,3 +389,41 @@ def test_a_whole_configuration_replace_carries_the_comments_in_one_config_set(ke
     assert body["valid-lifetime"] == 2400
     assert body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office LAN"}}
     assert reads_as_running(backend) == []
+
+
+def test_reconciliation_keeps_the_target_file_comments(node_ctx, tmp_root):
+    """POST /dhcp/{family}/config/reconcile/plan on a real HA pair: the target's file has comments
+    and no include; the config-set of the shared view carries them before Kea's config-write."""
+    from pelagos.collector import kea_shared
+    from tests.daemon.test_kea_ha import local_state
+    from tests.daemon.test_kea_ha_offline import Lab
+    from tests.fixtures.ports import wait_for
+    from tests.unit.services.kea_pair import N2
+
+    lab = Lab(node_ctx, tmp_root)
+    try:
+        pair = lab.pair
+        lab.stop_kea2()
+        pair.gateway.offline.add(N2)
+        lab.wait_partner_lost()
+        plan = pair.subnet_plan(40)
+        pair.plans.apply(plan, "admin", True, partial=True)
+        lab.start_kea2()
+        target = commented(lab.daemons[1])
+        pair.back(N2)
+        pair.reconcile(pair.n1, N2)
+        body = pair.k2.config_get()
+        assert kea_shared.same_shared(pair.k1.config_get(), body)
+        assert any(s["id"] == 40 for s in body["subnet4"])
+        assert body["user-context"]["pelagos"]["comment"] == "Lab DHCPv4 server, written by hand"
+        office = next(s for s in body["subnet4"] if s["id"] == 1)
+        assert office["user-context"]["pelagos"]["comment"] == "office LAN"
+        assert '"comment": "office LAN"' in target.read_text()
+        assert reads_as_running(pair.k2) == []
+        wait_for(
+            lambda: local_state(lab.daemons[0]) == local_state(lab.daemons[1]) == "hot-standby",
+            timeout=60,
+            what="pair back in hot-standby",
+        )
+    finally:
+        lab.close()

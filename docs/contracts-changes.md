@@ -101,11 +101,14 @@ plan is refused (`409 plan_state`) once its record is settled. New route `POST
 /dhcp/{family}/config/reconcile/plan` (`write:dhcp.config`): the overlay is computed on the target
 (`collector.kea_shared.shared_overlay`, the peer action `dhcp.config.plan` gains the additive member
 `shared_from`; an older peer answers `not_supported`), impacts `reconcile_overwrites` and
-`reconcile_residual`, `501 not_supported` across Kea major versions. `KeaBackend.preflight` reports
+`reconcile_residual`, `409 conflict` across Kea major versions (detail
+`problem.detail.kea_major_mismatch`, not a 5xx: the pair's state forbids it), the source's
+`config-hash-get` as a `CONFIG_HASH` precondition of the source (`source_hash`). `KeaBackend.preflight` reports
 a stopped Kea. `plan_service.JOB_SCOPES` is now `core.plans.NO_ROLLBACK_SCOPES`. `PlanPreview`
 handles `409 node_unreachable` itself (its own "apply only on the reachable nodes" box when the
 caller passes no `partialOption`, only when `partial_allowed`) and sends `{partial: true}` through
-`applyFn(id, confirm, extra)`. Desired state verbs never apply in part. WP-FRONTEND: the Alerts page
+`applyFn(id, confirm, extra)`. Desired state verbs never apply in part. Debt closed: `409 collection_unavailable`, promised by
+F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table (`problem.collection_unavailable`). WP-FRONTEND: the Alerts page
 offers "Reconcile from <node>" when `details.reconcile` is present.
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan

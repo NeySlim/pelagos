@@ -1304,7 +1304,9 @@ nodes and leave an explicit, replicated, reconcilable divergence instead of bein
   `config-set` path (capabilities of a peer from its `summary` snapshot), with the values read from
   that server's HA configuration: "ns1 stops serving DHCP for about `max-response-delay` +
   `heartbeat-delay` (70 s) after the apply". The lab measures it from a client that retries and
-  `docs/user/dhcp.md` gives the figure. No refusal by threshold: the gap is not known before the
+  `docs/user/dhcp.md` gives the figure (the code read is 3.2.1, the pair runs 2.6.3: if the
+  measure clearly exceeds `max-response-delay` + `heartbeat-delay`, this text and the impact follow
+  the measure). No refusal by threshold: the gap is not known before the
   apply and the alternative is not writing at all.
 - A partial `dhcp.subnet` or `dhcp.shared_network` also gets the impact item `reconcile_soon`
   (warning): when the skipped partner comes back, it synchronizes the leases of a subnet it does not
@@ -1684,9 +1686,10 @@ Expected divergence and reconciliation (B1-KEAOFFLINE, section 6 "Partial apply"
   UI); the caller reports it as `reconcile_required` (`peers.ACTION_CODES`).
 - `POST /dhcp/{family}/config/reconcile/plan {"source_node_id","target_node_id"}`
   (`DhcpService.plan_reconcile`, `write:dhcp.config`). The two nodes must share an HA relationship
-  and run the same Kea major version (`400` otherwise; `501 not_supported` "same Kea major version
-  required": the copied objects are in the source's dialect, `client-class` against
-  `client-classes`). The source's shared view of the common relationships is read live (its
+  and run the same Kea major version (`400` for the first; `409 conflict` with detail
+  `problem.detail.kea_major_mismatch`, "ns1 runs Kea 3.2, ns2 runs Kea 2.6: reconcile by hand", for
+  the second: the copied objects are in the source's dialect, `client-class` against
+  `client-classes`; the feature exists, the state of the pair forbids it, so not a 5xx). The source's shared view of the common relationships is read live (its
   `config-get` here, the `config` snapshot of a peer, computed by the peer when asked), and the
   target computes the overlay on its own live `config-get`: on this node directly, on a peer
   through the `dhcp.config.plan` action extended with the additive member `shared_from` (without it
@@ -1702,7 +1705,11 @@ Expected divergence and reconciliation (B1-KEAOFFLINE, section 6 "Partial apply"
   (tested by enumeration). The plan: scope `dhcp.config`, target the target node only,
   `requires_confirmation` with reason `reconcile`, summary `plan.kea.reconcile`, impact `ha_restart`
   (the target restarts its HA service: `waiting`, then `syncing`, which disables its partner's DHCP
-  service for the sync, a few seconds), `source_hash` (the source relationship hash copied).
+  service for the sync, a few seconds). `source_hash`: the source's `config-hash-get` read with its
+  view enters the plan as a `CONFIG_HASH` precondition with `node_id` = source; `recheck_preconditions`
+  checks it only when the plan is built on the source (a peer ignores the preconditions of other
+  nodes), informative otherwise: the plan expires with the preview TTL and a record only settles on
+  equal hashes or `settled_by`, so no cross-node check is needed.
 - Both sides changed: when a record exists in the other direction (target to source, unsettled), or
   the target's current relationship hash differs from `target_hash_before` (or that is absent), the
   plan is still built, with the impact item `reconcile_overwrites` (warning) listing the plans of the
@@ -1715,8 +1722,9 @@ Expected divergence and reconciliation (B1-KEAOFFLINE, section 6 "Partial apply"
   unblock despite a residue); the ordinary `config-hash` alert, with its grace and without
   `expected_from_plan`, stays for the residue.
 - Refusals: `400` same node, not running the engine, no common relationship; `503
-  engine_unavailable` when either does not answer; `501 not_supported` as above; `409 conflict`
-  when equal; `409 config_divergence` when the target's file diverges (existing check).
+  engine_unavailable` when either does not answer; `409 conflict` across Kea major versions (above)
+  and when nothing would change; `501 not_supported` from a peer whose `dhcp.config.plan` action does
+  not take `shared_from` (older release); `409 config_divergence` when the target's file diverges (existing check).
 - Kea HA synchronizes leases, never configuration: nothing in this flow changes the HA setup.
 
 ## 10. Tool configuration files (TOML)
@@ -3767,7 +3775,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/config?node_id=` | `read:dhcp` | | `{"node_id","hash","config": {...}}` |
 | `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, built there when it is a peer; never fanned out) | `Plan` |
 | `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
-| `POST /dhcp/{family}/config/reconcile/plan` | `write:dhcp.config` | `{"source_node_id", "target_node_id"}` | `Plan` (scope `dhcp.config`, target node only, `requires_confirmation` reason `reconcile`; section 9); `400` same node or no common HA relationship, `501 not_supported` different Kea major versions or a peer without `shared_from`, `409 conflict` nothing to copy, `503 engine_unavailable` |
+| `POST /dhcp/{family}/config/reconcile/plan` | `write:dhcp.config` | `{"source_node_id", "target_node_id"}` | `Plan` (scope `dhcp.config`, target node only, `requires_confirmation` reason `reconcile`; section 9); `400` same node or no common HA relationship, `409 conflict` different Kea major versions (`problem.detail.kea_major_mismatch`) or nothing to copy, `501 not_supported` a peer without `shared_from`, `503 engine_unavailable` |
 | `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (the node that holds the file, default this node; a peer builds the plan) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/d2/servers` | `read:dhcp` | | `{"items": [{"node_id","capabilities","status"}]}` |
 | `GET /dhcp/d2/stats?node_id=` | `read:dhcp` | | `D2Stats` |

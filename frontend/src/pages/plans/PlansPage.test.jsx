@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import '../../i18n'
 import { resetNodeNamesCache } from '../../hooks/useNodeNames'
 
-const db = vi.hoisted(() => ({ rows: [], calls: [], perms: null, plan: null, planError: null, preview: [] }))
+const db = vi.hoisted(() => ({ rows: [], calls: [], perms: null, plan: null, planError: null, preview: [], who: { username: 'alice' }, admin: false, ws: {}, gets: 0 }))
 
 vi.mock('../../services/api', () => {
   const api = {
@@ -18,6 +18,7 @@ vi.mock('../../services/api', () => {
         return { items: db.rows, total: db.rows.length, page: 1, per_page: 50, meta: { node_id: 'N1' } }
       },
       get: async () => {
+        db.gets += 1
         if (db.planError) throw db.planError
         return db.plan
       },
@@ -26,12 +27,26 @@ vi.mock('../../services/api', () => {
   }
   return { api, default: api }
 })
-vi.mock('../../hooks/useWebSocket', async (importOriginal) => ({ ...(await importOriginal()), useWsTopic: () => {} }))
+vi.mock('../../hooks/useWebSocket', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useWsTopic: (topic, handler) => {
+    if (topic) db.ws[topic] = handler
+  },
+}))
+vi.mock('../../contexts/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal()),
+  useAuth: () => ({ user: db.who, isAdmin: db.admin }),
+}))
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: (p) => !db.perms || db.perms.includes(p) }) }))
 vi.mock('../../components/PlanPreview', () => ({
   PlanPreview: (props) => {
     db.preview.push(props)
-    return <div data-testid="plan-preview" data-apply={String(props.allowApply)} data-rollback={String(props.allowRollback)}>{props.plan.summary}</div>
+    return (
+      <div data-testid="plan-preview" data-apply={String(props.allowApply)} data-rollback={String(props.allowRollback)}>
+        {props.plan.summary}
+        <button type="button" data-testid="fake-410" onClick={() => props.onRollbackError?.({ status: 410, code: 'plan_expired' })}>410</button>
+      </div>
+    )
   },
 }))
 
@@ -64,6 +79,10 @@ beforeEach(() => {
   db.plan = row({})
   db.planError = null
   db.preview = []
+  db.who = { username: 'alice' }
+  db.admin = false
+  db.ws = {}
+  db.gets = 0
 })
 
 describe('PlansPage', () => {
@@ -122,5 +141,69 @@ describe('PlansPage', () => {
     renderPage()
     await userEvent.click(await screen.findByText('Add www A'))
     await waitFor(() => expect(screen.getByTestId('plan-preview')).toBeInTheDocument())
+  })
+
+  it('offers Roll back to the creator or an admin only, not to another reader of the plan', async () => {
+    db.who = { username: 'bob' }
+    const first = renderPage('/plans?id=P1')
+    expect((await screen.findByTestId('plan-preview')).dataset.rollback).toBe('false')
+    expect(screen.getByTestId('plan-rollback-not-yours')).toHaveTextContent('alice')
+    first.unmount()
+    db.admin = true
+    renderPage('/plans?id=P1')
+    expect((await screen.findByTestId('plan-preview')).dataset.rollback).toBe('true')
+  })
+
+  it('treats an interrupted failed plan with a window as rollable', async () => {
+    db.plan = row({ id: 'P6', state: 'failed', interrupted: true })
+    renderPage('/plans?id=P6')
+    expect((await screen.findByTestId('plan-preview')).dataset.rollback).toBe('true')
+  })
+
+  it('hides Roll back and refreshes the list after a 410 on the rollback', async () => {
+    renderPage('/plans?id=P1')
+    await userEvent.click(await screen.findByTestId('fake-410'))
+    await waitFor(() => expect(screen.getByTestId('plan-preview').dataset.rollback).toBe('false'))
+    expect(screen.getByTestId('plan-rollback-closed')).toBeInTheDocument()
+    await waitFor(() => expect(db.calls.length).toBeGreaterThan(1))
+  })
+
+  it('reloads the open plan when the node says it changed, and shows it gone once it expired', async () => {
+    renderPage('/plans?id=P1')
+    await screen.findByTestId('plan-preview')
+    db.plan = row({ state: 'rolled_back', rollback_until: null })
+    db.ws.plans({ event: 'rolled_back', data: { plan_id: 'P1' } })
+    await waitFor(() => expect(db.gets).toBe(2))
+    db.planError = Object.assign(new Error('gone'), { status: 410 })
+    db.ws.plans({ event: 'expired', data: { plan_id: 'P1' } })
+    expect(await screen.findByTestId('plan-detail-gone')).toBeInTheDocument()
+    // Events of other plans and per-node steps do not reload.
+    const gets = db.gets
+    db.ws.plans({ event: 'step', data: { plan_id: 'P1' } })
+    db.ws.plans({ event: 'applied', data: { plan_id: 'P7' } })
+    expect(db.gets).toBe(gets)
+  })
+
+  it('does not send the author filter without read:audit', async () => {
+    db.perms = []
+    renderPage('/plans?user=bob')
+    await screen.findByText('Add www A')
+    expect(db.calls.at(-1)).not.toHaveProperty('user')
+  })
+
+  it('offers no expired state in the state filter', async () => {
+    renderPage()
+    await screen.findByText('Add www A')
+    expect(screen.queryByText('Expired')).toBeNull()
+  })
+
+  it('refreshes the list once for a burst of plan events', async () => {
+    renderPage()
+    await screen.findByText('Add www A')
+    const before = db.calls.length
+    for (let i = 0; i < 5; i += 1) db.ws.plans({ event: 'applied', data: { plan_id: 'P1' } })
+    await waitFor(() => expect(db.calls.length).toBe(before + 1))
+    await new Promise((r) => setTimeout(r, 700))
+    expect(db.calls.length).toBe(before + 1)
   })
 })

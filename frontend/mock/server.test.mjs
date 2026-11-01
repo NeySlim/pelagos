@@ -747,6 +747,18 @@ describe('mock server', () => {
     expect((await admin('POST', `/plans/${plan.id}/rollback`)).status).toBe(409)
   })
 
+  it('keeps rollback to the creator or an admin, whatever the viewer reads', async () => {
+    const alice = client(await login('alice', 'alice'))
+    const plan = (await alice('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./ownroll/A', after: { ttl: 60, rdata: ['192.0.2.64'] } }] })).data
+    expect((await alice('POST', `/plans/${plan.id}/apply`, {})).data.state).toBe('applied')
+    const viewer = client(await login('viewer', 'viewer'))
+    const denied = await viewer('POST', `/plans/${plan.id}/rollback`)
+    expect(denied.status).toBe(403)
+    expect(denied.data.code).toBe('forbidden')
+    const admin = client(await login('admin', 'admin'))
+    expect((await admin('POST', `/plans/${plan.id}/rollback`)).data.state).toBe('rolled_back')
+  })
+
   it('rate limits failed logins per username', async () => {
     for (let i = 0; i < 5; i += 1) expect((await login('carol-rl', 'nope')).status).toBe(401)
     const limited = await login('carol-rl', 'nope')

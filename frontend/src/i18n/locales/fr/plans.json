@@ -26,7 +26,8 @@
     "left": "{{left}} restantes",
     "closed": "Fenêtre fermée",
     "closedOn": "Fenêtre de retour arrière fermée le {{date}}",
-    "none": "Ce plan ne peut pas être annulé"
+    "none": "Ce plan ne peut pas être annulé",
+    "notYours": "Seul le créateur ({{user}}) ou un admin peut annuler ce plan"
   },
   "detail": {
     "title": "Plan",
@@ -36,5 +37,11 @@
   "toast": {
     "view": "Voir dans Plans"
   },
-  "empty": "Aucun plan ne correspond à ces filtres"
+  "empty": "Aucun plan ne correspond à ces filtres",
+  "units": {
+    "d": "{{n}} j",
+    "h": "{{n}} h",
+    "m": "{{n}} min",
+    "s": "{{n}} s"
+  }
 }

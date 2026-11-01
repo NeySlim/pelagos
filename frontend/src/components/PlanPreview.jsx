@@ -136,6 +136,8 @@ export function PlanPreview({
   // Roll back once the window (rollback_until) is closed.
   allowApply = true,
   allowRollback = true,
+  // Called with the error of a rollback the server refused (410 once the window ended).
+  onRollbackError,
 }) {
   const { t } = useTranslation()
   const msg = useMessage()
@@ -172,7 +174,10 @@ export function PlanPreview({
   const isConfirmed = confirmed || preConfirmed
   const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || isConfirmed) && !busy
   const applied = (result?.state || plan?.state) === 'applied'
-  const canRollback = allowRollback && applied && !expired && !busy && !isJobScope
+  // An interrupted FAILED plan has a rollback window too: rollback_until is what says so.
+  const windowOpen = Boolean(plan?.rollback_until) && Date.parse(plan.rollback_until) > Date.now()
+  const rollable = applied || (plan?.state === 'failed' && plan.interrupted && windowOpen)
+  const canRollback = allowRollback && rollable && !expired && !busy && !isJobScope
   const validations = useMemo(() => plan?.validations || [], [plan])
   const ticked = useTickReveal(validations.length, plan?.id)
   const ttlMs = plan?.expires_at && plan?.created_at ? Math.max(1, Date.parse(plan.expires_at) - Date.parse(plan.created_at)) : null
@@ -224,6 +229,7 @@ export function PlanPreview({
   const handleRollback = useCallback(async () => {
     setBusy(true)
     setError(null)
+    const stateBefore = plan.state === 'rolling_back' ? 'applied' : plan.state
     setPlan((p) => ({ ...p, state: 'rolling_back' }))
     const base = railRef.current?.steps || appliedSteps(plan)
     const walking = startRollback(base, performance.now())
@@ -239,13 +245,14 @@ export function PlanPreview({
       onRolledBack?.(res)
     } catch (err) {
       setError(err)
-      setPlan((p) => ({ ...p, state: 'applied' }))
+      setPlan((p) => ({ ...p, state: stateBefore }))
       setRail({ steps: base, reverse: false, fillMs: 0 })
       emitPlanEvent({ type: 'rolled-back', plan, at: Date.now(), result: null })
+      onRollbackError?.(err)
     } finally {
       setBusy(false)
     }
-  }, [rollbackFn, plan, onRolledBack])
+  }, [rollbackFn, plan, onRolledBack, onRollbackError])
 
   // A rollback asked from elsewhere (a toast action) starts once, when the plan can.
   const autoStarted = useRef(false)
@@ -648,7 +655,7 @@ export function PlanPreview({
             {closeLabel || t('actions.close')}
           </Button>
         )}
-        {(canRollback || plan.state === 'rolling_back') && (
+        {(canRollback || (plan.state === 'rolling_back' && busy)) && (
           <Button type="button" variant="warning-soft" size="sm" onClick={handleRollback} loading={busy} loadingText={t('status.rolling_back')} data-testid="plan-rollback">
             <ArrowCounterClockwise size={14} />
             {t('plan.rollback')}

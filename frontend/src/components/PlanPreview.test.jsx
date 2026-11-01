@@ -282,4 +282,27 @@ describe('PlanPreview', () => {
     render(<PlanPreview plan={held} allowRollback={false} />)
     expect(screen.queryByTestId('plan-rollback')).toBeNull()
   })
+
+  it('offers rollback on an interrupted failed plan while its window is open', () => {
+    const until = new Date(Date.now() + 600000).toISOString()
+    const { unmount } = render(<PlanPreview plan={makePlan({ state: 'failed', interrupted: true, rollback_until: until })} />)
+    expect(screen.getByTestId('plan-rollback')).toBeInTheDocument()
+    unmount()
+    render(<PlanPreview plan={makePlan({ state: 'failed', interrupted: true, rollback_until: null })} />)
+    expect(screen.queryByTestId('plan-rollback')).toBeNull()
+  })
+
+  it('shows no clickable Roll back for a plan loaded while it rolls back', () => {
+    render(<PlanPreview plan={makePlan({ state: 'rolling_back' })} />)
+    expect(screen.queryByTestId('plan-rollback')).toBeNull()
+  })
+
+  it('reports a refused rollback and restores the plan state', async () => {
+    const err = Object.assign(new Error('late'), { status: 410, code: 'plan_expired' })
+    const onRollbackError = vi.fn()
+    render(<PlanPreview plan={makePlan({ state: 'applied' })} rollbackFn={vi.fn().mockRejectedValue(err)} onRollbackError={onRollbackError} />)
+    fireEvent.click(screen.getByTestId('plan-rollback'))
+    await waitFor(() => expect(onRollbackError).toHaveBeenCalledWith(err))
+    expect(screen.getByTestId('plan-rollback')).toBeInTheDocument()
+  })
 })

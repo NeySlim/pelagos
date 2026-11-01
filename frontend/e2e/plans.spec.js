@@ -3,10 +3,10 @@
 // page and listed as rolled back; a plan past its window has no button; the audit links the plan.
 import { test, expect } from '@playwright/test'
 
-async function signIn(page) {
+async function signIn(page, user = 'admin') {
   await page.goto('/login')
-  await page.getByTestId('login-username').fill('admin')
-  await page.getByTestId('login-password').fill('admin')
+  await page.getByTestId('login-username').fill(user)
+  await page.getByTestId('login-password').fill(user)
   await page.getByTestId('login-submit').click()
   await expect(page.getByTestId('sidebar')).toBeVisible()
 }
@@ -106,4 +106,16 @@ test('the audit entries of a plan link back to it', async ({ page }) => {
   await page.getByTestId('audit-entry-plan-link').click()
   await expect(page).toHaveURL(new RegExp(`/plans\\?id=${plan.id}`))
   await expect(page.getByTestId('plan-detail')).toBeVisible()
+})
+
+test('a reader of audit sees another user\'s plan without a Roll back button', async ({ page, browser }) => {
+  await signIn(page)
+  const plan = await applyRecord(page, 'plansother', '192.0.2.95')
+  const reader = await browser.newPage()
+  await signIn(reader, 'viewer')
+  await reader.goto(`/plans?id=${plan.id}`)
+  await expect(reader.getByTestId('plan-detail')).toBeVisible()
+  await expect(reader.getByTestId('plan-rollback-not-yours')).toBeVisible()
+  await expect(reader.getByTestId('plan-rollback')).toHaveCount(0)
+  await reader.close()
 })

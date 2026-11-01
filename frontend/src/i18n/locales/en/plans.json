@@ -26,7 +26,8 @@
     "left": "{{left}} left",
     "closed": "Window closed",
     "closedOn": "Rollback window closed on {{date}}",
-    "none": "This plan cannot be rolled back"
+    "none": "This plan cannot be rolled back",
+    "notYours": "Only the creator ({{user}}) or an admin can roll back this plan"
   },
   "detail": {
     "title": "Plan",
@@ -36,5 +37,11 @@
   "toast": {
     "view": "View in Plans"
   },
-  "empty": "No plan matches these filters"
+  "empty": "No plan matches these filters",
+  "units": {
+    "d": "{{n}}d",
+    "h": "{{n}}h",
+    "m": "{{n}}m",
+    "s": "{{n}}s"
+  }
 }

@@ -297,6 +297,8 @@ export function rollbackPlan(state, user, id, emit) {
   const held = state.plans.get(id)
   if (!held) return gonePlan(state, id)
   const { plan } = held
+  // read:audit shows any plan; using it stays with its creator or an admin (section 17).
+  if (held.creator !== user.username && !isAdmin(user)) return { status: 403, code: 'forbidden', detail: 'only the creator or an admin can use this plan' }
   const denied = scopeDenied(user, plan)
   if (denied) return denied
   if (isExpired(plan)) return { status: 410, code: 'plan_expired', detail: 'plan expired' }

@@ -112,6 +112,24 @@ After the window, restore by hand: the backups under
 with the diff since the previous backup) and the `before` state in the
 audit entry.
 
+## The Plans page
+
+**Plans** in the Admin group of the menu, right after Audit log, lists the
+plans of the node you are connected to (its name is in the page subtitle),
+newest first: state, author, summary, scope, nodes and, for a plan that can
+still be rolled back, the time left in the window. Filter by state and, with
+`read:audit`, by author; without it you see your own plans only. The list
+follows the node live.
+
+Click a plan to open it read only, with its changes, validations and diff,
+and a link to its audit entries. "Roll back" shows only to the plan's
+creator or an admin, and only while the window is open (a few seconds before
+its end the button goes away, in case your clock is behind the node's). A
+plan the node no longer holds says so; its audit entries remain.
+The audit log links each apply and rollback entry to its plan ("View plan"),
+and the "Plan applied" notification offers "View in Plans" next to "Roll back
+plan".
+
 ## Plans across nodes
 
 A plan built on one node may run on others. Pelagos picks the node that

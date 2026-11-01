@@ -2,7 +2,7 @@
 // Plans held by the node you are connected to: state, author, summary, nodes and the time left
 // to roll back. Filters and the open plan (?id=) live in the URL; the `plans` WebSocket topic
 // refreshes the list. read:audit sees every plan, other users their own.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ListChecks, ArrowsClockwise } from '@phosphor-icons/react'
@@ -17,7 +17,7 @@ import { formatDate } from '../../lib/utils'
 import { PlanDetailModal } from './PlanDetailModal'
 import { FILTER_KEYS, STATES, filtersFromParams, formatLeft, rollbackWindow, toQuery } from './lib'
 
-// Ticks once a second so the countdown runs while the page is open.
+// Ticks once a second: only the cell that shows a countdown re-renders.
 function useNow() {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
@@ -27,17 +27,29 @@ function useNow() {
   return now
 }
 
-function RollbackCell({ plan, now }) {
+function RollbackCell({ plan }) {
   const { t } = useTranslation('plans')
+  const open = Boolean(plan.rollback_until) && Date.parse(plan.rollback_until) > Date.now()
+  // A plan without a window never ticks; one with a window ticks until it closes.
+  return open ? <OpenCell plan={plan} t={t} /> : <ClosedCell plan={plan} t={t} />
+}
+
+function OpenCell({ plan, t }) {
+  const now = useNow()
   const win = rollbackWindow(plan, now)
-  if (win.status === 'open') {
-    return <span className="text-xs whitespace-nowrap" data-testid="plan-rollback-left" data-status="open">{t('rollback.left', { left: formatLeft(win.leftMs) })}</span>
-  }
-  if (win.status === 'closed') {
+  if (win.status === 'closed') return <ClosedCell plan={plan} t={t} />
+  return <span className="text-xs whitespace-nowrap" data-testid="plan-rollback-left" data-status="open">{t('rollback.left', { left: formatLeft(win.leftMs, (unit, n) => t(`units.${unit}`, { n })) })}</span>
+}
+
+function ClosedCell({ plan, t }) {
+  if (plan.rollback_until) {
     return <span className="text-xs text-text-tertiary" data-testid="plan-rollback-left" data-status="closed">{t('rollback.closed')}</span>
   }
   return <span className="text-text-tertiary" data-testid="plan-rollback-left" data-status="none">-</span>
 }
+
+const REFRESH_DEBOUNCE_MS = 500
+const TEXT_DEBOUNCE_MS = 400
 
 export default function PlansPage() {
   const { t } = useTranslation(['plans', 'common'])
@@ -48,14 +60,29 @@ export default function PlansPage() {
   const { hasPermission } = usePermission()
   const canSeeAll = hasPermission('read:audit')
   const nameOf = useNodeNames()
-  const now = useNow()
 
-  const list = usePaginatedApi((q) => api.plans.list(q), { perPage: 50, filters: toQuery(filters) })
+  const list = usePaginatedApi((q) => api.plans.list(q), { perPage: 50, filters: toQuery(filters, { canSeeAll }) })
   const nodeId = list.meta.node_id
   // Phase changes refresh the list; the per-node step events do not.
+  const refetchRef = useRef(list.refetch)
+  refetchRef.current = list.refetch
+  const refreshTimer = useRef(null)
+  useEffect(() => () => clearTimeout(refreshTimer.current), [])
   useWsTopic('plans', (message) => {
-    if (message?.event !== 'step') list.refetch()
+    if (message?.event === 'step') return
+    clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => refetchRef.current(), REFRESH_DEBOUNCE_MS)
   })
+
+  // The author field writes the URL once typing pauses.
+  const [userText, setUserText] = useState(filters.user)
+  useEffect(() => setUserText(filters.user), [filters.user])
+  useEffect(() => {
+    if (userText === filters.user) return undefined
+    const timer = setTimeout(() => setParam('user', userText), TEXT_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userText])
 
   const setParam = (key, value) => {
     const next = new URLSearchParams(params)
@@ -94,7 +121,7 @@ export default function PlansPage() {
         </span>
       ),
     },
-    { key: 'rollback', label: t('columns.rollback'), render: (row) => <RollbackCell plan={row} now={now} /> },
+    { key: 'rollback', label: t('columns.rollback'), render: (row) => <RollbackCell plan={row} /> },
   ]
 
   const selectFilters = [
@@ -117,7 +144,7 @@ export default function PlansPage() {
       <div className="space-y-3">
         {canSeeAll && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="plans-text-filters">
-            <Input label={t('filters.user')} value={filters.user} onChange={(e) => setParam('user', e.target.value)} placeholder="alice" data-testid="plans-filter-user" />
+            <Input label={t('filters.user')} value={userText} onChange={(e) => setUserText(e.target.value)} placeholder="alice" data-testid="plans-filter-user" />
           </div>
         )}
         <DataTable
@@ -130,7 +157,7 @@ export default function PlansPage() {
           selectedKey={openId || undefined}
           filters={selectFilters}
           toolbar={
-            FILTER_KEYS.some((k) => filters[k]) && (
+            FILTER_KEYS.some((k) => filters[k] && (k !== 'user' || canSeeAll)) && (
               <Button variant="secondary" size="sm" onClick={clearAll}>
                 {t('common:table.clearFilters')}
               </Button>

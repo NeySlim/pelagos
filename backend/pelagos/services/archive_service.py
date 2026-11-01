@@ -894,6 +894,10 @@ class ArchiveService:
                 raise ValidationError(
                     f"the archive cannot be opened: {exc}", [field_error("identity", type(exc).__name__)]
                 ) from None
+            except bundle.ArchiveTooLarge as exc:
+                raise ValidationError(
+                    f"the archive is too large to open: {exc}", [field_error("file", "too_large")]
+                ) from None
             except ArchiveError as exc:
                 raise ValidationError(
                     f"not a Pelagos archive: {exc}", [field_error("file", "invalid")]

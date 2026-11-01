@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from pelagos.archives import age, keys
+from pelagos.archives import age, bundle, keys
 from pelagos.archives.bundle import ArchiveWriter
 from pelagos.archives.destinations.base import DestinationError
 from pelagos.archives.store import ArchiveStore
@@ -262,7 +262,7 @@ def test_run_waits_for_the_collector(admin, services, node_ctx):
     assert job["state"] == "failed" and "not running" in json.dumps(job["steps"])
 
 
-def test_list_merges_holders_download_and_upload(admin, services, node_ctx, tmp_path):
+def test_list_merges_holders_download_and_upload(admin, services, node_ctx, tmp_path, monkeypatch):
     assert generate(admin).status_code == 200
     own = write_archive(node_ctx)
     peer = Peer(id="n2", name="ns2", url="https://192.0.2.2:8444", cert_fingerprint="sha256:00")
@@ -307,6 +307,15 @@ def test_list_merges_holders_download_and_upload(admin, services, node_ctx, tmp_
         f"{A}/upload", data={"file": (io.BytesIO(b"junk"), "x.age")}, content_type="multipart/form-data"
     )
     assert r.status_code == 400
+
+    def bomb(*_a, **_k):
+        raise bundle.ArchiveTooLarge("more than 200000 members")
+
+    monkeypatch.setattr(bundle, "read_manifest", bomb)
+    r = admin.post(
+        f"{A}/upload", data={"file": (io.BytesIO(data), lost.filename)}, content_type="multipart/form-data"
+    )
+    assert r.status_code == 400 and "too large" in r.get_json()["detail"]
     ops = [e.request.get("op") for e in node_ctx.audit_log.read() if e.action == "admin.archive.op"]
     assert ops.count("download") == 2 and ops.count("upload") == 1
 

@@ -72,8 +72,11 @@ terminated meanwhile, repair it afterwards (below).
 On the survivor, a partial change made by Kea commands (Kea 3.x with
 `subnet_cmds` and `host_cmds`) does not interrupt DHCP. A change made by
 `config-set` (Kea 2.6, options, global keys) restarts its HA service: it
-serves no DHCP for about `max-response-delay` plus `heartbeat-delay`
-(70 s with the defaults) before taking over alone; the plan says so.
+serves no DHCP for about `max-response-delay` plus `heartbeat-delay` of
+its HA configuration before taking over alone; the plan says so, with the
+values it read. Measured on a lab pair (Kea 2.6.3) with its HA timings: 16 s
+without DHCP answers seen from a client retrying every second; with the
+Kea defaults (60 s and 10 s) expect about 70 s.
 
 ## Subnets and pools
 

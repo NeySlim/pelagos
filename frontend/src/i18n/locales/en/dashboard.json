@@ -220,7 +220,8 @@
     "update_available": "update available",
     "update_failed": "update failed",
     "update_stalled": "update stalled",
-    "replication_conflict": "replication conflict"
+    "replication_conflict": "replication conflict",
+    "unknown_device": "Unknown device"
   },
   "live": {
     "label": "Live",

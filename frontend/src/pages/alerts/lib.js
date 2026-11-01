@@ -21,6 +21,7 @@ export const KINDS = [
   'ipv6_source_failed',
   'path_not_writable',
   'update_available', 'update_failed', 'update_stalled',
+  'unknown_device',
 ]
 export { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS }
 

@@ -13,7 +13,7 @@ import { errorMessage } from '../../services/apiClient'
 import { modulesPatch, setClusterModule } from './settingsForm'
 import { ErrorNotice } from '../../components/ErrorNotice'
 
-const CLUSTER = ['dhcpv6', 'advanced_editor']
+const CLUSTER = ['dhcpv6', 'advanced_editor', 'discovery']
 const ENGINES = ['bind', 'kea4', 'kea6', 'd2']
 
 export default function ModulesPage() {

@@ -516,7 +516,7 @@ Under Administration:
   come from. The sources are generic: the neighbor table of every node,
   read unless `ipv6.neighbors_enabled` is off (Administration, Settings),
   and the Kea DHCPv6 leases when the DHCPv6 module is on, walked every
-  `ipv6.poll_seconds`. There is no router connector: the OPNsense source
+  `discovery.poll_seconds` (`ipv6.poll_seconds` before 0.4.0). There is no router connector: the OPNsense source
   of 0.2.2 is removed on upgrade with its key and secret (audited by
   `system`). Below: the last poll of every source on every node with its
   error, and the watched prefixes: the ones listed here (ULA only when

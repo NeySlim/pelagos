@@ -167,7 +167,7 @@ replication stamp (`[replication]`) and a hand edit is not stamped.
 | `[[nodes]]` | one per node: `id`, `name`, `url`, `web_url`, `cert_fingerprint`, `modules` (`bind`, `kea4`, `kea6`, `d2`), `enrolled_at`, `enrolled_by` |
 | `[[users]]` | `id`, `username`, `password_hash` (argon2id), `roles`, `enabled`, `totp_secret` (encrypted), `webauthn` (security keys: public key, name, rpId), `must_change_password`, `preferences`, `created_at`, `updated_at` |
 | `[[roles]]` | custom roles: `name`, `permissions`, `description` |
-| `[modules]` | cluster features: `dhcpv6` (default `false`), `advanced_editor` (default `true`) |
+| `[modules]` | cluster features: `dhcpv6` (default `false`), `advanced_editor` (default `true`), `discovery` (default `false`) |
 | `[settings]` | see [Settings](#settings) |
 | `[secrets]` | encrypted values (`enc:v1:...`): TSIG keys (`tsig/<name>`), rndc key, TOTP seeds |
 | `revoked` | fingerprints of revoked node certificates |
@@ -182,6 +182,7 @@ knows and raises a `config_divergence` alert: upgrade that node.
 | --- | --- | --- |
 | `dhcpv6` | `false` | shows the DHCPv6 screens and lets nodes drive `kea-dhcp6`; the v6 API answers `404 module_disabled` while off |
 | `advanced_editor` | `true` | the `named.conf` editor, the Kea editor and History |
+| `discovery` | `false` | IPv4 neighbor discovery, manufacturer names and the `unknown_device` alert ([Hosts](hosts.md#discovery)); the discovery API answers `404 module_disabled` while off |
 
 The Modules screen also sets the engines of each node. For the node you are
 signed in on it updates `node.toml` too; for another node it only changes
@@ -389,6 +390,7 @@ ISC security advisories:
 | `backups_days` | `90` | 1 to 3650 days | write pipeline backups under `/var/lib/pelagos/backups`, never fewer days than `plans.rollback_window_seconds` |
 | `resolver_raw_days` | `7` | 1 to 3650 days | resolver measures per collector pass, then averaged per hour |
 | `resolver_hourly_days` | `90` | 1 to 3650 days | hourly resolver measures |
+| `neighbor_observation_days` | `30` | 1 to 3650 days | IPv4 neighbors seen by each node ([Hosts](hosts.md#discovery)) |
 
 The audit log is never purged.
 

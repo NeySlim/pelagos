@@ -69,6 +69,7 @@ function concrete(spec, state) {
     .replace('{name}', spec.includes('/keys/') ? 'ddi-admin' : 'helpdesk')
     .replace('{ip}', '192.0.2.100')
     .replace('{key}', 'ip:192.0.2.10')
+    .replace('{mac}', 'b8:27:eb:5a:01:22')
     .replace(/\{id\}/, () => {
       if (spec.includes('/nodes/')) return state.nodeIds.ns2
       if (spec.includes('/admin/certificates/')) return state.nodeIds.ns2

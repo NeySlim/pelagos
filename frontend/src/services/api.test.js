@@ -65,6 +65,7 @@ const invocations = [
   () => api.hosts.list({ only_inconsistent: true }), () => api.hosts.get('mac:aa:bb:cc:dd:ee:ff'), () => api.hosts.plan({}),
   // B1-LEASEHIST
   () => api.dhcp.leaseHistory('v4', { ip: '192.0.2.10' }), () => api.hosts.timeline('mac:aa:bb:cc:dd:ee:ff', { since: 0 }),
+  () => api.hosts.discovered({ filter: 'unknown' }), () => api.hosts.vendor('b8:27:eb:00:00:01'),
   () => api.plans.get('p1'), () => api.plans.apply('p1', true), () => api.plans.rollback('p1'), () => api.plans.remove('p1'),
   () => api.jobs.get('j1'),
   () => api.alerts.list({ state: 'open' }), () => api.alerts.summary(), () => api.alerts.ack('a1', 'seen'),

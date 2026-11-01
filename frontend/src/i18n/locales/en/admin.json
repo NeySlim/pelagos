@@ -146,7 +146,9 @@
       "dhcpv6": "DHCPv6",
       "dhcpv6Help": "Shows the DHCPv6 screens and lets nodes drive kea-dhcp6",
       "advanced_editor": "Advanced editor",
-      "advanced_editorHelp": "Grammar-driven named.conf editor and Kea JSON editor"
+      "advanced_editorHelp": "Grammar-driven named.conf editor and Kea JSON editor",
+      "discovery": "Discovery",
+      "discoveryHelp": "Reads the IPv4 neighbor table of each node, names manufacturers and warns about devices nobody declared"
     },
     "engines": {
       "bind": "BIND",
@@ -292,6 +294,10 @@
           "source": "upload (a release folder sent from the Updates screen), github (the latest release of the repository set on that screen) or repository (the apt or dnf repository of Pelagos).",
           "auto_rollback_enabled": "Only when the release keeps the state schema of the installed one; otherwise the rollout stops and shows the manual procedure."
         }
+      },
+      "discovery": {
+        "title": "Discovery",
+        "help": "IPv4 neighbors seen by each node and the unknown device alert (module Discovery)"
       }
     },
     "groups": {
@@ -421,7 +427,8 @@
         "resolver_raw_days": "Raw resolver series",
         "resolver_hourly_days": "Hourly resolver series",
         "ipv6_observation_days": "IPv6 observations",
-        "lease_history_days": "Lease history"
+        "lease_history_days": "Lease history",
+        "neighbor_observation_days": "IPv4 neighbors"
       },
       "dns": {
         "read_key": "Transfer key",
@@ -502,7 +509,6 @@
       },
       "ipv6": {
         "neighbors_enabled": "Read the neighbor table of each node",
-        "poll_seconds": "DHCPv6 lease walk interval",
         "stable_min_days": "Stable after",
         "stale_days": "AAAA stale after",
         "auto_apply_enabled": "Create AAAA and PTR automatically"
@@ -516,6 +522,11 @@
         "pause_seconds": "Pause between nodes",
         "auto_rollback_enabled": "Roll back automatically on failure",
         "keep_packages_count": "Packages and state backups kept"
+      },
+      "discovery": {
+        "ipv4_enabled": "Read the IPv4 neighbor table of each node",
+        "poll_seconds": "Neighbor read and DHCPv6 lease walk interval",
+        "unknown_after_minutes": "Unknown device alert after"
       }
     },
     "help": {
@@ -599,6 +610,9 @@
       "updates": {
         "source": "upload (a release folder sent from the Updates screen), github (the latest release of the repository set on that screen) or repository (the apt or dnf repository of Pelagos).",
         "auto_rollback_enabled": "Only when the release keeps the state schema of the installed one; otherwise the rollout stops and shows the manual procedure."
+      },
+      "discovery": {
+        "unknown_after_minutes": "A device seen this long with no lease, reservation nor A or PTR record raises an info alert; an exception on its MAC silences it."
       }
     }
   },

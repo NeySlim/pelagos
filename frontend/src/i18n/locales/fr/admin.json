@@ -146,7 +146,9 @@
       "dhcpv6": "DHCPv6",
       "dhcpv6Help": "Affiche les écrans DHCPv6 et permet aux nœuds de piloter kea-dhcp6",
       "advanced_editor": "Éditeur avancé",
-      "advanced_editorHelp": "Éditeur named.conf piloté par la grammaire et éditeur JSON de Kea"
+      "advanced_editorHelp": "Éditeur named.conf piloté par la grammaire et éditeur JSON de Kea",
+      "discovery": "Découverte",
+      "discoveryHelp": "Lit la table des voisins IPv4 de chaque nœud, nomme les fabricants et signale les appareils que personne n'a déclarés"
     },
     "engines": {
       "bind": "BIND",
@@ -292,6 +294,10 @@
           "source": "upload (un répertoire de release envoyé depuis l'écran Mises à jour), github (la dernière release du dépôt réglé dans cet écran) ou repository (le dépôt apt ou dnf de Pelagos).",
           "auto_rollback_enabled": "Seulement quand la release garde le schéma d'état de la version installée ; sinon le déroulé s'arrête et affiche la procédure manuelle."
         }
+      },
+      "discovery": {
+        "title": "Découverte",
+        "help": "Voisins IPv4 vus par chaque nœud et alerte d'appareil inconnu (module Découverte)"
       }
     },
     "groups": {
@@ -421,7 +427,8 @@
         "resolver_raw_days": "Séries brutes du résolveur",
         "resolver_hourly_days": "Séries horaires du résolveur",
         "ipv6_observation_days": "Observations IPv6",
-        "lease_history_days": "Historique des baux"
+        "lease_history_days": "Historique des baux",
+        "neighbor_observation_days": "Voisins IPv4"
       },
       "dns": {
         "read_key": "Clé de transfert",
@@ -502,7 +509,6 @@
       },
       "ipv6": {
         "neighbors_enabled": "Lire la table des voisins de chaque nœud",
-        "poll_seconds": "Intervalle de lecture des baux DHCPv6",
         "stable_min_days": "Stable après",
         "stale_days": "AAAA obsolète après",
         "auto_apply_enabled": "Créer AAAA et PTR automatiquement"
@@ -516,6 +522,11 @@
         "pause_seconds": "Pause entre deux nœuds",
         "auto_rollback_enabled": "Retour arrière automatique en cas d'échec",
         "keep_packages_count": "Paquets et sauvegardes d'état gardés"
+      },
+      "discovery": {
+        "ipv4_enabled": "Lire la table des voisins IPv4 de chaque nœud",
+        "poll_seconds": "Intervalle de lecture des voisins et du parcours des baux DHCPv6",
+        "unknown_after_minutes": "Alerte d'appareil inconnu après"
       }
     },
     "help": {
@@ -599,6 +610,9 @@
       "updates": {
         "source": "upload (un répertoire de release envoyé depuis l'écran Mises à jour), github (la dernière release du dépôt réglé dans cet écran) ou repository (le dépôt apt ou dnf de Pelagos).",
         "auto_rollback_enabled": "Seulement quand la release garde le schéma d'état de la version installée ; sinon le déroulé s'arrête et affiche la procédure manuelle."
+      },
+      "discovery": {
+        "unknown_after_minutes": "Un appareil vu aussi longtemps sans bail, réservation ni enregistrement A ou PTR lève une alerte info ; une exception sur son MAC la fait taire."
       }
     }
   },

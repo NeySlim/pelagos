@@ -502,6 +502,8 @@
   "alert.update_failed": "la mise à jour vers {{version}} a échoué sur {{node}} à l'étape {{step}} : {{error}}",
   "alert.update_stalled": "mise à jour vers {{version}} : {{node}} n'a pas avancé depuis {{minutes}} minutes (étape {{step}})",
   "alert.replication_conflict": "{{path}} : écriture de {{local_user}} sur {{local_node}} perdue face à {{remote_user}} sur {{remote_node}}",
+  "alert.unknown_device": "l'appareil {{mac}} en {{address}} n'a ni bail, ni réservation, ni enregistrement DNS",
+  "alert.unknown_device_vendor": "l'appareil {{mac}} ({{vendor}}) en {{address}} n'a ni bail, ni réservation, ni enregistrement DNS",
   "plan.update.pelagos": "mettre Pelagos à jour vers {{version}} sur {{nodes}}, dans cet ordre",
   "plan.update.engine_packages": "mettre à jour {{packages}} sur {{nodes}}, dans cet ordre",
   "plan.update.rollback": "revenir à Pelagos {{version}} sur {{nodes}}, dans cet ordre",

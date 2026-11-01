@@ -1146,7 +1146,7 @@ export function createState(scenario = 'pair') {
     },
     audit: makeAudit(),
     settings: makeSettings(),
-    modules: { cluster: { dhcpv6: true, advanced_editor: true } },
+    modules: { cluster: { dhcpv6: true, advanced_editor: true, discovery: true } },
     history,
     historyFiles: makeHistoryFiles(history),
     plans: new Map(),

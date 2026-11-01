@@ -152,6 +152,8 @@ export const ENDPOINTS = [
   'GET /hosts',
   'GET /hosts/{key}',
   'GET /hosts/{key}/timeline',
+  'GET /hosts/discovered',
+  'GET /hosts/vendor/{mac}',
   'POST /hosts/plan',
   // Plans and jobs
   'GET /plans',

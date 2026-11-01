@@ -482,6 +482,15 @@
     "fields",
     "zone"
   ],
+  "alert.unknown_device": [
+    "address",
+    "mac"
+  ],
+  "alert.unknown_device_vendor": [
+    "address",
+    "mac",
+    "vendor"
+  ],
   "alert.update_available": [
     "installed",
     "version"

@@ -26,6 +26,7 @@ import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
 import { leaseHistoryHandlers } from './leaseHistory.mjs'
+import { decorateHosts, discoveryHandlers } from './discovery.mjs'
 import { desiredHandlers } from './desired.mjs'
 import { updatesHandlers } from './updates.mjs'
 import { searchHandlers } from './search.mjs'
@@ -78,6 +79,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/config/reconcile/plan': 'write:dhcp.config',
   'GET /hosts': 'read:hosts', 'GET /hosts/{key}': 'read:hosts', 'POST /hosts/plan': 'write:hosts',
   'GET /hosts/{key}/timeline': 'read:hosts',
+  'GET /hosts/discovered': 'read:hosts', 'GET /hosts/vendor/{mac}': 'read:hosts',
   'GET /alerts': 'read:alerts', 'GET /alerts/summary': 'read:alerts', 'POST /alerts/{id}/ack': 'write:alerts',
   'POST /alerts/consistency/run': 'write:alerts',
   'GET /alerts/exceptions': 'read:alerts', 'POST /alerts/exceptions': 'write:alerts', 'DELETE /alerts/exceptions/{id}': 'write:alerts',
@@ -623,6 +625,7 @@ function buildHosts(state) {
   for (const host of hosts.values()) {
     host.alerts = state.alerts.filter((a) => a.state !== 'resolved' && host.ips.some((ip) => a.subject === `ip:${ip}`))
   }
+  decorateHosts(state, hosts.values()) // B1-DISCOVERY: Host.seen, Host.vendor
   return [...hosts.values()].sort((a, b) => {
     const [fa, ka] = ipSortKey(a.ips[0])
     const [fb, kb] = ipSortKey(b.ips[0])
@@ -2843,6 +2846,7 @@ function buildHandlers(state, emit) {
     ...resolverHandlers(state, { Problem, invalid, createPlan }),
     ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...leaseHistoryHandlers(state, { invalid, notFound }),
+    ...discoveryHandlers(state, { Problem, invalid, buildHosts, paginate }),
     ...ipv6Handlers(state, { Problem, invalid, createPlan, zonePlan: (args) => handlers['POST /dns/zones/plan'](args) }),
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
     ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),

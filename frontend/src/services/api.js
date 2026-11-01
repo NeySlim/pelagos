@@ -183,6 +183,9 @@ export const hosts = {
   list: (params) => apiClient.get(`/hosts${buildQueryString(params)}`),
   get: (key) => apiClient.get(`/hosts/${enc(key)}`),
   timeline: (key, params) => apiClient.get(`/hosts/${enc(key)}/timeline${buildQueryString(params)}`),
+  // B1-DISCOVERY: IPv4 neighbors seen over the cluster (filter, q, page) and the OUI vendor of a MAC
+  discovered: (params) => apiClient.get(`/hosts/discovered${buildQueryString(params)}`),
+  vendor: (mac) => apiClient.get(`/hosts/vendor/${enc(mac)}`),
   plan: (body) => apiClient.post('/hosts/plan', body),
 }
 

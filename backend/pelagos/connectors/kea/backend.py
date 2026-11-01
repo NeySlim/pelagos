@@ -1219,7 +1219,7 @@ class KeaBackend(DhcpBackend):
             else:
                 plain = kcfg.apply_changes(before, changes, self.family, version, explicit)
                 # B1-KEACOMMENTS: file comments and earlier copies ride on this config-set, best effort.
-                new_cfg = self.file.with_comments(doc, plain, before)
+                new_cfg = self.file.with_comments(doc, plain, before, [c.before for c in changes])
                 validation = self.config_test(new_cfg)
                 if not validation.ok and new_cfg is not plain:
                     retry = self.config_test(plain)
@@ -1237,7 +1237,9 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError("verification failed: " + "; ".join(problems))
             steps.append("verify")
             persisting = True
-            steps.append(self.file.persist(doc, before, label, [c.after for c in changes]))
+            steps.append(
+                self.file.persist(doc, before, label, [c.after for c in changes], [c.before for c in changes])
+            )
         except Exception as exc:
             rolled_back = False
             if mutated:

@@ -747,7 +747,7 @@ def _running_path(file_config: Any, running: Any, path: list[Any]) -> list[Any]:
         elif isinstance(step, int) and isinstance(file_node, list) and isinstance(run_node, list):
             if not 0 <= step < len(file_node) or not isinstance(file_node[step], dict):
                 break
-            pairs, _, _ = pair_items(key, [file_node[step]], run_node)
+            pairs = _same_items(key, [file_node[step]], run_node)
             if not pairs:
                 break
             file_node, run_node = file_node[step], run_node[pairs[0][1]]
@@ -758,9 +758,13 @@ def _running_path(file_config: Any, running: Any, path: list[Any]) -> list[Any]:
     return out
 
 
-# A secret written in a comment (`// "password": "s3cret"`, `# secret = abc`) is masked before the
+# A secret written in a comment (`// "password": "s3cret"`, `# secret = abc`, `token t`) is masked before the
 # copy: user-context leaves through config-get, peer snapshots and backups, masked by key name only.
-_COMMENT_SECRET = re.compile(r'("?[\w-]*(?:password|secret)"?\s*[:=]\s*)("[^"]*"|\S+)', re.I)
+_COMMENT_SECRET = re.compile(
+    r'("?[\w-]*(?:password|passwd|secret|token)(?![\w-])"?\s*[:=]?\s*)'
+    r'("(?:[^"\\]|\\.)*"|\'[^\']*\'|[^\s,;]+)',
+    re.I,
+)
 
 
 def mask_comment(text: str) -> str:
@@ -790,20 +794,36 @@ def _has_comment_key(obj: dict[str, Any]) -> bool:
     return isinstance(meta, dict) and "comment" in meta
 
 
-def keep_comments(before_body: dict[str, Any], new_body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+def _same_items(key: str, a: list[Any], b: list[Any]) -> list[tuple[int, int]]:
+    """pair_items, but two items that both carry an `id` are the same only with the same id."""
+    pairs, _, _ = pair_items(key, a, b)
+    return [
+        (i, j)
+        for i, j in pairs
+        if not (isinstance(a[i], dict) and isinstance(b[j], dict) and "id" in a[i] and "id" in b[j])
+        or a[i]["id"] == b[j]["id"]
+    ]
+
+
+def keep_comments(
+    before_body: dict[str, Any], new_body: dict[str, Any], known: Any = None
+) -> tuple[dict[str, Any], int]:
     """`new_body` with the `user-context.pelagos.comment` of `before_body` put back on the objects
-    (matched by identity) that lost it: once config-write dropped the file's comments, a replace or
-    a rollback built from an older configuration must not erase the copy. An object that sets the
-    key itself (an empty string included) keeps its own value. Returns (body, objects restored)."""
+    (matched by identity, an `id` exactly) that lost it: a copy Pelagos made after the plan was
+    built (config-write dropped the file's comments) must survive a rollback or a stale replace.
+    A copy `known` already held (what the plan recorded before its change) and the change removes
+    is a removal the user asked for: it goes. An object that sets the key itself (an empty string
+    included) keeps its own value. Returns (body, objects restored)."""
     out = _copy(new_body)
     count = 0
+    seen = json.dumps(known, sort_keys=True) if known is not None else ""
 
     def walk(old: Any, new: Any, key: str) -> None:
         nonlocal count
         if isinstance(old, dict) and isinstance(new, dict):
             text = _comment_of(old)
             noted = key == "" or key in NOTED_LISTS
-            if noted and text and not _has_comment_key(new):
+            if noted and text and not _has_comment_key(new) and json.dumps(text)[1:-1] not in seen:
                 _set_comment(new, text)
                 count += 1
             for k, v in old.items():
@@ -811,8 +831,7 @@ def keep_comments(before_body: dict[str, Any], new_body: dict[str, Any]) -> tupl
                     walk(v, new[k], k)
         elif isinstance(old, list) and isinstance(new, list) and key in NOTED_LISTS:
             if all(isinstance(x, dict) for x in [*old, *new]):
-                pairs, _, _ = pair_items(key, old, new)
-                for i, j in pairs:
+                for i, j in _same_items(key, old, new):
                     walk(old[i], new[j], key)
 
     walk(before_body, out, "")

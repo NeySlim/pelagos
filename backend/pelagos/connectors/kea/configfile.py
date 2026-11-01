@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import json
 import os
 import re
 from collections.abc import Callable
@@ -292,18 +293,23 @@ class KeaConfigFile:
     # Comments of a file Kea rewrites ------------------------------------------------------------
 
     def with_comments(
-        self, doc: KeaDocument | None, body: dict[str, Any], before: dict[str, Any] | None = None
+        self,
+        doc: KeaDocument | None,
+        body: dict[str, Any],
+        before: dict[str, Any] | None = None,
+        known: Any = None,
     ) -> dict[str, Any]:
         """`body` with the comments of a file without includes copied to `user-context.pelagos.comment`
         (config-write drops them from the file), and the copies `before` already held kept (a
-        replace or a rollback built from an older configuration); `body` itself when nothing moves."""
+        replace or a rollback built from an older configuration) unless `known` (what the plan
+        recorded before its change) held them; `body` itself when nothing moves."""
         if doc is not None and doc.has_includes:
             return body
         out, added = body, 0
         if doc is not None and doc.comments:
             out, added = copy_comments(doc.value, doc.comment_notes(self.root), out, self.root)
         if before is not None:
-            out, kept = keep_comments(before, out)
+            out, kept = keep_comments(before, out, known)
             added += kept
         return out if added else body
 
@@ -311,12 +317,16 @@ class KeaConfigFile:
         """Comments a config-write would carry into user-context (rulers and blanks left out)."""
         return len(doc.comment_notes(self.root)) if doc is not None else 0
 
-    def _carry_comments(self, doc: KeaDocument | None, clear: list[Any], before: dict[str, Any]) -> str:
+    def _carry_comments(
+        self, doc: KeaDocument | None, clear: list[Any], before: dict[str, Any], known: Any = None
+    ) -> str:
         """Before the config-write that drops the comments of the file, the running configuration
         takes them in user-context (one config-set, skipped when the change already carried them).
         Best effort: a refusal never undoes the change, the message says the copy was skipped."""
+        if self.comment_count(doc) == 0 and '"pelagos"' not in json.dumps(before):
+            return ""  # nothing to copy and no earlier copy to keep: no config-get
         running = self.socket.config_get()[self.root]
-        body = self.with_comments(doc, running, before)
+        body = self.with_comments(doc, running, before, known)
         if body is running:
             return ""
         target = {self.root: body}
@@ -332,12 +342,17 @@ class KeaConfigFile:
         return "comments copied to user-context; "
 
     def persist(
-        self, doc: KeaDocument | None, before_body: dict[str, Any], label: str, clear: list[Any] | None = None
+        self,
+        doc: KeaDocument | None,
+        before_body: dict[str, Any],
+        label: str,
+        clear: list[Any] | None = None,
+        known: Any = None,
     ) -> str:
         """Makes the file say what the daemon now runs. config-write unless the file uses includes.
         `clear` holds the values just applied, which carry the secrets config-get masks."""
         if doc is None or not doc.has_includes:
-            carried = self._carry_comments(doc, list(clear or []), before_body)
+            carried = self._carry_comments(doc, list(clear or []), before_body, known)
             written = self.socket.call("config-write")
             return f"{carried}config-write {written.get('filename', '')}".strip()
         after_body = self.socket.config_get()[self.root]
@@ -444,8 +459,9 @@ class KeaConfigFile:
         backup = self.backup(f"{label}-adopt", doc)
         mode, changed = self._adopt_running_texts(doc, running)
         if mode == "config-write":
+            carried = self._carry_comments(doc, [], running)
             self.socket.call("config-write")
-            return f"config-write to {self.path} (backup {backup})", backup
+            return f"{carried}config-write to {self.path} (backup {backup})", backup
         if not changed:
             return "files already agree with the running configuration", backup
         return f"{self._write_patch(changed, running, label)} (backup {backup})", backup

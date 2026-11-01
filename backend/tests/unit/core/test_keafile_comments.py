@@ -185,3 +185,47 @@ def test_keep_comments_puts_back_what_an_older_configuration_lacks():
     assert kept["subnet4"][0]["user-context"]["pelagos"]["comment"] == ""
     again, more = keep_comments(copied, kept)
     assert more == 0 and again == kept
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        ("password s3cret", 'password "***"'),
+        ("passwd=x", 'passwd="***"'),
+        ('"token": "t"', '"token": "***"'),
+        ('"password": "a\\"b c" kept', '"password": "***" kept'),
+        ("secret 'x y' kept", 'secret "***" kept'),
+        ('"secret-file": "/etc/kea/k", "password-file": "/p"', None),
+    ],
+)
+def test_mask_comment_forms(text, masked):
+    from pelagos.core.keafile import mask_comment
+
+    assert mask_comment(text) == (masked if masked is not None else text)
+
+
+def test_a_removal_the_plan_knew_is_honoured():
+    doc = KeaDocument.from_text(CONF, "/etc/kea/kea-dhcp4.conf")
+    plain = copy.deepcopy(doc.value["Dhcp4"])
+    copied, _ = copy_comments(doc.value, doc.comment_notes("Dhcp4"), plain, "Dhcp4")
+    # The user removed the subnet's copy in the editor: the plan recorded it before the change.
+    edited = copy.deepcopy(copied)
+    del edited["subnet4"][0]["user-context"]
+    kept, _ = keep_comments(copied, edited, known=[copied])
+    assert "user-context" not in kept["subnet4"][0]
+    # A copy made after the plan was built (a rollback of the first write) comes back.
+    kept, _ = keep_comments(copied, edited, known=[doc.value["Dhcp4"]])
+    assert kept["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+
+
+def test_ids_match_exactly():
+    old = {"subnet4": [{"id": 5, "subnet": "192.0.2.0/24", "user-context": {"pelagos": {"comment": "five"}}}]}
+    new = {"subnet4": [{"id": 6, "subnet": "192.0.2.0/24"}]}
+    kept, count = keep_comments(old, new)
+    assert count == 0 and "user-context" not in kept["subnet4"][0]
+    # The file's subnet 5 is not the running subnet 6 either: its comment goes to the body.
+    text = '{ "Dhcp4": { "subnet4": [\n  // five\n  { "id": 5, "subnet": "192.0.2.0/24" }\n] } }'
+    doc = KeaDocument.from_text(text, "/etc/kea/kea-dhcp4.conf")
+    body, _ = copy_comments(doc.value, doc.comment_notes("Dhcp4"), new, "Dhcp4")
+    assert "user-context" not in body["subnet4"][0]
+    assert body["user-context"]["pelagos"]["comment"] == "five"

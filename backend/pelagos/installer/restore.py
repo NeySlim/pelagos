@@ -184,6 +184,27 @@ class RestoreResult:
 Checker = Callable[["RestorePlan"], list[dict[str, Any]]]
 
 
+# What --verify opens: engine configurations and their includes, zone files, node.toml and
+# cluster.toml; never master.key, TLS or DNSSEC private keys, D2 secrets or leases.
+VERIFY_PELAGOS = ("node.toml", "cluster.toml")
+VERIFY_KEA_SUFFIXES = (".conf", ".json")
+
+
+def verify_members(manifest: Manifest) -> set[str]:
+    """Archive member names `restore --verify` writes to its work folder (the others are only hashed)."""
+    out = set()
+    for f in manifest.files:
+        name = Path(f.path).name
+        if (
+            f.part in ("bind.user_files", "bind.managed")
+            or f.part.startswith("bind.zone:")
+            or (f.part in KEA_PARTS and name.endswith(VERIFY_KEA_SUFFIXES))
+            or (f.part == PART_PELAGOS and name in VERIFY_PELAGOS)
+        ):
+            out.add(bundle.file_member(f.path))
+    return out
+
+
 def _unsigned(snapshot: Path) -> Path:
     """The AXFR text without its DNSSEC records: named signs the zone again with the restored keys."""
     out = snapshot.with_name(snapshot.name + ".unsigned")
@@ -237,14 +258,18 @@ class OfflineRestore:
     def _make_workdir(self) -> Path:
         base = self.workdir_base
         if base is None:
-            # A tmpfs keeps the clear copies off the disks when it has room for them.
+            # A tmpfs keeps the clear copies off the disks when it has room for them: /run for root,
+            # the user's runtime folder otherwise, else the temporary folder (a disk on some hosts).
             size = self.archive.stat().st_size
-            run = Path("/run")
-            try:
-                roomy = shutil.disk_usage(run).free > 4 * size
-            except OSError:
-                roomy = False
-            base = run if roomy and os.access(run, os.W_OK) else Path(tempfile.gettempdir())
+            base = Path(tempfile.gettempdir())
+            for candidate in (Path("/run"), Path(os.environ.get("XDG_RUNTIME_DIR") or "/nonexistent")):
+                try:
+                    roomy = shutil.disk_usage(candidate).free > 4 * size
+                except OSError:
+                    continue
+                if roomy and os.access(candidate, os.W_OK):
+                    base = candidate
+                    break
         return Path(tempfile.mkdtemp(prefix="pelagos-restore-", dir=base))
 
     def prepare(self) -> RestorePlan:
@@ -459,10 +484,8 @@ class OfflineRestore:
     # Checking without restoring ------------------------------------------------------------
 
     def verify(self) -> dict[str, Any]:
-        """`pelagos restore --verify`: proves the archive restorable on copies in the work folder;
-        writes nothing else, stops or starts nothing, never raises on a bad archive."""
-        from pelagos.collector.archives import test_restore
-
+        """`pelagos restore --verify`: proves the archive restorable on copies of the engine files in
+        the work folder; writes nothing else, stops or starts nothing, reports instead of raising."""
         checks: list[dict[str, Any]] = []
         report: dict[str, Any] = {
             "ok": False,
@@ -477,9 +500,18 @@ class OfflineRestore:
             report["ok"] = bool(checks) and all(c["ok"] is not False for c in checks)
             return report
 
+        try:
+            self._verify(report, checks)
+        except (ValueError, KeyError, TypeError, OSError, ArchiveError, age.AgeError) as exc:
+            checks.append({"what": "archive", "ok": False, "output": f"cannot be checked: {exc}"})
+        return done()
+
+    def _verify(self, report: dict[str, Any], checks: list[dict[str, Any]]) -> None:
+        from pelagos.collector.archives import test_restore
+
         if not self.archive.is_file():
             checks.append({"what": "archive", "ok": False, "output": f"{self.archive}: no such archive file"})
-            return done()
+            return
         if bundle.sum_path(self.archive).exists():
             try:
                 good = bundle.verify_sum(self.archive)
@@ -488,25 +520,29 @@ class OfflineRestore:
                 good = False
                 checks.append({"what": "sha256", "ok": False, "output": str(exc)})
             if not good:
-                return done()
+                return
         else:
             report["warnings"].append("no .sha256 beside the archive: integrity rests on decryption alone")
         if not self.identities:
             checks.append(
                 {"what": "decrypt", "ok": False, "output": "no identity to open the archive: give --identity"}
             )
-            return done()
-        self.workdir = self._make_workdir()
+            return
         try:
-            manifest = bundle.extract(self.archive, self.identities, self.workdir)
+            # Two passes: the manifest is the last member, and only the engine files are written.
+            wanted = verify_members(bundle.read_manifest(self.archive, self.identities))
+            self.workdir = self._make_workdir()
+            manifest = bundle.extract(
+                self.archive, self.identities, self.workdir, lambda n: n.startswith("zones/") or n in wanted
+            )
         except age.AgeNoMatchError:
             checks.append(
                 {"what": "decrypt", "ok": False, "output": "none of the identities given opens this archive"}
             )
-            return done()
-        except (age.AgeError, ArchiveError, OSError) as exc:
+            return
+        except (age.AgeError, ArchiveError, ValueError, KeyError, TypeError) as exc:
             checks.append({"what": "decrypt", "ok": False, "output": f"the archive is damaged: {exc}"})
-            return done()
+            return
         checks.append(
             {
                 "what": "decrypt",
@@ -549,7 +585,7 @@ class OfflineRestore:
         checks += result.get("checks") or []
         if not any(c["what"] == "cluster.toml" for c in checks) and "pelagos" in plan.groups:
             checks.append({"what": "cluster.toml", "ok": False, "output": "not in the archive"})
-        return done()
+        return
 
     def _check_node_toml(self, path: str, node_id: str) -> dict[str, Any]:
         import tomllib

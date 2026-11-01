@@ -500,3 +500,55 @@ def test_kea2_socket_dropin_written_again(rig):
     calls = env.service_manager.calls
     reload_at = calls.index(("daemon_reload", ""))
     assert reload_at < calls.index(("enable_now", "kea-dhcp4-server.service"))
+
+
+def test_verify_never_writes_a_key_or_the_leases(rig, monkeypatch):
+    seen: list[str] = []
+    real_close = OfflineRestore.close
+
+    def close(self):
+        if self.workdir is not None and self.workdir.exists():
+            seen.extend(str(p.relative_to(self.workdir)) for p in self.workdir.rglob("*") if p.is_file())
+        real_close(self)
+
+    monkeypatch.setattr(OfflineRestore, "close", close)
+    with _restore(rig) as r:
+        report = r.verify()
+    assert report["ok"] is True, report
+    names = {Path(n).name for n in seen}
+    assert {"named.conf", "zones.conf", "kea-dhcp4.conf", "node.toml", "cluster.toml"} <= names, names
+    for secret in ("master.key", "ns2.key", "Kexample.lan.+013+12345.private", "kea-leases4.csv"):
+        assert secret not in names, seen
+    assert not any(n.endswith(".key") or n.endswith(".private") for n in names), seen
+
+
+def test_verify_reports_instead_of_raising(rig, monkeypatch, tmp_path):
+    from pelagos.archives import bundle
+
+    with OfflineRestore(rig["env"], rig["archive"], [rig["cluster_id"]], workdir=tmp_path / "missing") as r:
+        report = r.verify()
+    assert report["ok"] is False and report["checks"][-1]["what"] == "archive", report
+
+    def bad_json(*_a, **_k):
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(bundle, "read_manifest", bad_json)
+    with _restore(rig) as r:
+        report = r.verify()
+    assert report["ok"] is False and "damaged" in report["checks"][-1]["output"], report
+
+
+def test_a_signal_removes_the_clear_copies(rig):
+    import signal
+
+    from pelagos.installer import archive_cli
+
+    with pytest.raises(SystemExit) as exc:
+        with archive_cli._cleanup_on_signals(), _restore(rig) as r:
+            r.workdir = r._make_workdir()
+            (r.workdir / "copy").write_text("clear")
+            workdir = r.workdir
+            os.kill(os.getpid(), signal.SIGTERM)
+    assert exc.value.code == 128 + signal.SIGTERM
+    assert not workdir.exists()
+    assert signal.getsignal(signal.SIGTERM) is not None

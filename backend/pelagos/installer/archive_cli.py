@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -220,8 +222,24 @@ def _confirm(args: argparse.Namespace, summary: str) -> bool:
     return input(f"{summary}? [y/N] ").strip().lower() in ("y", "yes")
 
 
+@contextlib.contextmanager
+def _cleanup_on_signals() -> Any:
+    """SIGHUP (an ssh session lost) and SIGTERM unwind like an error, so the clear copies of the
+    archive in the work folder are removed by the restore's `close()`."""
+
+    def stop(signum: int, _frame: Any) -> None:
+        raise SystemExit(128 + signum)
+
+    old = {sig: signal.signal(sig, stop) for sig in (signal.SIGHUP, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for sig, handler in old.items():
+            signal.signal(sig, handler)
+
+
 def _verify(args: argparse.Namespace, restore: Any) -> int:
-    with restore:
+    with _cleanup_on_signals(), restore:
         report = restore.verify()
     if args.json:
         print(json.dumps(report, indent=2))
@@ -277,7 +295,7 @@ def cmd_restore(args: argparse.Namespace) -> int:
         return EXIT_USAGE
     if args.verify:
         return _verify(args, restore)
-    with restore:
+    with _cleanup_on_signals() if args.dry_run else contextlib.nullcontext(), restore:
         try:
             plan = restore.prepare()
         except RestoreError as exc:

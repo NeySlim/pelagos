@@ -82,7 +82,8 @@
       "type": "is {{actual}}, the schema expects {{expected}}",
       "minimum": "is {{actual}}, the minimum is {{expected}}"
     },
-    "rootHint": "Choose a key: the root cannot be edited in bulk."
+    "rootHint": "Choose a key: the root cannot be edited in bulk.",
+    "planFailed": "The configuration could not be checked"
   },
   "pending": {
     "title": "Pending changes",

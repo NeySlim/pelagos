@@ -146,3 +146,30 @@ test('the Kea editor says why the root cannot be edited', async ({ page }) => {
   await page.getByTestId('kea-tree').getByTestId('json-node').first().locator('> div').first().click()
   await expect(page.getByTestId('kea-root-hint')).toContainText('root cannot be edited in bulk')
 })
+
+// A token made by a user with TOTP, seen from the administration list on a phone.
+test.describe('at 390px', () => {
+  test.use({ viewport: { width: 390, height: 800 } })
+
+  test('the token cards and the backup cards do not scroll sideways', async ({ page, playwright, baseURL }) => {
+    const api = await playwright.request.newContext({ baseURL })
+    const login = await api.post('/api/v1/auth/login', { data: { username: 'bob', password: 'bob', totp_code: '123456' } })
+    const headers = { 'x-csrf-token': (await login.json()).csrf_token }
+    const made = await api.post('/api/v1/auth/tokens', { headers, data: { name: 'phone-check', role: 'viewer', expires_days: 30, cidrs: [], totp_code: '123456' } })
+    expect(made.ok()).toBe(true)
+    const id = (await made.json()).item.id
+    try {
+      await signIn(page)
+      await page.goto('/admin/tokens')
+      await expect(page.getByTestId('data-table-cards')).toBeVisible()
+      await expect(page.getByTestId('data-table-card')).toContainText('phone-check')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await page.goto('/admin/archives')
+      await expect(page.getByTestId('archives-table').getByTestId('data-table-cards')).toBeVisible()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    } finally {
+      await api.delete(`/api/v1/auth/tokens/${id}`, { headers })
+      await api.dispose()
+    }
+  })
+})

@@ -81,14 +81,13 @@ export default function ApiTokensPage() {
     >
       {unavailable.length > 0 && <p className="text-xs status-warning-text mb-2" role="status">{t('tokens.unavailable', { nodes: unavailable.join(', ') })}</p>}
       {tokensQ.error && <ErrorNotice error={tokensQ.error} onRetry={tokensQ.refetch} className="mb-2" />}
-      <DataTable
+      {!(tokensQ.error && !tokensQ.data) && <DataTable
         columns={columns}
         rows={tokensQ.data?.items || []}
         loading={tokensQ.loading}
         mobileCard={{
           title: (r) => r.name,
           subtitle: (r) => r.username,
-          status: (r) => (r.expired ? <Badge size="sm" variant="danger">{t('tokens.expired')}</Badge> : null),
           fields: ['permissions', 'expires_at', 'last_used_at'],
           primaryAction: (r) => (
             <Button size="xs" variant="ghost" title={t('tokens.revoke')} onClick={() => setRevoking(r)} data-testid="admin-token-revoke">
@@ -99,7 +98,7 @@ export default function ApiTokensPage() {
         clientSort
         emptyTitle={t('tokens.empty')}
         testId="admin-tokens-table"
-      />
+      />}
       <ConfirmDialog
         open={Boolean(revoking)}
         onOpenChange={(o) => !o && setRevoking(null)}

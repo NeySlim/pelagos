@@ -78,5 +78,8 @@ describe('CertificatesPage errors and unreachable nodes', () => {
     expect(button).toBeDisabled()
     expect(button.getAttribute('title')).toMatch(/cannot be reached/)
     expect(screen.getByTestId('cert-change-source').getAttribute('title')).toMatch(/cannot be reached/)
+    const why = screen.getByTestId('cert-unreachable-why')
+    expect(why).toHaveTextContent('cannot be reached')
+    expect(button.getAttribute('aria-describedby')).toBe(why.id)
   })
 })

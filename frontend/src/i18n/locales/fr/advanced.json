@@ -82,7 +82,8 @@
       "type": "vaut {{actual}}, le schéma attend {{expected}}",
       "minimum": "vaut {{actual}}, le minimum est {{expected}}"
     },
-    "rootHint": "Choisissez une clé : la racine ne se modifie pas en bloc."
+    "rootHint": "Choisissez une clé : la racine ne se modifie pas en bloc.",
+    "planFailed": "La configuration n'a pas pu être vérifiée"
   },
   "pending": {
     "title": "Modifications en attente",

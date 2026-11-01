@@ -84,6 +84,7 @@ export default function ModulesPage() {
               <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('modules.nodes')}</h3>
               <p className="text-xs text-text-secondary">{t('modules.nodesHelp')}</p>
             </div>
+            {!draft.cluster?.dhcpv6 && <p id="modules-kea6-needs" className="text-xs text-text-tertiary" data-testid="modules-kea6-needs">{t('modules.kea6Needs')}</p>}
             <div className="overflow-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -98,7 +99,12 @@ export default function ModulesPage() {
                       <td className="py-2 pr-3 font-medium">{nodeName(id)}</td>
                       {ENGINES.map((e) => (
                         <td key={e} className="py-2 pr-3">
-                          <span title={e === 'kea6' && !draft.cluster?.dhcpv6 ? t('modules.kea6Needs') : undefined} className="inline-block">
+                          <span
+                            title={e === 'kea6' && !draft.cluster?.dhcpv6 ? t('modules.kea6Needs') : undefined}
+                            tabIndex={e === 'kea6' && !draft.cluster?.dhcpv6 ? 0 : undefined}
+                            aria-describedby={e === 'kea6' && !draft.cluster?.dhcpv6 ? 'modules-kea6-needs' : undefined}
+                            className="inline-block"
+                          >
                             <ToggleSwitch size="sm" ariaLabel={`${t(`modules.engines.${e}`)} ${nodeName(id)}`} checked={Boolean(mods?.[e])} disabled={e === 'kea6' && !draft.cluster?.dhcpv6} onChange={(v) => setDraft((d) => ({ ...d, nodes: { ...d.nodes, [id]: { ...d.nodes[id], [e]: v } } }))} />
                           </span>
                         </td>

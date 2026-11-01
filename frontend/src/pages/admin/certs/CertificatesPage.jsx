@@ -86,6 +86,7 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
   const { level, days } = expiryLevel(cert, thresholds)
   const automatic = AUTOMATIC.includes(node.source?.source)
   const why = node.reachable ? undefined : t('node.unreachableHint')
+  const whyId = node.reachable ? undefined : `cert-why-${node.node_id}`
   return (
     <Card className="p-4 space-y-3" hover={false} data-testid="cert-node" data-node={node.node_id}>
       <div className="flex flex-wrap items-center gap-2">
@@ -97,12 +98,13 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
         </Badge>
         <Badge variant="info" size="sm" data-testid="cert-source-badge">{node.inherited ? t('node.inherited', { source: sourceSummary(t, node.source) }) : sourceSummary(t, node.source)}</Badge>
         <div className="ml-auto flex flex-wrap gap-1.5">
-          <Button size="sm" variant="secondary" onClick={onSource} disabled={!node.reachable} title={why} data-testid="cert-change-source"><PencilSimple size={14} />{t('actions.source')}</Button>
-          <Button size="sm" variant="secondary" onClick={onUpload} disabled={!node.reachable} title={why} data-testid="cert-upload"><UploadSimple size={14} />{t('actions.upload')}</Button>
-          {automatic && <Button size="sm" onClick={onRenew} disabled={!node.reachable} title={why} data-testid="cert-renew"><ArrowsClockwise size={14} />{t('actions.renew')}</Button>}
-          <Button size="sm" variant="ghost" onClick={onSelfSigned} disabled={!node.reachable} title={why} data-testid="cert-self-signed"><Seal size={14} />{t('actions.selfSigned')}</Button>
+          <Button size="sm" variant="secondary" onClick={onSource} disabled={!node.reachable} title={why} aria-describedby={whyId} data-testid="cert-change-source"><PencilSimple size={14} />{t('actions.source')}</Button>
+          <Button size="sm" variant="secondary" onClick={onUpload} disabled={!node.reachable} title={why} aria-describedby={whyId} data-testid="cert-upload"><UploadSimple size={14} />{t('actions.upload')}</Button>
+          {automatic && <Button size="sm" onClick={onRenew} disabled={!node.reachable} title={why} aria-describedby={whyId} data-testid="cert-renew"><ArrowsClockwise size={14} />{t('actions.renew')}</Button>}
+          <Button size="sm" variant="ghost" onClick={onSelfSigned} disabled={!node.reachable} title={why} aria-describedby={whyId} data-testid="cert-self-signed"><Seal size={14} />{t('actions.selfSigned')}</Button>
         </div>
       </div>
+      {why && <p id={whyId} className="text-xs text-text-tertiary" data-testid="cert-unreachable-why">{why}</p>}
       {node.error && <p className="text-xs status-warning-text">{node.error}</p>}
       <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Field label={t('fields.issuer')}>{cert ? cert.issuer_common_name || cert.issuer : '-'}</Field>

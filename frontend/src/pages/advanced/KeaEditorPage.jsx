@@ -9,7 +9,6 @@ import { PageLayout, Card, Button, Badge, DiffView, LoadingSpinner, JsonTree, In
 import { useApi, usePermission, useNodeNames } from '../../hooks'
 import { useAuth } from '../../contexts/AuthContext'
 import { api } from '../../services/api'
-import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { NodeSelect } from './NodeSelect'
 import { unifiedDiff, jsonText } from './lineDiff'
@@ -299,8 +298,8 @@ export default function KeaEditorPage() {
             )}
             <DiffView diff={diff} maxHeight={300} emptyLabel={t('pending.none')} />
             {planError && (
-              <div className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text" role="alert" data-testid="kea-plan-error">
-                <p className="font-medium">{errorMessage(planError)}</p>
+              <div className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text" data-testid="kea-plan-error">
+                <ErrorNotice error={planError} prefix={t('kea.planFailed')} testId="kea-plan-notice" />
                 {planError.errors?.map((e, i) => (
                   <pre key={i} className="whitespace-pre-wrap font-mono text-2xs mt-1">{e.field ? `${e.field}: ` : ''}{e.message}</pre>
                 ))}

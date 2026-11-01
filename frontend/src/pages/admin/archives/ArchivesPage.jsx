@@ -530,7 +530,7 @@ function ArchivesTable({ nodes, destinations, nameOf, reloadKey, onRestore }) {
       </CardTitle>
       {unreachable.length > 0 && <p className="text-xs status-warning-text">{t('list.unreachable', { nodes: unreachable.map(nameOf).join(', ') })}</p>}
       {list.error && <ErrorNotice error={list.error} onRetry={list.refetch} />}
-      <DataTable
+      {!(list.error && !list.items?.length) && <DataTable
         columns={columns}
         rows={list.items}
         rowKey="id"
@@ -550,7 +550,7 @@ function ArchivesTable({ nodes, destinations, nameOf, reloadKey, onRestore }) {
         emptyTitle={t('list.empty')}
         pagination={{ page: list.page, perPage: list.perPage, total: list.total, onPageChange: list.setPage, onPerPageChange: list.setPerPage }}
         testId="archives-table"
-      />
+      />}
       {uploading && (
         <UploadDialog
           onClose={() => setUploading(false)}

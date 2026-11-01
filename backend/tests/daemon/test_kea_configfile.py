@@ -370,3 +370,21 @@ def test_ha_pair_copies_the_same_comments_and_never_config_writes_a_tree(tmp_roo
     finally:
         for d in daemons:
             d.stop()
+
+
+def test_a_whole_configuration_replace_carries_the_comments_in_one_config_set(kea_dhcp4, tmp_root):
+    """The reconciliation of a partial apply replaces the configuration with what another server
+    shares (no user-context of this one): the comments of this server's file ride on that config-set."""
+    commented(kea_dhcp4)
+    backend = backend_for(kea_dhcp4, tmp_root)
+    overlay = backend.config_get()
+    overlay["valid-lifetime"] = 2400
+    for subnet in overlay["subnet4"]:
+        subnet.pop("user-context", None)
+    result = backend.apply(backend.plan_config_replace(overlay))
+    assert result.ok, result.message
+    assert "config-set" in result.message and "comments copied" not in result.message
+    body = backend.config_get()
+    assert body["valid-lifetime"] == 2400
+    assert body["subnet4"][0]["user-context"] == {"pelagos": {"comment": "office LAN"}}
+    assert reads_as_running(backend) == []

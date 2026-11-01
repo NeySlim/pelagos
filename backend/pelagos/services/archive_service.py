@@ -59,6 +59,9 @@ _FIELD_RE = re.compile(r"^([a-z_]+(?:\.[a-z_]+)*) ")
 _KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 OPS = ("generate", "rotate", "add_recipient", "remove_recipient", "prune_retired")
 LABEL_MAX = 100
+KEY_UNVERIFIED = "archive_key_unverified"
+VERIFIES_PER_MINUTE = 6
+IDENTITY_MAX = 16 * 1024
 
 
 def _drop_none(value: Any) -> Any:
@@ -139,6 +142,7 @@ class ArchiveService:
         # services.archive_restore.ArchiveRestoreService: the identities that open an archive.
         self.restore = restore
         self.test_limiter = RateLimiter(TESTS_PER_MINUTE)
+        self.verify_limiter = RateLimiter(VERIFIES_PER_MINUTE)
         # Seams for tests: the collector signal, the target factory, the run wait.
         from pelagos.core.signals import signal_collector
 
@@ -309,7 +313,7 @@ class ArchiveService:
         if errors:
             raise ValidationError("invalid archive settings", errors)
         if "schedule_enabled" in body:
-            refuse_schedule_without_recipient(merged)
+            refuse_schedule_without_recipient(merged, "schedule_enabled", self._settings())
         cfg = self.ctx.config_store.update_cluster(
             lambda c: c.settings.update(reg.merge(c.settings, wrapped)),
             updated_by=f"user:{actor}@node:{self.ctx.node.id}",
@@ -1028,6 +1032,80 @@ class ArchiveService:
         self._audit("admin.archive.op", TARGET_IDENTITY, actor, request, client_ip)
         return {"recipients": keys.recipients(self._settings()), "identity_state": self._identity(), **out}
 
+    def verify_key(
+        self, recipient: str, body: dict[str, Any], actor: str, client_ip: str | None
+    ) -> dict[str, Any]:
+        """Proves an operator holds the private key of `recipient`: it must open a test archive and,
+        when this node holds one encrypted to it, a real archive. The key is never kept."""
+        entry = next((r for r in keys.recipients(self._settings()) if r.get("recipient") == recipient), None)
+        if entry is None:
+            raise NotFound("unknown recipient")
+        text = body.get("identity")
+        if not isinstance(text, str) or not text.strip() or len(text) > IDENTITY_MAX:
+            raise ValidationError("identity is required", [field_error("identity", "required")])
+        identity = keys.matching_identity(text, recipient)
+        checks: list[dict[str, Any]] = []
+        if identity is None:
+            problem = "this private key does not open archives encrypted to this recipient"
+            checks.append({"what": "identity", "ok": False, "output": problem})
+        else:
+            checks += self._open_with(identity, recipient)
+        ok = all(c["ok"] is not False for c in checks)
+        request = {"op": "verify_key", "recipient": recipient}
+        response = {"ok": ok, "checks": [{k: c[k] for k in ("what", "ok")} for c in checks]}
+        if not ok:
+            self._audit(
+                "admin.archive.op",
+                TARGET_IDENTITY,
+                actor,
+                request,
+                client_ip,
+                response=response,
+                ok=False,
+                message="archive key not proven",
+            )
+            failed = next(c for c in checks if c["ok"] is False)
+            raise ValidationError(failed["output"], [field_error("identity", failed["output"])])
+        proven: list[dict[str, Any]] = []
+
+        def mutate(_domain: dict[str, Any], cluster: Any) -> None:
+            try:
+                proven.append(keys.mark_verified(cluster, recipient, by=actor))
+            except keys.ArchiveKeyError as exc:
+                raise NotFound(str(exc)) from None
+
+        self._update(actor, mutate)
+        self._audit("admin.archive.op", TARGET_IDENTITY, actor, request, client_ip, response=response)
+        return {"recipient": proven[0], "recipients": keys.recipients(self._settings()), "checks": checks}
+
+    def _open_with(self, identity: str, recipient: str) -> list[dict[str, Any]]:
+        probe = os.urandom(32)
+        try:
+            ok = age.decrypt(age.encrypt(probe, [recipient]), [identity]) == probe
+            out = [{"what": "test archive", "ok": ok, "output": "" if ok else "decrypted text differs"}]
+        except age.AgeError as exc:
+            out = [{"what": "test archive", "ok": False, "output": str(exc)}]
+        store = ArchiveStore(self.ctx.paths.archives_dir)
+        try:
+            held = [m for m in store.list() if recipient in (m.recipients or [])]
+        except OSError:
+            held = []
+        if not held:
+            return out
+        meta = max(held, key=lambda m: m.created_at)
+        what = f"archive {meta.filename}"
+        try:
+            with store.path(meta).open("rb") as fh:
+                # The header unwraps the file key; the first chunk proves the payload key.
+                age.Decryptor(fh, [identity]).read(1)
+            out.append({"what": what, "ok": True, "output": ""})
+        except age.AgeNoMatchError:
+            out.append({"what": what, "ok": False, "output": "this key does not open the newest archive"})
+        except (age.AgeError, OSError) as exc:
+            # A damaged copy says nothing about the key: reported, not held against it.
+            out.append({"what": what, "ok": None, "output": f"not checked: {exc}"})
+        return out
+
     def prune_retired(self, actor: str, client_ip: str | None) -> dict[str, Any]:
         """Drops the retired identities no archive anywhere uses (the rule of the collector run): every
         node must answer and know what its destinations hold, else nothing is dropped."""
@@ -1076,12 +1154,25 @@ class ArchiveService:
         }
 
 
-def refuse_schedule_without_recipient(merged: dict[str, Any], field: str = "schedule_enabled") -> None:
-    """Scheduling archives that no key could open is refused (a run would fail anyway)."""
-    if reg.get(merged, "archives.schedule_enabled") and not keys.encryption_recipients(merged):
+def refuse_schedule_without_recipient(
+    merged: dict[str, Any], field: str = "schedule_enabled", current: dict[str, Any] | None = None
+) -> None:
+    """Scheduling archives that no key could open is refused (a run would fail anyway), and turning
+    it on needs a recipient whose private key an operator proved to hold (section 23)."""
+    if not reg.get(merged, "archives.schedule_enabled"):
+        return
+    if not keys.encryption_recipients(merged):
         raise ValidationError(
             "scheduled archives need a recipient: generate the cluster archive key first",
             [field_error(field, "no archive recipient")],
+        )
+    if current is not None and reg.get(current, "archives.schedule_enabled"):
+        return
+    if not keys.verified(merged):
+        raise ServiceError(
+            KEY_UNVERIFIED,
+            "test an archive key first: paste its private key under Test my key",
+            [field_error(field, "no verified archive key")],
         )
 
 

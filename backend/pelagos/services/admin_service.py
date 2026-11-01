@@ -316,7 +316,9 @@ class AdminService:
         from pelagos.services.archive_service import refuse_schedule_without_recipient
 
         if "schedule_enabled" in (body.get("archives") or {}):
-            refuse_schedule_without_recipient(merged, "archives.schedule_enabled")
+            refuse_schedule_without_recipient(
+                merged, "archives.schedule_enabled", self.ctx.cluster().settings
+            )
         cfg = self.ctx.config_store.update_cluster(
             lambda c: c.settings.update(reg.merge(c.settings, body)), updated_by=self._by(actor)
         )

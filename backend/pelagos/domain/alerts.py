@@ -64,6 +64,7 @@ class AlertKind(enum.StrEnum):
     ARCHIVE_FAILED = "archive_failed"
     ARCHIVE_STALE = "archive_stale"
     ARCHIVE_INCOMPLETE = "archive_incomplete"
+    ARCHIVE_KEY_UNVERIFIED = "archive_key_unverified"
     DDNS_OUTAGE = "ddns_outage"
     DDNS_REPLAY = "ddns_replay"
     DNS_STALE_PRIMARY = "dns_stale_primary"

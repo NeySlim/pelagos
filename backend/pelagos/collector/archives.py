@@ -45,8 +45,14 @@ log = logging.getLogger(__name__)
 EVENT_ARCHIVE = "archive"
 TICK_SECONDS = 60.0
 LOCAL = "local"
+PART_PELAGOS = "pelagos"
 ARCHIVE_KINDS = frozenset(
-    {AlertKind.ARCHIVE_FAILED.value, AlertKind.ARCHIVE_STALE.value, AlertKind.ARCHIVE_INCOMPLETE.value}
+    {
+        AlertKind.ARCHIVE_FAILED.value,
+        AlertKind.ARCHIVE_STALE.value,
+        AlertKind.ARCHIVE_INCOMPLETE.value,
+        AlertKind.ARCHIVE_KEY_UNVERIFIED.value,
+    }
 )
 # A run is cancelled before writing when free space is under the last archive's size plus this.
 DISK_MARGIN = 1.10
@@ -93,8 +99,49 @@ def keep_local(metas: list[ArchiveMeta], settings: dict[str, Any], tz: tzinfo) -
 # Alerts ---------------------------------------------------------------------------------------
 
 
-def archive_alerts(node_id: str, state: RunState, settings: dict[str, Any], now: datetime) -> list[Alert]:
+def key_alert(node_id: str, settings: dict[str, Any], now: datetime) -> Alert | None:
+    """`archive_key_unverified`: archives are scheduled but no operator proved a private key opens
+    them, or the newest proof is older than `archives.key_reminder_days`."""
+    if not reg.get(settings, "archives.schedule_enabled"):
+        return None
+    reminder = int(reg.get(settings, "archives.key_reminder_days"))
+    proven = keys.verified(settings)
+    newest = None
+    if proven:
+        try:
+            newest = datetime.fromisoformat(str(proven[0]["verified_at"]).replace("Z", "+00:00"))
+        except ValueError:
+            newest = None
+    if newest is not None:
+        days = (now - newest).days
+        if reminder <= 0 or days < reminder:
+            return None
+        title = messages.msg("alert.archive_key_reminder", days=days, reminder=reminder)
+    else:
+        days = None
+        title = messages.msg("alert.archive_key_unverified")
+    return Alert(
+        kind=AlertKind.ARCHIVE_KEY_UNVERIFIED,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        subject="archive:key",
+        **messages.fields("title", title),
+        details={
+            "verified_at": proven[0]["verified_at"] if newest is not None else None,
+            "days": days,
+            "reminder_days": reminder,
+        },
+    )
+
+
+def archive_alerts(
+    node_id: str, state: RunState, settings: dict[str, Any], now: datetime, first_node: bool = False
+) -> list[Alert]:
+    """This node's archive alerts; `first_node` adds the cluster-wide key alert (raised once)."""
     out: list[Alert] = []
+    key = key_alert(node_id, settings, now) if first_node else None
+    if key is not None:
+        out.append(key)
     critical = int(reg.get(settings, "checks.archive_failures_critical_count"))
     for dest, count in sorted(state.failures.items()):
         if count <= 0:
@@ -169,6 +216,71 @@ def _confined_denial(output: str) -> bool:
     return denied and Path(APPARMOR).exists()
 
 
+def _pelagos_file(manifest: Manifest, name: str) -> str | None:
+    return next(
+        (f.path for f in manifest.files if f.part == PART_PELAGOS and Path(f.path).name == name), None
+    )
+
+
+def check_cluster_toml(text: str, node_id: str) -> dict[str, Any]:
+    """The archived `cluster.toml` loads in this version, lists the archive's node, and
+    every setting this version knows holds a valid value (unknown ones, from a newer version, are
+    reported only)."""
+    import tomllib
+
+    from pelagos.core.config_store import ClusterConfig
+
+    try:
+        data = tomllib.loads(text)
+        cluster = ClusterConfig.from_toml(data)
+    except Exception as exc:
+        return {"what": "cluster.toml", "ok": False, "output": f"does not load: {exc}"}
+    problems: list[str] = []
+    notes: list[str] = []
+    if not any(n.id == node_id for n in cluster.nodes):
+        problems.append(f"node {node_id} is not in [[nodes]]")
+    flat: dict[str, Any] = {}
+
+    def walk(node: dict[str, Any], prefix: str) -> None:
+        for key, value in node.items():
+            dotted = f"{prefix}{key}"
+            if dotted in reg.BY_KEY:
+                flat[dotted] = value
+            elif isinstance(value, dict) and any(k.startswith(dotted + ".") for k in reg.BY_KEY):
+                walk(value, dotted + ".")
+            elif "." in dotted and dotted.split(".")[1] not in reg.MANAGED.get(dotted.split(".")[0], ()):
+                notes.append(dotted)
+
+    walk(data.get("settings") or {}, "")
+    for key, value in sorted(flat.items()):
+        problem = reg.check_value(reg.BY_KEY[key], value)
+        if problem:
+            problems.append(f"{key}: {problem}")
+    output = "; ".join(problems) if problems else f"{len(cluster.nodes)} nodes, {len(cluster.users)} users"
+    if notes:
+        output += "; settings unknown to this version: " + ", ".join(notes[:10])
+    return {"what": "cluster.toml", "ok": not problems, "output": output}
+
+
+def _kea_check(tool: str, path: str, binary: Callable[[str], str | None]) -> dict[str, Any]:
+    """`-T` (hooks loaded, no socket or file opened) for the DHCP servers, `-t` for D2 or where `-T`
+    is unknown."""
+    found = binary(tool)
+    flag = "-t" if tool == KEA_BINARIES["d2"] else "-T"
+    if found is None:
+        return {"what": f"{tool} {flag}", "ok": None, "output": "tool not found"}
+    ok, output = _run([found, flag, path])
+    if not ok and flag == "-T" and ("invalid option" in output or "unsupported option" in output):
+        flag = "-t"
+        ok, output = _run([found, flag, path])
+    check = {"what": f"{tool} {flag}", "ok": ok, "output": output}
+    if not ok and _confined_denial(output):
+        # Debian confines the Kea daemons: the tool cannot read a copy outside /etc/kea.
+        check["ok"] = None
+        check["output"] = f"not checked: AppArmor keeps {tool} from reading the copy ({output[-300:]})"
+    return check
+
+
 def test_restore(
     archive: Path,
     identities: list[str],
@@ -177,24 +289,28 @@ def test_restore(
     conf_paths: dict[str, str],
     binary: Callable[[str], str | None] | None = None,
     kea_test: KeaTester | None = None,
+    extracted: Manifest | None = None,
 ) -> dict[str, Any]:
-    """Opens `archive` in `workdir` (engine configurations and zones only, never the Pelagos keys)
-    and runs named-checkconf, named-checkzone and `kea-* -t` on the copies.
+    """Opens `archive` in `workdir` (engine configurations, zones and `cluster.toml`, never the
+    Pelagos keys) and runs named-checkconf, named-checkzone, `kea-*` and the `cluster.toml` check on
+    the copies. `extracted`: the archive is already opened in `workdir` (`pelagos restore --verify`).
 
     `conf_paths` maps an engine (bind, kea4, kea6, d2) to its main configuration file. Kea copies go
-    to the running daemon's `config-test` (`kea_test`): its AppArmor profile (Debian) and Kea 3's
-    path rules keep `kea-* -t` from reading a copy outside /etc/kea; `-t` is the fallback."""
+    to the running daemon's `config-test` (`kea_test`) when given: its AppArmor profile (Debian) and
+    Kea 3's path rules may keep the tools from reading a copy outside /etc/kea."""
     engine_parts = {
         f.path for f in manifest.files if f.part.startswith("bind.") or f.part in KEA_PARTS.values()
     }
-    wanted = {bundle.file_member(p) for p in engine_parts}
+    toml = _pelagos_file(manifest, "cluster.toml")
+    wanted = {bundle.file_member(p) for p in engine_parts | ({toml} if toml else set())}
 
     def select(name: str) -> bool:
         return name.startswith("zones/") or name in wanted
 
     binary = binary or find_binary
     checks: list[dict[str, Any]] = []
-    extracted = bundle.extract(archive, identities, workdir, select)
+    if extracted is None:
+        extracted = bundle.extract(archive, identities, workdir, select)
 
     def copy_of(path: str) -> Path:
         return workdir / bundle.file_member(path)
@@ -252,14 +368,12 @@ def test_restore(
         if answer is not None:
             checks.append({"what": f"{tool} config-test", "ok": answer[0], "output": answer[1][-4000:]})
         else:
-            record(f"{tool} -t", binary(tool), ["-t", str(copy_of(conf))])
-            last = checks[-1]
-            if last["ok"] is False and _confined_denial(last["output"]):
-                # Debian confines the Kea daemons: -t cannot read a copy outside /etc/kea.
-                last["ok"] = None
-                last["output"] = (
-                    f"not checked: AppArmor keeps {tool} -t from reading the copy ({last['output'][-300:]})"
-                )
+            checks.append(_kea_check(tool, str(copy_of(conf)), binary))
+    if toml is not None and copy_of(toml).exists():
+        try:
+            checks.append(check_cluster_toml(copy_of(toml).read_text(), extracted.node_id))
+        except (OSError, UnicodeDecodeError) as exc:
+            checks.append({"what": "cluster.toml", "ok": False, "output": str(exc)})
     ran = [c for c in checks if c["ok"] is not None]
     return {"ok": all(c["ok"] for c in ran), "checks": checks}
 
@@ -350,7 +464,7 @@ class ArchiveRunner:
             state = self.store.load_state()
         node_id = self.ctx.node.id
         return PollOutcome(
-            alerts=archive_alerts(node_id, state, settings, now),
+            alerts=archive_alerts(node_id, state, settings, now, first_node=self._rank() == 0),
             kinds=ARCHIVE_KINDS,
             where=lambda a: a.node_id == node_id,
         )

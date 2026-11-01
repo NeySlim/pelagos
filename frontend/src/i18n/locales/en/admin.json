@@ -492,7 +492,8 @@
         "include_leases_enabled": "Include the Kea lease files",
         "verify_enabled": "Read back and check each copy",
         "test_restore_days": "Test restore every",
-        "max_archive_mb": "Largest archive accepted"
+        "max_archive_mb": "Largest archive accepted",
+        "key_reminder_days": "Test the archive key every"
       },
       "ddns": {
         "failover_auto_enabled": "Promote a secondary automatically",
@@ -595,9 +596,10 @@
         "messages_max_per_hour": "Beyond it, one message says how many events were held back."
       },
       "archives": {
-        "schedule_enabled": "Off until an archive key exists.",
+        "schedule_enabled": "Off until an archive key exists and its private key was tested.",
         "stagger_minutes": "Each node starts this much later than the previous one.",
-        "test_restore_days": "Opens the latest archive and checks it with the engine tools (0: never)."
+        "test_restore_days": "Opens the latest archive and checks it with the engine tools (0: never).",
+        "key_reminder_days": "Reminds to paste an archive private key again under Test my key once the last proof is this old (0: only when no key was ever proven)."
       },
       "ddns": {
         "failover_auto_enabled": "Off: the outage alert proposes the promotion plan and you confirm it.",

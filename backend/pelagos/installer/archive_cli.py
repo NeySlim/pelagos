@@ -182,8 +182,12 @@ def _identities(args: argparse.Namespace, env: Any) -> list[str]:
     from pelagos.core.config_store import ConfigStore
     from pelagos.core.secrets import SecretBox
 
-    cluster = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster()
-    return keys.cluster_identities(cluster, SecretBox.from_file(env.node_paths.master_key))
+    try:
+        cluster = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster()
+        return keys.cluster_identities(cluster, SecretBox.from_file(env.node_paths.master_key))
+    except PermissionError:
+        # Not root (restore --verify): the operator gives an identity instead.
+        return []
 
 
 def _print_plan(plan: Any) -> None:
@@ -216,10 +220,42 @@ def _confirm(args: argparse.Namespace, summary: str) -> bool:
     return input(f"{summary}? [y/N] ").strip().lower() in ("y", "yes")
 
 
+def _verify(args: argparse.Namespace, restore: Any) -> int:
+    with restore:
+        report = restore.verify()
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        m = report["manifest"]
+        if m:
+            print(f"archive {m['archive_id']} of {m['node_name']} ({m['node_id']}), {m['created_at']}")
+        for c in report["checks"]:
+            mark = {True: "ok", False: "FAILED", None: "not checked"}[c.get("ok")]
+            print(f"check {c['what']}: {mark}")
+            if c.get("ok") is not True and c.get("output"):
+                print(f"    {str(c['output'])[-600:]}")
+        for w in report["warnings"]:
+            print(f"warning: {w}", file=sys.stderr)
+        for h in report["host"]:
+            print(f"note: a restore on this host would refuse: {h}", file=sys.stderr)
+        print("restorable" if report["ok"] else "NOT restorable")
+    return EXIT_OK if report["ok"] else EXIT_FAILED
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     from pelagos.installer.restore import OfflineRestore, RestoreError
 
-    if not args.dry_run and os.geteuid() != 0:
+    if args.archive_arg and args.archive and args.archive_arg != args.archive:
+        print("give the archive once", file=sys.stderr)
+        return EXIT_USAGE
+    args.archive = args.archive or args.archive_arg
+    if not args.archive:
+        print("the archive is required (--archive FILE)", file=sys.stderr)
+        return EXIT_USAGE
+    if args.verify and args.dry_run:
+        print("--verify and --dry-run are exclusive", file=sys.stderr)
+        return EXIT_USAGE
+    if not (args.dry_run or args.verify) and os.geteuid() != 0:
         print("restoring needs root: run with sudo, or use --dry-run", file=sys.stderr)
         return EXIT_USAGE
     env = icli._env(args)
@@ -239,6 +275,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
     except RestoreError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    if args.verify:
+        return _verify(args, restore)
     with restore:
         try:
             plan = restore.prepare()
@@ -296,7 +334,8 @@ def add_parsers(sub: Any) -> None:
     b.set_defaults(func=cmd_backup)
 
     r = sub.add_parser("restore", help="rebuild this node from an archive (root, services stopped)")
-    r.add_argument("--archive", required=True, help="the .tar.gz.age file (its .sha256 beside it is checked)")
+    r.add_argument("archive_arg", nargs="?", metavar="ARCHIVE", help="the archive (same as --archive)")
+    r.add_argument("--archive", help="the .tar.gz.age file (its .sha256 beside it is checked)")
     r.add_argument(
         "--identity",
         action="append",
@@ -307,6 +346,11 @@ def add_parsers(sub: Any) -> None:
     )
     r.add_argument("--only", help="comma list among bind,kea,pelagos (default: all)")
     r.add_argument("--dry-run", action="store_true", help="show the plan and check a copy, change nothing")
+    r.add_argument(
+        "--verify",
+        action="store_true",
+        help="prove the archive restorable on copies (engine checks, cluster.toml); no root, nothing changed",
+    )
     r.add_argument("--no-start", action="store_true", help="leave the services stopped afterwards")
     r.add_argument("--force", action="store_true", help="replace the identity of another node on this host")
     r.add_argument("--workdir", help="where the archive is opened (default /run when it has room)")

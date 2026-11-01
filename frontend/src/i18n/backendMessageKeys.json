@@ -18,6 +18,11 @@
     "count",
     "files"
   ],
+  "alert.archive_key_reminder": [
+    "days",
+    "reminder"
+  ],
+  "alert.archive_key_unverified": [],
   "alert.archive_stale": [
     "hours",
     "interval"
@@ -1652,6 +1657,7 @@
   "plan.zone.secondaries_none": [
     "zone"
   ],
+  "problem.archive_key_unverified": [],
   "problem.collection_unavailable": [],
   "problem.config_divergence": [],
   "problem.confirmation_required": [],

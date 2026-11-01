@@ -35,6 +35,7 @@ class Settings(Resource):
     @require(PERM)
     @ns.response(200, "The [settings.archives] values")
     @ns.response(400, "validation_error: a value, or scheduling without any recipient", m.Problem)
+    @ns.response(409, "archive_key_unverified: turning scheduling on before a key was tested", m.Problem)
     def put(self):
         return archives().update_settings(json_body(), username(), client_ip())
 
@@ -125,6 +126,24 @@ class Identity(Resource):
     def post(self):
         session = current_session()
         return archives().identity(json_body(), session.username, session.user_id, client_ip())
+
+
+@ns.route("/keys/<string:recipient>/verify")
+class VerifyKey(Resource):
+    @require(PERM)
+    @ns.response(200, "The recipient with verified_at; the checks run")
+    @ns.response(
+        400, "validation_error: not an identity, or it does not open archives of this recipient", m.Problem
+    )
+    @ns.response(404, "not_found: unknown recipient", m.Problem)
+    @ns.response(429, "rate_limited", m.Problem)
+    def post(self, recipient: str):
+        svc = archives()
+        user = username()
+        if not svc.verify_limiter.allow(user):
+            retry = svc.verify_limiter.retry_after(user)
+            raise ApiError("rate_limited", "too many key tests", headers={"Retry-After": str(retry)})
+        return svc.verify_key(recipient, json_body(), user, client_ip())
 
 
 @ns.route("/<string:archive_id>/download")

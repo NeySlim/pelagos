@@ -118,6 +118,34 @@ def remove_recipient(cfg: Any, box: SecretBox, recipient: str) -> dict[str, Any]
     raise ArchiveKeyError("unknown recipient")
 
 
+def verified(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """Entries a pasted private key was proven to open (`verified_at`), newest proof first."""
+    proven = [
+        r
+        for r in recipients(settings)
+        if r.get("verified_at") and age.is_recipient(str(r.get("recipient", "")))
+    ]
+    return sorted(proven, key=lambda r: str(r["verified_at"]), reverse=True)
+
+
+def matching_identity(text: str, recipient: str) -> str | None:
+    """The identity of `text` (an identity file: comments allowed) whose recipient is `recipient`."""
+    try:
+        found = age.parse_identities(text)
+    except age.AgeError:
+        return None
+    return next((i for i in found if age.recipient_of(i) == recipient), None)
+
+
+def mark_verified(cfg: Any, recipient: str, by: str, now: datetime | None = None) -> dict[str, Any]:
+    for entry in _entries(cfg):
+        if entry.get("recipient") == recipient:
+            entry["verified_at"] = to_rfc3339(now or utcnow())
+            entry["verified_by"] = by
+            return entry
+    raise ArchiveKeyError("unknown recipient")
+
+
 def cluster_identities(cfg: Any, box: SecretBox) -> list[str]:
     """Identities the nodes hold: the current one first, then the retired ones."""
     out = []

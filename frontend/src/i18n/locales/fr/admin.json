@@ -492,7 +492,8 @@
         "include_leases_enabled": "Inclure les fichiers de baux Kea",
         "verify_enabled": "Relire et vérifier chaque copie",
         "test_restore_days": "Restauration à blanc tous les",
-        "max_archive_mb": "Plus grande archive acceptée"
+        "max_archive_mb": "Plus grande archive acceptée",
+        "key_reminder_days": "Tester la clé d'archive tous les"
       },
       "ddns": {
         "failover_auto_enabled": "Promouvoir un secondaire automatiquement",
@@ -595,9 +596,10 @@
         "messages_max_per_hour": "Au-delà, un seul message indique combien d’événements ont été retenus."
       },
       "archives": {
-        "schedule_enabled": "Désactivé tant qu'aucune clé d'archive n'existe.",
+        "schedule_enabled": "Désactivé tant qu'aucune clé d'archive n'existe et que sa clé privée n'a pas été testée.",
         "stagger_minutes": "Chaque nœud part ce temps après le précédent.",
-        "test_restore_days": "Ouvre la dernière archive et la vérifie avec les outils des moteurs (0 : jamais)."
+        "test_restore_days": "Ouvre la dernière archive et la vérifie avec les outils des moteurs (0 : jamais).",
+        "key_reminder_days": "Rappelle de recoller une clé privée d'archive sous Tester ma clé quand la dernière preuve a cet âge (0 : seulement si aucune clé n'a jamais été prouvée)."
       },
       "ddns": {
         "failover_auto_enabled": "Désactivé : l'alerte de panne propose le plan de promotion et vous le confirmez.",

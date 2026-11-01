@@ -342,6 +342,12 @@ CATALOG: dict[str, str] = {
     "alert.archive_failed": "archive to {destination} failed {failures} times in a row: {error}",
     "alert.archive_stale": "no successful archive of this node for {hours} h (every {interval} h expected)",
     "alert.archive_incomplete": "the last archive is incomplete: {count} files could not be read ({files})",
+    "alert.archive_key_unverified": (
+        "no archive key was proven to open the archives: test a private key under Administration > Backups"
+    ),
+    "alert.archive_key_reminder": (
+        "the archive key was last proven {days} days ago (every {reminder} days expected): test it again"
+    ),
     "alert.ddns_outage": "zone {zone}: the active primary {node} has received no DDNS update since {since}",
     "alert.ddns_replay": "{count} leases of the DDNS outage from {start} to {end} lack their DNS records",
     "alert.dns_stale_primary": (
@@ -990,6 +996,7 @@ CATALOG: dict[str, str] = {
     "problem.zone_without_records": "Zone holds no records",
     "problem.zone_too_large": "Zone too large to read here",
     "problem.release_invalid": "Release refused",
+    "problem.archive_key_unverified": "Archive key not verified",
     "problem.detail.unexpected": "unexpected error; see the server log",
     "problem.detail.reservation_outside_subnet": (
         "the reservations {addresses} fall outside {subnet}: move or delete them first"

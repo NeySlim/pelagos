@@ -1213,6 +1213,14 @@
       "unit": "mb"
     },
     {
+      "key": "archives.key_reminder_days",
+      "type": "integer",
+      "default": 90,
+      "min": 0,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
       "key": "ddns.failover_auto_enabled",
       "type": "boolean",
       "default": false

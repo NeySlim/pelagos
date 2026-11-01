@@ -456,6 +456,114 @@ class OfflineRestore:
         units += list(PELAGOS_UNITS)
         plan.units = [u for u in units if self.env.services.exists(u)]
 
+    # Checking without restoring ------------------------------------------------------------
+
+    def verify(self) -> dict[str, Any]:
+        """`pelagos restore --verify`: proves the archive restorable on copies in the work folder;
+        writes nothing else, stops or starts nothing, never raises on a bad archive."""
+        from pelagos.collector.archives import test_restore
+
+        checks: list[dict[str, Any]] = []
+        report: dict[str, Any] = {
+            "ok": False,
+            "archive": str(self.archive),
+            "manifest": None,
+            "checks": checks,
+            "warnings": [],
+            "host": [],
+        }
+
+        def done() -> dict[str, Any]:
+            report["ok"] = bool(checks) and all(c["ok"] is not False for c in checks)
+            return report
+
+        if not self.archive.is_file():
+            checks.append({"what": "archive", "ok": False, "output": f"{self.archive}: no such archive file"})
+            return done()
+        if bundle.sum_path(self.archive).exists():
+            try:
+                good = bundle.verify_sum(self.archive)
+                checks.append({"what": "sha256", "ok": good, "output": "" if good else "damaged or altered"})
+            except ArchiveError as exc:
+                good = False
+                checks.append({"what": "sha256", "ok": False, "output": str(exc)})
+            if not good:
+                return done()
+        else:
+            report["warnings"].append("no .sha256 beside the archive: integrity rests on decryption alone")
+        if not self.identities:
+            checks.append(
+                {"what": "decrypt", "ok": False, "output": "no identity to open the archive: give --identity"}
+            )
+            return done()
+        self.workdir = self._make_workdir()
+        try:
+            manifest = bundle.extract(self.archive, self.identities, self.workdir)
+        except age.AgeNoMatchError:
+            checks.append(
+                {"what": "decrypt", "ok": False, "output": "none of the identities given opens this archive"}
+            )
+            return done()
+        except (age.AgeError, ArchiveError, OSError) as exc:
+            checks.append({"what": "decrypt", "ok": False, "output": f"the archive is damaged: {exc}"})
+            return done()
+        checks.append(
+            {
+                "what": "decrypt",
+                "ok": True,
+                "output": f"{len(manifest.files)} files, {len(manifest.zones)} zones",
+            }
+        )
+        report["manifest"] = {
+            "archive_id": manifest.archive_id,
+            "node_id": manifest.node_id,
+            "node_name": manifest.node_name,
+            "created_at": manifest.created_at.isoformat(),
+            "versions": dict(manifest.versions),
+            "complete": manifest.complete,
+            "unreadable": list(manifest.unreadable),
+        }
+        if not manifest.complete:
+            report["warnings"].append(
+                "the archive is incomplete; not archived: " + (", ".join(manifest.unreadable) or "unknown")
+            )
+        plan = RestorePlan(self.archive, manifest, [])
+        try:
+            self._plan(plan)
+        except Exception as exc:
+            plan.errors.append(f"plan: {exc}")
+        report["warnings"] += plan.warnings
+        report["host"] = list(plan.errors)
+        node = next(
+            (f.path for f in manifest.files if f.part == PART_PELAGOS and Path(f.path).name == "node.toml"),
+            None,
+        )
+        if node is not None:
+            checks.append(self._check_node_toml(node, manifest.node_id))
+        conf_paths = dict(plan.kea_confs)
+        if plan.named_conf:
+            conf_paths["bind"] = plan.named_conf
+        result = test_restore(
+            self.archive, self.identities, manifest, self.workdir, conf_paths, extracted=manifest
+        )
+        checks += result.get("checks") or []
+        if not any(c["what"] == "cluster.toml" for c in checks) and "pelagos" in plan.groups:
+            checks.append({"what": "cluster.toml", "ok": False, "output": "not in the archive"})
+        return done()
+
+    def _check_node_toml(self, path: str, node_id: str) -> dict[str, Any]:
+        import tomllib
+
+        from pelagos.core.config_store import NodeConfig
+
+        try:
+            cfg = NodeConfig.from_toml(tomllib.loads(self.copy_of(path).read_text()))
+        except Exception as exc:
+            return {"what": "node.toml", "ok": False, "output": f"does not load: {exc}"}
+        if cfg.id != node_id:
+            return {"what": "node.toml", "ok": False, "output": f"node {cfg.id}, the manifest says {node_id}"}
+        return {"what": "node.toml", "ok": True, "output": f"{cfg.name} ({cfg.id})"}
+
     # Applying ------------------------------------------------------------------------------
 
     def check_copy(self, plan: RestorePlan) -> list[dict[str, Any]]:
@@ -473,7 +581,12 @@ class OfflineRestore:
         finally:
             shutil.rmtree(work, ignore_errors=True)
         bind = "bind" in plan.groups
-        checks = [c for c in result.get("checks") or [] if bind or not str(c["what"]).startswith("named-")]
+        pelagos = "pelagos" in plan.groups
+        checks = [
+            c
+            for c in result.get("checks") or []
+            if (bind or not str(c["what"]).startswith("named-")) and (pelagos or c["what"] != "cluster.toml")
+        ]
         for c in checks:
             if c["ok"] is False and "Unable to open file" in str(c.get("output")) and Path(APPARMOR).exists():
                 # Debian confines kea-* -t to /etc/kea: the real files are checked before the start.

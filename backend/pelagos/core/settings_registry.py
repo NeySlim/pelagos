@@ -284,6 +284,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("archives.verify_enabled", "boolean", True),
     S("archives.test_restore_days", "integer", 7, 0, 365, "days"),
     S("archives.max_archive_mb", "integer", 512, 1, 65536, "mb"),
+    S("archives.key_reminder_days", "integer", 90, 0, 3650, "days"),
     # DDNS failover (section 24)
     S("ddns.failover_auto_enabled", "boolean", False),
     S("ddns.failover_after_seconds", "integer", 300, 60, DAY, "seconds"),

@@ -63,7 +63,7 @@ def test_rrset_converges_then_is_idempotent(api):
     converged(client.put(f"{RR}/desired/A", json=body), False)
 
     bad = client.put(f"{RR}/desired/A", json={"records": ["not-an-address"]})
-    assert bad.status_code == 422 and bad.get_json()["code"] == "engine_validation_failed"
+    assert bad.status_code == 400 and bad.get_json()["code"] == "validation_error"
 
     converged(client.delete(f"{RR}/desired/A"), True)
     assert client.get(f"{RR}/desired/A").status_code == 404

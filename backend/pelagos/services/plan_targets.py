@@ -8,6 +8,8 @@ from typing import Any
 
 import dns.exception
 import dns.name
+import dns.rdata
+import dns.rdataclass
 import dns.rdatatype
 
 from pelagos.connectors.base import ConnectorError
@@ -110,6 +112,9 @@ def check_record_owner(owner: str, zone: str, rtype: str, op: str, field: str) -
         raise _invalid(field, f"{field}: {name} is outside zone {zone}", "outside zone")
     if op == "delete":
         return
+    if rtype == "DS" and name == origin:
+        # The DS of a zone lives in its parent (RFC 4034 5): here it can only sit at a delegation.
+        raise _invalid(field, f"{field}: a DS record cannot sit at the zone apex {zone}", "DS at apex")
     rule = _HOST_LABEL if rtype in HOSTNAME_OWNER_TYPES else _LABEL
     labels = name.relativize(origin).labels if name != origin else ()
     for i, raw in enumerate(labels):
@@ -127,3 +132,51 @@ def check_ttl(after: Any, field: str) -> None:
         ttl = int(ttl)
     if isinstance(ttl, bool) or not isinstance(ttl, int) or not 0 <= ttl <= MAX_TTL:
         raise _invalid(f"{field}.ttl", f"{field}.ttl must be an integer from 0 to {MAX_TTL}", "out of range")
+
+
+# Presentation form of the record types the editor offers, quoted in the per-field errors.
+RDATA_FORMS: dict[str, str] = {
+    "A": "an IPv4 address",
+    "AAAA": "an IPv6 address",
+    "CNAME": "a host name",
+    "PTR": "a host name",
+    "NS": "a host name",
+    "DNAME": "a domain name",
+    "MX": "<preference> <host>",
+    "SRV": "<priority> <weight> <port> <target>",
+    "TXT": '"<text>" ...',
+    "CAA": '<flags> <tag> "<value>"',
+    "DHCID": "<base64>",
+    "SSHFP": "<algorithm> <fingerprint type> <fingerprint hex>",
+    "TLSA": "<usage> <selector> <matching type> <data hex>",
+    "HTTPS": "<priority> <target> [<key>=<value> ...]",
+    "SVCB": "<priority> <target> [<key>=<value> ...]",
+    "NAPTR": '<order> <preference> "<flags>" "<services>" "<regexp>" <replacement>',
+    "LOC": "<d> [<m> [<s>]] N|S <d> [<m> [<s>]] E|W <altitude>m [<size>m [<hp>m [<vp>m]]]",
+    "DS": "<key tag> <algorithm> <digest type> <digest hex>",
+    "URI": '<priority> <weight> "<uri>"',
+}
+
+
+def check_rdata(rtype: str, after: Any, zone: str, field: str) -> None:
+    """Each rdata of `after` parses as `rtype` (dnspython, names relative to the zone): a 400 naming
+    the value at fault. A missing or empty list is left to the plan builder."""
+    if not isinstance(after, dict) or not isinstance(after.get("rdata"), list):
+        return
+    try:
+        rdtype = dns.rdatatype.from_text(rtype)
+        origin = dns.name.from_text(zone)
+    except dns.exception.DNSException:
+        return
+    errors = []
+    for j, text in enumerate(after["rdata"]):
+        if not isinstance(text, str):
+            continue
+        try:
+            dns.rdata.from_text(dns.rdataclass.IN, rdtype, text, origin=origin, relativize=False)
+        except Exception as exc:  # dnspython raises several types for a bad value
+            expected = RDATA_FORMS.get(rtype)
+            hint = f"expected {expected}" if expected else str(exc) or "invalid value"
+            errors.append(field_error(f"{field}.rdata[{j}]", f"invalid {rtype} value: {hint}"))
+    if errors:
+        raise ValidationError(f"{field}.rdata has values that are not valid {rtype} records", errors)

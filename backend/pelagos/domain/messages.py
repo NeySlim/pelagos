@@ -32,6 +32,12 @@ CATALOG: dict[str, str] = {
     "rrset.cname_other_data": "{owner} already has other records ({types}); a CNAME cannot coexist with them",
     "rrset.is_cname": "{owner} is a CNAME; no other record can be added at this name",
     "rrset.no_change": "no change",
+    "rrset.ds_apex": "{owner}: a DS record cannot sit at the zone apex, it belongs to the parent zone",
+    "rrset.ds_no_delegation": "{owner} has no NS records: a DS record only sits at a delegation",
+    "rrset.ns_keeps_ds": "{owner} keeps its DS records: delete them together with the NS records",
+    "rrset.singleton": "{owner} {rtype} holds a single value",
+    "rrset.dname_below": "{owner} has names below it ({names}): a DNAME cannot be added above them",
+    "rrset.under_dname": "{owner} is below the DNAME at {dname}: no record can be added there",
     "note.no_difference": "no difference found",
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",
@@ -710,7 +716,7 @@ CATALOG: dict[str, str] = {
     ),
     "finding.update_types_narrow.proposal": "Add {types} to the zonesub grant of {key}",
     "finding.update_types_narrow.risk": (
-        "Pelagos may then change the zone's name servers (NS) and CAA records, always through a plan."
+        "Pelagos may then change these records of the zone, always through a plan."
     ),
     "finding.transfer_without_read_key.description": (
         "Transfers allowed by {where} leave {key} out: Pelagos cannot read the zone records."

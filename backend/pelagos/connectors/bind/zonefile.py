@@ -199,7 +199,12 @@ def _tokens(lines: list[str], start: int) -> tuple[list[Token], int, bool]:
                     k += 2 if text[k] == "\\" else 1
                 if k >= n:
                     raise ZoneFileError(f"line {i + 1}: unterminated quoted string")
-                tokens.append(Token(text[j : k + 1], i, j, k + 1, quoted=True))
+                prev = tokens[-1] if tokens else None
+                if prev is not None and not prev.quoted and prev.line == i and prev.end == j:
+                    # `alpn="h2,h3"` (SVCB, HTTPS) is one word: the quotes do not split it.
+                    tokens[-1] = Token(prev.text + text[j : k + 1], i, prev.col, k + 1)
+                else:
+                    tokens.append(Token(text[j : k + 1], i, j, k + 1, quoted=True))
                 j = k + 1
             else:
                 k = j

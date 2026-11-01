@@ -61,7 +61,9 @@ def test_narrow_grant_is_found_and_widened(tmp_path):
     found = {f.id: f for f in run_audit(env) if f.kind == "update_types_narrow"}
     fid = "bind:update_types_narrow:_default/example.lan."
     assert list(found) == [fid]  # zonesub ANY already covers everything
-    assert found[fid].messages["description"]["params"]["types"] == "NS CAA"
+    legacy = zone_updates.LEGACY_ADMIN_UPDATE_TYPES
+    missing = " ".join(t for t in zone_updates.ADMIN_UPDATE_TYPES if t not in legacy)
+    assert found[fid].messages["description"]["params"]["types"] == missing
     assert found[fid].details["remediation"] == "update_types_widen"
 
     plan = build_security_plan(env, [fid], created_by="admin")
@@ -69,7 +71,7 @@ def test_narrow_grant_is_found_and_widened(tmp_path):
     job = apply_plan(plan, env)
     assert job.state is JobState.DONE, job.error
     text = local.read_text()
-    assert f"grant ddi-admin zonesub {' '.join(zone_updates.LEGACY_ADMIN_UPDATE_TYPES)} NS CAA;" in text
+    assert f"grant ddi-admin zonesub {' '.join(zone_updates.LEGACY_ADMIN_UPDATE_TYPES)} {missing};" in text
     assert 'grant "kea-ddns" zonesub A AAAA PTR DHCID;' in text
     assert not [f for f in run_audit(env) if f.kind == "update_types_narrow"]
 

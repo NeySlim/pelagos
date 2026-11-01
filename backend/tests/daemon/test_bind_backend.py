@@ -368,3 +368,132 @@ def test_secondary_follows_after_notify(named_server, named_secondary, tmp_root)
     )
     # Refresh is one hour: only the NOTIFY can have triggered this transfer.
     assert named_secondary.rndc("zonestatus", "example.lan").count(str(serial)) == 1
+
+
+# B1-RRTYPES: every new type through a plan on the primary, then by transfer on the secondary.
+NEW_TYPE_CASES = [
+    # (owner, type, first value, replacement)
+    ("_22._tcp.ssh", "SSHFP", "4 1 123456789ABCDEF67890123456789ABCDEF67890", "1 1 " + "cd" * 20),
+    ("_443._tcp.www", "TLSA", "3 1 1 " + "AB" * 32, "3 1 2 " + "ef" * 64),
+    ("www", "HTTPS", '1 . alpn="h3,h2" port=8443', '2 www2.example.lan. alpn="h2"'),
+    ("_dns.resolver", "SVCB", '1 dot.example.lan. alpn="dot" port=853', '1 dot.example.lan. alpn="dot"'),
+    ("sip", "NAPTR", '100 10 "S" "SIP+D2U" "" _sip._udp', '100 20 "S" "SIP+D2T" "" _sip._tcp'),
+    ("office", "LOC", "52 22 23 N 4 53 32 E -2m 0m 10000m 10m", "52 22 24 N 4 53 32 E 3m"),
+    ("old", "DNAME", "new.example.lan.", "other.example.net."),
+    ("sub", "DS", "60485 13 2 " + "2B" * 32, "12345 13 2 " + "3c" * 32),
+    ("_http._tcp", "URI", '10 1 "https://www.example.lan/"', '20 1 "https://alt.example.lan/"'),
+]
+
+
+def _answer(port: int, name: str, rtype: str) -> list[str]:
+    """What a resolver sees on `port`: dig when installed (as an operator checks), else the client."""
+    import shutil
+    import subprocess
+
+    import dns.name
+    import dns.rdata
+    import dns.rdataclass
+    import dns.rdatatype
+
+    dig = shutil.which("dig")
+    if dig is None:
+        return sorted(DnsClient(port=port).query(name, rtype) or [])
+    out = subprocess.run(
+        [dig, "+short", "+tcp", "-p", str(port), "@127.0.0.1", name, rtype],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    want = dns.rdatatype.from_text(rtype)
+    return sorted(
+        dns.rdata.from_text(dns.rdataclass.IN, want, line, origin=dns.name.root).to_text()
+        for line in out.splitlines()
+        if line.strip()
+    )
+
+
+def test_new_record_types_reach_the_secondary(named_server, named_secondary, tmp_root):
+    ports = {"dns": named_server.dns_port, "rndc": named_server.rndc_port, "stats": named_server.stats_port}
+    conf = named_fx.write_primary_conf(
+        named_server.root, ports, named_server.keys, secondary_port=named_secondary.dns_port
+    )
+    # The admin grant the installer writes from 0.4.0 on (zone_updates.ADMIN_UPDATE_TYPES).
+    from pelagos.domain import zone_updates
+
+    granted = " ".join(zone_updates.ADMIN_UPDATE_TYPES)
+    text = conf.read_text()
+    conf.write_text(
+        text.replace(
+            "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID;",
+            f"grant ddi-admin zonesub {granted};",
+        )
+    )
+    named_server.rndc("reconfig")
+    settings = {
+        **SETTINGS,
+        "dns": {**SETTINGS["dns"], "update_types_admin": list(zone_updates.ADMIN_UPDATE_TYPES)},
+    }
+    primary = make_backend(named_server, tmp_root, settings)
+    secondary = DnsClient(port=named_secondary.dns_port)
+    wait_for(lambda: secondary.soa_serial("example.lan") == 2026102401, timeout=20, what="initial transfer")
+
+    def applied(changes: list[Change]) -> None:
+        plan = primary.plan_rrset_changes("example.lan", changes)
+        assert plan.state is PlanState.VALIDATED, plan.error
+        result = primary.apply(plan)
+        assert result.ok, result.message
+        serial = primary.soa_serial("example.lan")
+        primary.notify("example.lan")
+        wait_for(lambda: secondary.soa_serial("example.lan") == serial, timeout=20, what="transfer")
+
+    def expect(owner: str, rtype: str, value: str | None) -> None:
+        name = f"{owner}.example.lan."
+        want = [] if value is None else rr_norm(rtype, value)
+        assert _answer(named_server.dns_port, name, rtype) == want, (rtype, "primary")
+        assert _answer(named_secondary.dns_port, name, rtype) == want, (rtype, "secondary")
+        on_primary = rrsets(primary).get((name, rtype))
+        assert (on_primary or []) == want
+
+    # The delegation the DS sits at, glue included.
+    applied(
+        [
+            Change(ChangeOp.ADD, "example.lan/sub/NS", after={"rdata": ["ns.sub.example.lan."]}),
+            Change(ChangeOp.ADD, "example.lan/ns.sub/A", after={"rdata": ["192.0.2.53"]}),
+        ]
+    )
+    applied(
+        [
+            Change(ChangeOp.ADD, f"example.lan/{o}/{t}", after={"rdata": [v], "ttl": 300})
+            for o, t, v, _ in NEW_TYPE_CASES
+        ]
+    )
+    for owner, rtype, value, _ in NEW_TYPE_CASES:
+        expect(owner, rtype, value)
+    applied(
+        [
+            Change(ChangeOp.REPLACE, f"example.lan/{o}/{t}", after={"rdata": [v2]})
+            for o, t, _, v2 in NEW_TYPE_CASES
+        ]
+    )
+    for owner, rtype, _, value in NEW_TYPE_CASES:
+        expect(owner, rtype, value)
+    applied([Change(ChangeOp.DELETE, f"example.lan/{o}/{t}") for o, t, _, _ in NEW_TYPE_CASES])
+    for owner, rtype, _, _ in NEW_TYPE_CASES:
+        expect(owner, rtype, None)
+
+    # Refused before any UPDATE: DS without a delegation, data below a DNAME.
+    plan = primary.plan_rrset_changes(
+        "example.lan", [Change(ChangeOp.ADD, "example.lan/www/DS", after={"rdata": [NEW_TYPE_CASES[7][2]]})]
+    )
+    assert plan.state is PlanState.FAILED and "only sits at a delegation" in plan.error
+    applied([Change(ChangeOp.ADD, "example.lan/old/DNAME", after={"rdata": ["new.example.lan."]})])
+    plan = primary.plan_rrset_changes(
+        "example.lan", [Change(ChangeOp.ADD, "example.lan/host.old/A", after={"rdata": ["192.0.2.77"]})]
+    )
+    assert plan.state is PlanState.FAILED and "below the DNAME" in plan.error
+
+
+def rr_norm(rtype: str, value: str) -> list[str]:
+    from pelagos.connectors.bind.rrset import normalize_rdata
+
+    return normalize_rdata(rtype, value, "example.lan.")

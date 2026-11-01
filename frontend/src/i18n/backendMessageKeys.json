@@ -1792,6 +1792,16 @@
     "owner",
     "types"
   ],
+  "rrset.dname_below": [
+    "names",
+    "owner"
+  ],
+  "rrset.ds_apex": [
+    "owner"
+  ],
+  "rrset.ds_no_delegation": [
+    "owner"
+  ],
   "rrset.empty": [
     "owner",
     "rtype"
@@ -1812,10 +1822,21 @@
     "rtype"
   ],
   "rrset.no_change": [],
+  "rrset.ns_keeps_ds": [
+    "owner"
+  ],
+  "rrset.singleton": [
+    "owner",
+    "rtype"
+  ],
   "rrset.ttl_range": [
     "owner",
     "rtype",
     "ttl"
+  ],
+  "rrset.under_dname": [
+    "dname",
+    "owner"
   ],
   "update.failed.audit": [
     "problems"

@@ -23,6 +23,8 @@ DEFAULT_TTL = 3600
 DEFAULT_VIEW = "_default"
 # Types a dynamic UPDATE must never touch through a record plan.
 FORBIDDEN_TYPES = {"SOA", "AXFR", "IXFR", "ANY", "OPT", "TSIG", "TKEY"}
+# Signing records named maintains: they never count as data at or below a name.
+DNSSEC_TYPES = {"RRSIG", "NSEC", "NSEC3"}
 
 
 class RRsetError(ValueError):
@@ -159,6 +161,8 @@ def resolve_changes(
         except RRsetError:
             continue
         (deleted if change.op == ChangeOp.DELETE else planned).add(key)
+    # The (owner, type) pairs the zone holds once the plan is applied: DS and DNAME rules look there.
+    live = (set(index) - deleted) | planned
     for change in changes:
         try:
             owner, rtype = parse_target(change.target, zone)
@@ -206,7 +210,7 @@ def resolve_changes(
                     messages.msg("rrset.changed", owner=owner, rtype=rtype),
                 )
             others = owners_types.get(owner, set()) | {t for o, t in planned if o == owner}
-            others -= {rtype, "RRSIG", "NSEC", "NSEC3"}
+            others -= {rtype} | DNSSEC_TYPES
             others -= {t for o, t in deleted if o == owner}
             if op is not ChangeOp.DELETE and rtype == "CNAME" and others:
                 raise RRsetError(
@@ -220,6 +224,7 @@ def resolve_changes(
                 )
             if rtype == "CNAME" and after is not None and len(after.rdata) != 1:
                 raise RRsetError(f"{owner} CNAME must have exactly one target")
+            _check_neighbours(op, owner, rtype, after, normalize_name(zone), live)
             resolved.append(RRsetChange(op, owner, rtype, existing, after))
         except (RRsetError, ValueError) as exc:
             errors.append(str(exc))
@@ -227,6 +232,58 @@ def resolve_changes(
                 keyed = getattr(exc, "message", None)
                 error_messages.append(keyed or messages.msg("common.text", text=str(exc)))
     return resolved, errors
+
+
+def _check_neighbours(
+    op: ChangeOp, owner: str, rtype: str, after: RRset | None, zone: str, live: set[tuple[str, str]]
+) -> None:
+    """DS only at a delegation (NS at the owner, never the apex); nothing below a DNAME (RFC 6672 2.3)."""
+    if op is ChangeOp.DELETE:
+        if rtype == "NS" and owner != zone and (owner, "DS") in live:
+            raise RRsetError(
+                f"{owner} keeps its DS records; delete them with the NS records",
+                messages.msg("rrset.ns_keeps_ds", owner=owner),
+            )
+        return
+    if rtype == "DS":
+        if owner == zone:
+            raise RRsetError(
+                f"{owner}: a DS record cannot sit at the zone apex",
+                messages.msg("rrset.ds_apex", owner=owner),
+            )
+        if (owner, "NS") not in live:
+            raise RRsetError(
+                f"{owner} has no NS records: a DS record only sits at a delegation",
+                messages.msg("rrset.ds_no_delegation", owner=owner),
+            )
+    if rtype == "DNAME" and after is not None and len(after.rdata) != 1:
+        raise RRsetError(
+            f"{owner} DNAME must have exactly one target",
+            messages.msg("rrset.singleton", owner=owner, rtype=rtype),
+        )
+    name = dns.name.from_text(owner)
+    if rtype == "DNAME":
+        below = sorted(
+            {
+                o
+                for o, t in live
+                if t not in DNSSEC_TYPES and o != owner and dns.name.from_text(o).is_subdomain(name)
+            }
+        )
+        if below:
+            raise RRsetError(
+                f"{owner} has names below it ({', '.join(below[:5])}); a DNAME cannot be added above them",
+                messages.msg("rrset.dname_below", owner=owner, names=below[:5]),
+            )
+    origin = dns.name.from_text(zone)
+    parent = name
+    while parent != origin and len(parent.labels) > len(origin.labels):
+        parent = parent.parent()
+        if (parent.to_text(), "DNAME") in live:
+            raise RRsetError(
+                f"{owner} is below the DNAME at {parent}; no record can be added there",
+                messages.msg("rrset.under_dname", owner=owner, dname=parent.to_text()),
+            )
 
 
 def errors_message(error_messages: list[Message]) -> Message | None:

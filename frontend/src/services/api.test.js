@@ -106,7 +106,7 @@ const invocations = [
   () => api.archives.updateDestination('d1', {}), () => api.archives.deleteDestination('d1'),
   () => api.archives.testDestination({ destination_id: 'd1' }), () => api.archives.run(['n1']),
   () => api.archives.list({ node_id: 'n1' }), () => api.archives.download('a1'), () => api.archives.upload({}),
-  () => api.archives.identity({ op: 'generate' }), () => api.archives.inspect('a1'),
+  () => api.archives.identity({ op: 'generate' }), () => api.archives.verifyKey('age1x', 'AGE-SECRET-KEY-1X'), () => api.archives.inspect('a1'),
   () => api.archives.restorePlan('a1', { target_node_id: 'n1', parts: [] }),
   () => api.ddnsFailover.resilience(), () => api.ddnsFailover.preparePlan(), () => api.ddnsFailover.failoverPlan('n2'),
   () => api.ddnsFailover.switchoverPlan('n1', ['example.lan.']), () => api.ddnsFailover.replayPlan(),

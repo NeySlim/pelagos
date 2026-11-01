@@ -52,6 +52,21 @@ describe('mock clusters of more than two nodes', () => {
     expect(copies.map((l) => l.node_id).sort()).toEqual([ids().ns1, ids().ns2, ids().ns3].sort())
   })
 
+  it('labels two sites and lets an admin change one', async () => {
+    const call = await session()
+    const sites = (await call('GET', '/nodes')).data.items.map((n) => n.peer.site)
+    expect(sites).toEqual(['dc1', 'dc1', 'dc2'])
+    const set = await call('PATCH', `/nodes/${ids().ns3}`, { site: '  dc3 ' })
+    expect(set.status).toBe(200)
+    expect(set.data.peer.site).toBe('dc3')
+    expect((await call('GET', `/nodes/${ids().ns3}`)).data.peer.site).toBe('dc3')
+    expect((await call('GET', '/audit?action=admin.node.replace')).data.items[0]).toMatchObject({ target: `node:${ids().ns3}`, response: { after: { site: 'dc3' } } })
+    expect((await call('PATCH', `/nodes/${ids().ns3}`, { site: null })).data.peer.site).toBeNull()
+    expect((await call('PATCH', `/nodes/${ids().ns3}`, { site: 'x'.repeat(65) })).status).toBe(400)
+    expect((await call('PATCH', '/nodes/unknown', { site: 'dc1' })).status).toBe(404)
+    await call('PATCH', `/nodes/${ids().ns3}`, { site: 'dc2' })
+  })
+
   it('applies maintenance on the partner and refuses a backup', async () => {
     const call = await session()
     const plan = (await call('POST', '/dhcp/v4/ha/maintenance/plan', { node_id: ids().ns2, action: 'start' })).data

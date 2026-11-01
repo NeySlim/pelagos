@@ -57,12 +57,19 @@ function peer(name, id) {
     modules: isBackup(name) ? { bind: true, kea4: true, kea6: false, d2: false } : { bind: true, kea4: true, kea6: true, d2: true },
     enrolled_at: ago(86400 * (isBackup(name) ? 3 : 40)),
     enrolled_by: name === 'ns1' ? null : 'admin',
+    site: null,
   }
 }
 
-function makeNodes(names) {
+// Two sites in the multi-node scenarios; `pair` and `hub` leave the label unset.
+const SITES = {
+  three: { ns1: 'dc1', ns2: 'dc1', ns3: 'dc2' },
+  four: { ns1: 'dc1', ns2: 'dc1', ns3: 'dc2', ns4: 'dc2' },
+}
+
+function makeNodes(names, scenario) {
   return names.map((name, i) => ({
-    peer: peer(name, NODE_IDS[name]),
+    peer: { ...peer(name, NODE_IDS[name]), site: SITES[scenario]?.[name] ?? null },
     is_self: name === 'ns1',
     status: 'online',
     version: '0.3.0',
@@ -1045,7 +1052,7 @@ export function createState(scenario = 'pair') {
     scenario: SCENARIOS[scenario] ? scenario : 'pair',
     selfId: SELF_ID,
     nodeIds: NODE_IDS,
-    nodes: makeNodes(names),
+    nodes: makeNodes(names, scenario),
     users: makeUsers(),
     customRoles: [{ name: 'helpdesk', builtin: false, description: 'Read and reservations', permissions: ['read:dns', 'read:dhcp', 'read:hosts', 'write:dhcp.reservations'] }],
     apiTokens: [],

@@ -4,11 +4,7 @@
 import { Link } from 'react-router-dom'
 import { useNodePeers } from '../hooks/useNodeNames'
 import { cn } from '../lib/utils'
-
-function shortNodeName(name) {
-  if (!name) return name
-  return /^[0-9.:[\]]+$/.test(name) ? name : name.split('.')[0]
-}
+import { shortNodeName } from '../lib/shortNodeName'
 
 export function NodeLink({ nodeId, name, short = false, className, testId = 'node-link' }) {
   const peerOf = useNodePeers()

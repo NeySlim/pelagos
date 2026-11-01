@@ -10,6 +10,7 @@ import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { NodeLink } from '../../components/NodeLink'
+import { shortNodeName } from '../../lib/shortNodeName'
 import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { DataTable } from '../../components/DataTable'
@@ -36,7 +37,6 @@ import { formatOffset, ntpState, skewTone } from './clock'
 import { safeWebUrl } from './webUrl'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
-const shortName = (name) => (/^[0-9.:[\]]+$/.test(name || '') ? name : String(name || '').split('.')[0])
 const NODES_POLL_MS = 10000
 
 // This node and one peer joined by the replication link: when the peer's configuration
@@ -181,6 +181,18 @@ export default function NodesPage() {
     }
   }
 
+  const rowActions = (n) => (
+    <span className="inline-flex gap-1">
+      <Button variant="ghost" size="xs" onClick={() => sync(n)} loading={busy === n.peer.id} title={t('sync.hint')} data-testid="node-sync">
+        <ArrowsClockwise size={13} />
+        {t('sync.button')}
+      </Button>
+      <Button variant="ghost" size="xs" onClick={() => setRemoving(n)} title={t('remove.button')} aria-label={t('remove.button')} data-testid="node-remove">
+        <Trash size={13} className="status-danger-text" />
+      </Button>
+    </span>
+  )
+
   const columns = [
     {
       key: 'name',
@@ -189,7 +201,7 @@ export default function NodesPage() {
       sortValue: (n) => n.peer.name,
       render: (n) => (
         <span className="inline-flex items-center gap-1.5">
-          {n.is_self ? <span className="font-medium" title={n.peer.name}>{shortName(n.peer.name)}</span> : <NodeLink nodeId={n.peer.id} name={n.peer.name} short />}
+          {n.is_self ? <span className="font-medium" title={n.peer.name}>{shortNodeName(n.peer.name)}</span> : <NodeLink nodeId={n.peer.id} name={n.peer.name} short />}
           {n.is_self && <Badge variant="primary" size="sm">{t('list.self')}</Badge>}
         </span>
       ),
@@ -307,18 +319,7 @@ export default function NodesPage() {
           key: 'actions',
           label: '',
           align: 'right',
-          render: (n) =>
-            n.is_self ? null : (
-              <span className="inline-flex gap-1">
-                <Button variant="ghost" size="xs" onClick={() => sync(n)} loading={busy === n.peer.id} title={t('sync.hint')} data-testid="node-sync">
-                  <ArrowsClockwise size={13} />
-                  {t('sync.button')}
-                </Button>
-                <Button variant="ghost" size="xs" onClick={() => setRemoving(n)} title={t('remove.button')} aria-label={t('remove.button')} data-testid="node-remove">
-                  <Trash size={13} className="status-danger-text" />
-                </Button>
-              </span>
-            ),
+          render: (n) => (n.is_self ? null : rowActions(n)),
         }]
       : []),
   ]
@@ -368,11 +369,12 @@ export default function NodesPage() {
       mobileCard={{
         title: (n) => (
           <span className="inline-flex items-center gap-1.5">
-            <span title={n.peer.name}>{shortName(n.peer.name)}</span>
+            <span title={n.peer.name}>{shortNodeName(n.peer.name)}</span>
             {n.is_self && <Badge variant="primary" size="sm">{t('list.self')}</Badge>}
           </span>
         ),
         status: (n) => <StatusBadge status={n.status} />,
+        primaryAction: (n) => (isAdmin && !n.is_self ? rowActions(n) : null),
         fields: siteNames.length ? ['version', 'site', 'clock'] : ['version', 'clock'],
       }}
       emptyTitle={t('list.empty')}

@@ -53,8 +53,14 @@ def excepted_from(entries: Iterable[dict[str, Any]] | None) -> Excepted:
 
 
 def canonical_key(kind: str, key: str) -> str:
-    """`mac:` (lower-case) and `addr:` (compressed) keys of the `ipv6_*` kinds in one form, so a
-    record written by hand or by an older release still matches; any other key as it is."""
+    """`mac:` (lower-case) and `addr:` (compressed) keys of the `ipv6_*` kinds and `mac:` of
+    `unknown_device` in one form, so a record written by hand or by an older release still
+    matches; any other key as it is."""
+    if kind == "unknown_device":  # B1-DISCOVERY: subject mac:<mac>, typed in any common form
+        from pelagos.services.discovery_service import parse_mac
+
+        prefix, _, value = key.partition(":")
+        return f"mac:{parse_mac(value) or value}" if prefix == "mac" else key
     if not kind.startswith("ipv6_"):
         return key
     from pelagos.collector.ipv6.source import normalize_address, normalize_mac

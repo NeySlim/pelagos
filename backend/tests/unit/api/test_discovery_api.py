@@ -65,6 +65,7 @@ def test_discovered_rows_and_filters(role_client, seen, node_ctx):
     assert [r["mac"] for r in c.get(D + "?q=raspberry").get_json()["items"]] == [PI]
     assert [r["mac"] for r in c.get(D + "?q=192.0.2.10").get_json()["items"]] == [MAC]
     assert c.get(D + "?filter=bogus").status_code == 400
+    assert c.get(D + "?q=" + "a" * 65).status_code == 400
 
 
 def test_an_excepted_device_leaves_the_unknown_filter(role_client, seen, node_ctx):
@@ -99,6 +100,8 @@ def test_vendor_route(role_client, node_ctx):
     }
     assert c.get("/api/v1/hosts/vendor/02:00:5e:00:53:01").get_json()["vendor"] is None
     assert c.get("/api/v1/hosts/vendor/nope").status_code == 400
+    assert c.get("/api/v1/hosts/vendor/b827eb5a0122").get_json()["mac"] == PI
+    assert c.get("/api/v1/hosts/vendor/b827.eb5a.0122").get_json()["vendor"] == "Raspberry Pi Foundation"
 
 
 def test_peer_action_answers_this_nodes_neighbors(seen, node_ctx, services):

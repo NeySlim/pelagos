@@ -103,11 +103,23 @@ def test_prune_and_cap(conn, monkeypatch):
 
 
 def test_payload_before_and_after_the_first_pass(conn):
-    assert obs_store.neighbor_payload(None, "n1") == {"node_id": "n1", "neighbors": [], "status": None}
+    empty = {"node_id": "n1", "neighbors": [], "status": None, "truncated": False}
+    assert obs_store.neighbor_payload(None, "n1") == empty
     bare = sqlite3.connect(":memory:")
     bare.row_factory = sqlite3.Row
-    assert obs_store.neighbor_payload(bare, "n1") == {"node_id": "n1", "neighbors": [], "status": None}
+    assert obs_store.neighbor_payload(bare, "n1") == empty
     obs_store.write_neighbor_status(conn, {"node_id": "n1", "last_poll": 5, "error": None})
     obs_store.record_neighbors(conn, [Neighbor("52:54:00:00:00:01", "192.0.2.5")], 4, "n1", 5)
     got = obs_store.neighbor_payload(conn, "n1")
     assert got["status"]["last_poll"] == 5 and len(got["neighbors"]) == 1
+
+
+def test_payload_is_bounded_latest_first(conn, monkeypatch):
+    monkeypatch.setattr(obs_store, "ANSWER_MAX", 2)
+    for i in range(4):
+        obs_store.record_neighbors(
+            conn, [Neighbor(f"52:54:00:00:00:0{i}", f"192.0.2.{i + 1}")], 4, "n1", 100 + i
+        )
+    got = obs_store.neighbor_payload(conn, "n1")
+    assert got["truncated"] is True and [n["last_seen"] for n in got["neighbors"]] == [103, 102]
+    assert obs_store.neighbor_payload(conn, "n1", since=103)["truncated"] is False

@@ -7,6 +7,7 @@ MAC comes from `pelagos/data/oui.tsv` (scripts/gen-oui.py), read on the first lo
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 import time
@@ -26,6 +27,7 @@ MODULE = "discovery"
 PEER_ACTION = "discovery.neighbors"
 PEER_TIMEOUT = 3.0
 FILTERS = ("unknown", "known")
+Q_MAX = 64
 OUI_PATH = Path(__file__).resolve().parent.parent / "data" / "oui.tsv"
 # Prefix lengths of the IEEE registries in hex digits, longest first: MA-S/IAB, MA-M, MA-L.
 OUI_DIGITS = (9, 7, 6)
@@ -63,6 +65,17 @@ def oui_table(path: Path | None = None) -> dict[int, dict[str, str]]:
             if _oui is None:
                 _oui = _load_oui(OUI_PATH)
     return _oui
+
+
+def parse_mac(value: object) -> str | None:
+    """A MAC typed in any common form (`aa:bb:..`, `aa-bb-..`, `aabbccddeeff`, `aabb.ccdd.eeff`),
+    normalized as `normalize_mac` does; None for anything else."""
+    if isinstance(value, str):
+        bare = value.strip().lower()
+        if re.fullmatch(r"[0-9a-f]{12}|[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}", bare):
+            hexes = bare.replace(".", "")
+            value = ":".join(hexes[i : i + 2] for i in range(0, 12, 2))
+    return normalize_mac(value)
 
 
 def vendor_entry(mac: str | None, table: dict[int, dict[str, str]] | None = None) -> tuple[str, str] | None:
@@ -110,6 +123,7 @@ def gather(
     peers: Any,
     peer_ids: Iterable[str],
     timeout: float = PEER_TIMEOUT,
+    since: int | None = None,
 ) -> Gathered:
     out = Gathered()
     answers: list[tuple[str, dict[str, Any] | ServiceError]] = []
@@ -124,7 +138,9 @@ def gather(
         if peer is None:
             return ServiceError("engine_unavailable", f"node {peer_id} is not a known peer")
         try:
-            answer = peers.action(peer, PEER_ACTION, {}, timeout=timeout)
+            answer = peers.action(
+                peer, PEER_ACTION, {} if since is None else {"since": since}, timeout=timeout
+            )
         except ServiceError as exc:
             return exc
         if not isinstance(answer, dict):
@@ -264,6 +280,8 @@ class DiscoveryService:
         """Rows of `GET /hosts/discovered` and its `meta` (`unavailable`, `errors`)."""
         from pelagos.services import consistency
 
+        if q and len(q) > Q_MAX:
+            raise ValidationError("q too long", [field_error("q", f"at most {Q_MAX} characters")])
         if filter_ and filter_ not in FILTERS:
             raise ValidationError("invalid filter", [field_error("filter", f"one of {', '.join(FILTERS)}")])
         g = self.gathered()
@@ -307,7 +325,7 @@ class DiscoveryService:
         return rows, {"unavailable": g.unavailable, "errors": errors}
 
     def vendor_of(self, mac: str) -> dict[str, Any]:
-        norm = normalize_mac(mac)
+        norm = parse_mac(mac)
         if norm is None:
             raise ValidationError("not a MAC address", [field_error("mac", f"not a MAC address: {mac}")])
         found = vendor_entry(norm)

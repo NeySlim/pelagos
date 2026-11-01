@@ -374,6 +374,18 @@ class TestReferencePair:
             ("50.1.99.10.in-addr.arpa.", "PTR"),
         }
 
+        # B1-LEASEHIST: the real lease is in the history, recorded by both HA partners.
+        def recorded() -> list | None:
+            items = api(A1).get(f"/dhcp/v4/leases/history?ip=10.99.1.50&mac={mac}")["items"]
+            held = [i for i in items if i["event"] in ("new", "reassign", "renew")]
+            nodes = {n for i in held for n in i["nodes"]}
+            return held if nodes == {node_id(A1), node_id(A2)} else None
+
+        held = wait_for("both nodes record the lease in the history", recorded, timeout=120)
+        assert held[0]["hw_address"] == mac.lower()
+        timeline = api(A1).get(f"/hosts/mac:{mac}/timeline")["items"]
+        assert any(i["source"] == "lease" and i["ip_address"] == "10.99.1.50" for i in timeline)
+
     def test_08_kea_killed_on_ns1_raises_ha_alert(self):
         settings = {"collector": {"poll_seconds": 10, "peer_poll_seconds": 10}}
         api(A1).call("PUT", "/admin/settings", settings)

@@ -25,7 +25,7 @@ ns = Namespace("plans", description="Previewed writes and long-running jobs", pa
 SUMMARY_FIELDS = (
     "id", "scope", "engine", "node_id", "summary", "summary_message", "created_by", "created_at", "state",
     "expires_at", "finished_at", "rollback_until", "interrupted", "error", "error_message",
-    "target_node_ids", "requires_confirmation",
+    "target_node_ids", "requires_confirmation", "partial", "skipped_node_ids",
 )  # fmt: skip
 PlanSummary = m.model("PlanSummary", {name: fields.Raw() for name in SUMMARY_FIELDS})
 PlanSummaryPage = m.page_of(PlanSummary, "PlanSummaryPage")

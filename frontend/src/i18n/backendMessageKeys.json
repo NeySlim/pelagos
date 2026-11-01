@@ -1618,6 +1618,7 @@
   "plan.zone.secondaries_none": [
     "zone"
   ],
+  "problem.collection_unavailable": [],
   "problem.config_divergence": [],
   "problem.confirmation_required": [],
   "problem.conflict": [],
@@ -1718,6 +1719,7 @@
   "problem.invalid_credentials": [],
   "problem.method_not_allowed": [],
   "problem.module_disabled": [],
+  "problem.node_unreachable": [],
   "problem.not_found": [],
   "problem.not_implemented": [],
   "problem.not_supported": [],
@@ -1726,6 +1728,7 @@
   "problem.precondition_failed": [],
   "problem.preflight_failed": [],
   "problem.rate_limited": [],
+  "problem.reconcile_required": [],
   "problem.release_invalid": [],
   "problem.replication_syncing": [],
   "problem.second_factor_required": [],

@@ -20,6 +20,7 @@ from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, Dn
 from pelagos.core import ha_maintenance, permguard, plan_secrets
 from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
+from pelagos.core.plans import NO_ROLLBACK_SCOPES
 from pelagos.domain import (
     ApplyResult,
     AuditEntry,
@@ -47,7 +48,8 @@ log = logging.getLogger(__name__)
 
 # A part a restart caught mid-apply: which of its nodes applied it is unknown.
 CHECK_BY_HAND = "not rolled back: a restart interrupted this part ({}), check this node by hand"
-JOB_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION})
+# One set for "runs as a job" and "never gets a rollback_until".
+JOB_SCOPES = NO_ROLLBACK_SCOPES
 # The web process publishes plans/expired without waiting for a read of the store.
 SWEEP_SECONDS = 60
 

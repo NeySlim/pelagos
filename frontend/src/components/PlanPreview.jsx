@@ -116,7 +116,7 @@ export function PlanPreview({
   onRolledBack,
   onClose,
   onRecompute,
-  applyFn = (id, confirm) => api.plans.apply(id, confirm),
+  applyFn = (id, confirm, extra) => (extra ? api.plans.apply(id, confirm, extra) : api.plans.apply(id, confirm)),
   rollbackFn = (id) => api.plans.rollback(id),
   jobFn = (id) => api.jobs.get(id),
   getFn = (id) => api.plans.get(id),
@@ -128,7 +128,8 @@ export function PlanPreview({
   nodeName: nodeNameProp,
   // The caller already confirmed (the user typed the object's name): no checkbox.
   preConfirmed = false,
-  // { checked, onChange, nodeIds, label? }: "apply only on the reachable nodes", shown only when given.
+  // { checked, onChange, nodeIds, label? }: "apply only on the reachable nodes". Without it, a
+  // 409 node_unreachable with partial_allowed shows the same box (section 6, partial apply).
   partialOption,
   // 'modal': the body scrolls inside the parent flex column and the action bar is pinned below it.
   layout = 'inline',
@@ -150,6 +151,9 @@ export function PlanPreview({
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  // From a 409 node_unreachable: { nodeIds, allowed, inTouch }; and the internal box.
+  const [offline, setOffline] = useState(null)
+  const [partialChecked, setPartialChecked] = useState(false)
   const [result, setResult] = useState(() => (initialPlan?.state === 'applied' ? recalled?.result || null : null))
   const [job, setJob] = useState(null)
   // The rail: steps, its direction and how long its current move takes.
@@ -167,12 +171,19 @@ export function PlanPreview({
     setJob(null)
     setError(null)
     setConfirmed(false)
+    setOffline(null)
+    setPartialChecked(false)
   }, [initialPlan])
 
   const { expired, seconds } = useCountdown(plan?.expires_at)
   const isJobScope = JOB_SCOPES.includes(plan?.scope)
   const isConfirmed = confirmed || preConfirmed
-  const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || isConfirmed) && !busy
+  const partial = partialOption || (offline?.allowed ? { checked: partialChecked, onChange: setPartialChecked, nodeIds: offline.nodeIds } : null)
+  const partialOn = Boolean(partial?.checked)
+  // A partial apply always needs the confirmation (reason partial_apply).
+  const needsConfirm = Boolean(plan?.requires_confirmation) || partialOn
+  const confirmReasons = [...(plan?.requires_confirmation_reasons || []), ...(partialOn && !(plan?.requires_confirmation_reasons || []).includes('partial_apply') ? ['partial_apply'] : [])]
+  const canApply = plan && plan.state === 'validated' && !expired && (!needsConfirm || isConfirmed) && !busy
   const applied = (result?.state || plan?.state) === 'applied'
   // An interrupted FAILED plan has a rollback window too: rollback_until is what says so.
   const windowOpen = Boolean(plan?.rollback_until) && Date.parse(plan.rollback_until) > Date.now()
@@ -193,7 +204,8 @@ export function PlanPreview({
       setFoldSignal((n) => n + 1)
     }
     try {
-      const res = await applyFn(plan.id, plan.requires_confirmation ? isConfirmed : false)
+      const confirm = needsConfirm ? isConfirmed : false
+      const res = await (partialOn ? applyFn(plan.id, confirm, { partial: true }) : applyFn(plan.id, confirm))
       if (res && res.steps !== undefined) {
         setRail(null)
         setFoldSignal((n) => n + 1)
@@ -213,18 +225,26 @@ export function PlanPreview({
           emitPlanEvent({ type: 'applied', plan, at: appliedAt.current, result: res })
           Promise.resolve()
             .then(() => getFn(plan.id))
-            .then((fresh) => fresh?.expires_at && setPlan((p) => ({ ...p, expires_at: fresh.expires_at })))
+            .then((fresh) => fresh?.expires_at && setPlan((p) => ({ ...p, expires_at: fresh.expires_at, partial: fresh.partial, skipped: fresh.skipped })))
             .catch(() => {})
         }
       }
     } catch (err) {
       setError(err)
+      if (err?.code === 'node_unreachable') {
+        const nodes = err.problem?.nodes || []
+        setOffline({
+          nodeIds: err.problem?.node_ids || nodes.map((n) => n.node_id),
+          allowed: Boolean(err.problem?.partial_allowed),
+          inTouch: nodes.filter((n) => n.reason === 'ha_partner_in_touch').map((n) => n.node_id),
+        })
+      }
       setRail((r) => (r ? { ...r, steps: r.steps.map((s) => (s.state === 'running' ? { ...s, state: 'failed', nodes: s.nodes.map((n) => (n.state === 'running' ? { ...n, state: 'failed' } : n)) } : s)) } : r))
       if (isPlanGone(err)) setPlan((p) => ({ ...p, state: 'expired' }))
     } finally {
       setBusy(false)
     }
-  }, [applyFn, getFn, plan, isConfirmed, onApplied, isJobScope])
+  }, [applyFn, getFn, plan, isConfirmed, needsConfirm, partialOn, onApplied, isJobScope])
 
   const handleRollback = useCallback(async () => {
     setBusy(true)
@@ -583,6 +603,13 @@ export function PlanPreview({
                 )}
               </li>
             ))}
+            {(plan.skipped || []).map((s) => (
+              <li key={`skipped-${s.node_id}`} className="flex items-start gap-2 text-xs" data-testid="plan-skipped">
+                <CheckMark state="failed" className="mt-0.5" />
+                <span className="font-mono text-text-primary" title={s.node_id}>{nodeName(s.node_id)}</span>
+                <span className="text-text-secondary flex-1">{t(`plan.skipped.${s.reason}`, { defaultValue: t('plan.skipped.unreachable') })}</span>
+              </li>
+            ))}
           </ul>
         </div>
       )}
@@ -591,6 +618,9 @@ export function PlanPreview({
       {error && (
         <div ref={errorRef} className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text space-y-1" data-testid="plan-apply-error">
           <div className="font-medium">{errorMessage(error)}</div>
+          {offline?.inTouch?.length > 0 && (
+            <p data-testid="plan-partner-in-touch">{t('plan.partnerInTouch', { nodes: offline.inTouch.map(nodeName).join(', ') })}</p>
+          )}
           {error.errors?.length > 0 && (
             <ul className="list-disc ml-4 font-mono text-2xs whitespace-pre-wrap">
               {error.errors.map((e, i) => (
@@ -619,25 +649,25 @@ export function PlanPreview({
 
   const actions = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-testid="plan-actions" role="group" aria-label={t('plan.actionsLabel')}>
-      {plan.requires_confirmation && pendingApply && plan.requires_confirmation_reasons?.length > 0 && (
+      {needsConfirm && pendingApply && confirmReasons.length > 0 && (
         <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
-          {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
+          {t('plan.confirmReasons')} {confirmReasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
         </p>
       )}
-      {partialOption && pendingApply && (
+      {partial && pendingApply && (
         <label className="w-full flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
           <input
             type="checkbox"
-            checked={Boolean(partialOption.checked)}
-            onChange={(e) => partialOption.onChange?.(e.target.checked)}
+            checked={partialOn}
+            onChange={(e) => partial.onChange?.(e.target.checked)}
             disabled={busy}
             className="accent-[var(--accent-warning)]"
             data-testid="plan-partial-checkbox"
           />
-          {partialOption.label || t('plan.partialOption', { nodes: (partialOption.nodeIds || []).map(nodeName).join(', ') })}
+          {partial.label || t('plan.partialOption', { nodes: (partial.nodeIds || []).map(nodeName).join(', ') })}
         </label>
       )}
-      {plan.requires_confirmation && pendingApply && !preConfirmed && (
+      {needsConfirm && pendingApply && !preConfirmed && (
         <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
           <input
             type="checkbox"

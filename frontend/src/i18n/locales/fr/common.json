@@ -88,6 +88,9 @@
     "conflict": "Conflit avec l'état actuel",
     "precondition_failed": "Les données ont changé depuis la création du plan",
     "preflight_failed": "Un nœud cible ne peut pas appliquer le plan ; rien n'a été modifié",
+    "node_unreachable": "Un nœud cible est hors ligne ; rien n'a été modifié",
+    "reconcile_required": "Un nœud cible doit d'abord être réconcilié ; rien n'a été modifié",
+    "collection_unavailable": "Un nœud joignable a une version plus ancienne : mettez-le à jour d'abord",
     "plan_expired": "Le plan a expiré, recréez-le",
     "plan_state": "Le plan ne peut pas faire cela dans son état actuel",
     "confirmation_required": "Ce plan demande une confirmation explicite",
@@ -207,7 +210,9 @@
       "leases_lost": "des baux actifs sont perdus",
       "lease_conflict": "un autre client tient l'adresse",
       "multi_node": "des écritures différentes sur plusieurs nœuds",
-      "operation": "cette opération touche le service"
+      "operation": "cette opération touche le service",
+      "partial_apply": "le plan s'applique sur une partie de ses nœuds",
+      "reconcile": "la configuration d'un nœud est remplacée"
     },
     "diffLines_one": "{{count}} ligne",
     "diffLines_other": "{{count}} lignes",
@@ -215,6 +220,12 @@
     "appliesTo": "S'applique à {{nodes}}",
     "validatedOn": "validé sur {{node}}",
     "partialOption": "Appliquer seulement sur les nœuds joignables ({{nodes}} hors ligne)",
+    "partnerInTouch": "Le service Pelagos de {{nodes}} ne répond pas mais son Kea sert toujours : redémarrez Pelagos sur ce nœud plutôt que d'appliquer en partie.",
+    "skipped": {
+      "unreachable": "ignoré : hors ligne",
+      "engine_down": "ignoré : Kea arrêté",
+      "ha_partner_in_touch": "ignoré"
+    },
     "actionsLabel": "Actions du plan"
   },
   "readOnly": {

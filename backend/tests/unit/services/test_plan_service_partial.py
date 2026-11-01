@@ -280,7 +280,6 @@ def test_without_partial_an_offline_target_of_a_mixed_plan_is_unchanged(node_ctx
     assert exc.value.code == "preflight_failed" and plan.state is PlanState.VALIDATED
 
 
-@TODO
 def test_job_scopes_are_the_store_no_rollback_scopes():
     assert plan_service.JOB_SCOPES is NO_ROLLBACK_SCOPES
 

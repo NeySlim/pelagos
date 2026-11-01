@@ -88,6 +88,9 @@
     "conflict": "Conflict with the current state",
     "precondition_failed": "The data changed since the plan was built",
     "preflight_failed": "A target node cannot apply the plan; nothing was changed",
+    "node_unreachable": "A target node is offline; nothing was changed",
+    "reconcile_required": "A target node must be reconciled first; nothing was changed",
+    "collection_unavailable": "A reachable node runs an older version; upgrade it first",
     "plan_expired": "The plan has expired, build it again",
     "plan_state": "The plan cannot do that in its current state",
     "confirmation_required": "This plan needs an explicit confirmation",
@@ -207,7 +210,9 @@
       "leases_lost": "active leases are lost",
       "lease_conflict": "another client holds the address",
       "multi_node": "different writes on several nodes",
-      "operation": "this operation affects service"
+      "operation": "this operation affects service",
+      "partial_apply": "the plan is applied on part of its nodes",
+      "reconcile": "the configuration of a node is replaced"
     },
     "diffLines_one": "{{count}} line",
     "diffLines_other": "{{count}} lines",
@@ -215,6 +220,12 @@
     "appliesTo": "Applies to {{nodes}}",
     "validatedOn": "validated on {{node}}",
     "partialOption": "Apply only on the reachable nodes ({{nodes}} offline)",
+    "partnerInTouch": "The Pelagos service of {{nodes}} does not answer but its Kea still serves: restart Pelagos there instead of applying in part.",
+    "skipped": {
+      "unreachable": "skipped: offline",
+      "engine_down": "skipped: Kea not running",
+      "ha_partner_in_touch": "skipped"
+    },
     "actionsLabel": "Plan actions"
   },
   "readOnly": {

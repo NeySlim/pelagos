@@ -88,6 +88,8 @@ class ConfirmationReason(enum.StrEnum):
     LEASE_CONFLICT = "lease_conflict"
     MULTI_NODE = "multi_node"
     OPERATION = "operation"
+    PARTIAL_APPLY = "partial_apply"
+    RECONCILE = "reconcile"
 
 
 class PlanState(enum.StrEnum):
@@ -205,6 +207,10 @@ class Plan(Model):
     finished_at: datetime | None = None
     # Set only while the plan can be rolled back (section 6, rollback window).
     rollback_until: datetime | None = None
+    # Applied on the reachable targets only (section 6, partial apply): the left out ones and why.
+    partial: bool = False
+    skipped: list[dict[str, Any]] = field(default_factory=list)
+    skipped_node_ids: list[str] = field(default_factory=list)
 
     @property
     def permission(self) -> str:

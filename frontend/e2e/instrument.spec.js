@@ -52,9 +52,13 @@ test('the nav cursor glides to the active entry and the tab ink follows the tab'
   await page.locator('[data-nav="dns-zones"]').click()
   await expect(page.getByTestId('zones-table')).toBeVisible()
   await expect.poll(async () => translateY(await style(cursor, 'transform'))).toBeGreaterThan(onDashboard + 20)
-  const zones = await page.locator('[data-nav="dns-zones"]').boundingBox()
-  const nav = await page.locator('.ui-nav').boundingBox()
-  await expect.poll(async () => Math.abs(translateY(await style(cursor, 'transform')) + nav.y - (zones.y + zones.height / 2 - 8))).toBeLessThan(3)
+  // The nav list scrolls (the click scrolls the entry into view), so compare both boxes on
+  // screen at each poll instead of reading the entry once and assuming an unscrolled list.
+  const zones = page.locator('[data-nav="dns-zones"]')
+  await expect.poll(async () => {
+    const [c, z] = [await cursor.boundingBox(), await zones.boundingBox()]
+    return Math.abs(c.y + c.height / 2 - (z.y + z.height / 2))
+  }).toBeLessThan(3)
 
   await page.goto('/dns/zones/example.lan')
   const ink = page.getByTestId('tab-ink').first()

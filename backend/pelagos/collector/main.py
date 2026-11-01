@@ -50,7 +50,7 @@ from pelagos.domain import (
     ZoneKind,
     bulk_zone,
 )
-from pelagos.services import consistency, ddns_replay
+from pelagos.services import consistency, ddns_replay, kea_files
 from pelagos.services.masking import masked_text
 
 log = logging.getLogger(__name__)
@@ -209,6 +209,8 @@ class Collector:
         self.peers = PeersPoller(
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )
+        # B1-KEAOFFLINE: partial applies waiting for reconciliation raise the config-hash alert at once.
+        self.peers.partials = lambda: kea_files.unsettled(self.ctx.cluster())
         for poller in self.kea:
             poller.maintenance = lambda engine: ha_maintenance.active(ctx.paths, engine)
             poller.maintenance_done = lambda engine: ha_maintenance.close(ctx.paths, engine)

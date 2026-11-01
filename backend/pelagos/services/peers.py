@@ -47,6 +47,7 @@ ACTION_CODES = frozenset(
         "not_found",
         "conflict",
         "config_divergence",
+        "reconcile_required",
         "precondition_failed",
         "engine_validation_failed",
         "confirmation_required",
@@ -240,6 +241,25 @@ class PeerGateway:
             log.warning("preflight of plan %s on %s not run", plan.id, peer.name, exc_info=True)
             return None
         return f"{peer.name}: {problem}" if problem else None
+
+    def preflight_verdict(self, peer: Peer, plan: Plan) -> tuple[str | None, str | None]:
+        """(problem, code) of `peer`'s preflight; code `engine_down` or `reconcile_required` (0.4.0),
+        None from an older peer. A transport failure is a problem without code."""
+        try:
+            client = self._client_with_timeout(peer, 60.0)
+            if client is None:
+                return f"{peer.name}: node certificate not available", None
+            verdict = getattr(client, "preflight_verdict", None)
+            if callable(verdict):
+                problem, code = verdict(plan)
+            else:
+                problem, code = client.preflight_plan(plan), None
+        except (ReplicationError, OSError) as exc:
+            return f"{peer.name}: {exc}", None
+        except Exception:
+            log.warning("preflight of plan %s on %s not run", plan.id, peer.name, exc_info=True)
+            return None, None
+        return (f"{peer.name}: {problem}" if problem else None), code
 
     def permission_checks(self, peer: Peer, plan: Plan) -> list[dict[str, Any]] | None:
         """The peer's permission guard checks of `plan`; None when it cannot say (older, unreachable).

@@ -24,7 +24,10 @@ class Collection:
 
 
 # Name -> definition. Merged like `users` (core.cluster_merge.records()).
-COLLECTIONS: dict[str, Collection] = {}
+COLLECTIONS: dict[str, Collection] = {
+    # B1-KEAOFFLINE: partial applies waiting for reconciliation, id "<engine>:<source>:<target>".
+    "kea_partials": Collection(),
+}
 
 
 def peers_missing(name: str, statuses: Iterable[PeerStatus]) -> list[str]:

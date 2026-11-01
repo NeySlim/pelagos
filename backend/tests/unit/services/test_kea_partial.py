@@ -1,89 +1,132 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The `kea_partials` collection and the reconcile plan (section 9, B1-KEAOFFLINE)."""
+"""The `kea_partials` collection, reconcile_required and the reconcile plan (section 9, B1-KEAOFFLINE)."""
 
 from __future__ import annotations
 
-from typing import Any
+import copy
 
 import pytest
 
+from pelagos.collector import kea_shared
 from pelagos.core import collections as colls
+from pelagos.core.audit_log import AuditLog
+from pelagos.core.registry import ConnectorRegistry as CoreRegistry
+from pelagos.core.replication import ReplicationApp
+from pelagos.domain import Change, ChangeOp, Engine, Plan, PlanScope, PlanState
+from pelagos.services import kea_files
+from pelagos.services.errors import ServiceError
+from tests.unit.services.kea_pair import N2, Pair
 
 pytestmark = pytest.mark.unit
-# Contract skeleton: each test leaves xfail as B1-KEAOFFLINE implements it.
-TODO = pytest.mark.xfail(strict=True, reason="B1-KEAOFFLINE not implemented yet")
 
 
-def _dhcp(node_ctx: Any, *, reachable: set[str], versions: dict[str, str] | None = None) -> Any:
-    """DhcpService on n1 with fake Kea backends on n1 and n2 (one relationship, or a hub with n3),
-    a gateway serving their live configs and the `dhcp.config.plan` action with `shared_from`."""
-    raise NotImplementedError
+@pytest.fixture
+def pair(node_ctx) -> Pair:
+    return Pair(node_ctx)
 
 
-@TODO
+def _partial(pair: Pair, sid: int = 40) -> Plan:
+    pair.away(N2)
+    plan = pair.subnet_plan(sid)
+    pair.plans.apply(plan, "admin", True, partial=True)
+    pair.back(N2)
+    return plan
+
+
 def test_kea_partials_is_registered_with_its_natural_key():
     assert colls.COLLECTIONS["kea_partials"] == colls.Collection()
+    assert kea_files.record_id(Engine.KEA4, "n1", "n2") == "kea4:n1:n2"
 
 
-@TODO
-def test_writes_to_a_reachable_node_waiting_for_reconciliation_answer_reconcile_required(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    with pytest.raises(Exception) as exc:
-        dhcp.plan("reservation", dhcp.reservation_body(), "admin")
+def test_writes_to_a_reachable_node_waiting_for_reconciliation_answer_reconcile_required(pair):
+    plan = _partial(pair)
+    with pytest.raises(ServiceError) as exc:
+        pair.subnet_plan(44)
     assert exc.value.code == "reconcile_required"
     item = exc.value.extra["divergences"][0]
-    assert item["node_id"] == "n2" and item["source_node_id"] == "n1" and item["plan_ids"] == ["p1"]
+    assert item["node_id"] == N2 and item["node_name"] == "ns2" and item["source_node_id"] == pair.n1
+    assert item["plan_ids"] == [plan.id]
 
 
-@TODO
-def test_a_live_equal_hash_settles_the_record_at_the_write(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    dhcp.kea("n2").copy_from(dhcp.kea("n1"))  # fixed by hand
-    assert dhcp.plan("reservation", dhcp.reservation_body(), "admin").target_node_ids == ["n1", "n2"]
+def test_a_live_equal_hash_settles_the_record_at_the_write(pair):
+    _partial(pair)
+    pair.k2.config = ha_copy(pair.k1.config, "ns2")  # reconciled by hand
+    assert pair.subnet_plan(44).target_node_ids == [pair.n1, N2]
+    assert pair.records() == []
 
 
-@TODO
-def test_plans_on_other_nodes_only_and_dhcp_config_plans_pass(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    plan = dhcp.plan("reservation", {**dhcp.reservation_body(), "node_ids": ["n1"]}, "admin")
-    assert plan.target_node_ids == ["n1"]
-    assert dhcp.plan("config", dhcp.config_body(), "admin").scope.value == "dhcp.config"
+def test_plans_on_other_nodes_only_and_dhcp_config_plans_pass(pair):
+    _partial(pair)
+    change = {"op": "add", "target": "subnet4/44", "after": {"subnet": "198.51.100.44/30"}}
+    plan = pair.dhcp.plan("subnet", {"change": change, "node_ids": [pair.n1]}, "admin")
+    assert plan.target_node_ids == [pair.n1]
+    config = pair.dhcp.plan("config", {"config": pair.k1.config_get()}, "admin")
+    assert config.scope is PlanScope.DHCP_CONFIG
 
 
-@TODO
-def test_peer_preflight_refuses_a_plan_to_a_node_waiting_for_reconciliation(node_ctx):
+def test_peer_preflight_refuses_a_plan_to_a_node_waiting_for_reconciliation(pair):
     """Defence in depth: an older builder's plan reaches a node that knows the record."""
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    answer = dhcp.repl_preflight(dhcp.raw_reservation_plan(targets=["n1", "n2"]))
-    assert answer["code"] == "reconcile_required" and answer["problem"]
-    assert dhcp.repl_preflight(dhcp.raw_config_plan(targets=["n2"]))["problem"] is None
+    _partial(pair)
+    registry = CoreRegistry(pair.n1)
+    registry.register(Engine.KEA4, pair.k1)
+    app = ReplicationApp(
+        pair.ctx.node, pair.ctx.config_store, AuditLog(pair.ctx.paths.audit_log), registry=registry
+    )
+    plan = Plan(
+        scope=PlanScope.DHCP_RESERVATION,
+        node_id=pair.n1,
+        summary="r",
+        engine=Engine.KEA4,
+        changes=[Change(ChangeOp.ADD, "subnet4/1/reservations/hw-address=aa:bb:cc:dd:ee:99")],
+        target_node_ids=[pair.n1, N2],
+    )
+    status, answer = app._preflight({"plan": plan.to_dict()})
+    assert status == 200 and answer["code"] == "reconcile_required" and answer["problem"]
+    plan.scope = PlanScope.DHCP_CONFIG
+    plan.target_node_ids = [N2]
+    assert app._preflight({"plan": plan.to_dict()})[1]["problem"] is None
 
 
-@TODO
-def test_reconcile_plan_copies_the_shared_view_and_keeps_per_server_keys(node_ctx):
-    from pelagos.collector import kea_shared
+def test_peer_preflight_says_engine_down(pair):
+    registry = CoreRegistry(pair.n1)
+    registry.register(Engine.KEA4, pair.k1)
+    pair.k1.running = False
+    app = ReplicationApp(
+        pair.ctx.node, pair.ctx.config_store, AuditLog(pair.ctx.paths.audit_log), registry=registry
+    )
+    pair.k1.preflight = lambda plan: "kea-dhcp4 is not running"  # type: ignore[attr-defined]
+    plan = pair.subnet_plan()
+    answer = app._preflight({"plan": plan.to_dict()})[1]
+    assert answer["code"] == "engine_down"
 
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.kea("n1").add_subnet(40, "192.0.2.0/24")  # applied on n1 only
-    before = dhcp.kea("n2").config_get()
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    assert plan.scope.value == "dhcp.config" and plan.target_node_ids == ["n2"]
-    assert "reconcile" in plan.requires_confirmation_reasons
-    dhcp.apply(plan)
-    one, two = dhcp.kea("n1").config_get(), dhcp.kea("n2").config_get()
-    assert kea_shared.relationship_hashes(one) == kea_shared.relationship_hashes(two)
+
+def ha_copy(config: dict, me: str) -> dict:
+    out = copy.deepcopy(config)
+    for hook in out["hooks-libraries"]:
+        for entry in (hook.get("parameters") or {}).get("high-availability") or []:
+            entry["this-server-name"] = me
+    return out
+
+
+def test_reconcile_plan_copies_the_shared_view_and_keeps_per_server_keys(pair):
+    _partial(pair)
+    pair.k2.config["interfaces-config"] = {"interfaces": ["ens18"]}
+    before = pair.k2.config_get()
+    plan = pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
+    assert plan.scope is PlanScope.DHCP_CONFIG and plan.target_node_ids == [N2]
+    assert "reconcile" in plan.requires_confirmation_reasons and plan.requires_confirmation
+    assert plan.summary_message["key"] == "plan.kea.reconcile"
+    assert any(p.subject == "reconcile:kea4" and p.node_id == pair.n1 for p in plan.preconditions)
+    assert pair.plans.apply(plan, "admin", True).state is PlanState.APPLIED
+    after = pair.k2.config_get()
+    assert kea_shared.same_shared(pair.k1.config_get(), after)
     for key in kea_shared.NEVER_COPIED:
-        assert two["Dhcp4"].get(key) == before["Dhcp4"].get(key), key
+        assert after.get(key) == before.get(key), key
+    assert after["ddns-qualifying-suffix"] == before["ddns-qualifying-suffix"]
+    assert pair.records()[0]["settled_by"]["plan_id"] == plan.id
 
 
-@TODO
 def test_never_copied_keys_are_the_documented_list():
-    from pelagos.collector import kea_shared
-
     assert set(kea_shared.NEVER_COPIED) == {
         "hooks-libraries",
         "interfaces-config",
@@ -96,85 +139,116 @@ def test_never_copied_keys_are_the_documented_list():
         "multi-threading",
         "loggers",
         "this-server-name",
-    } and kea_shared.NEVER_COPIED_PREFIXES == ("ddns-",)
+    }
+    assert kea_shared.NEVER_COPIED_PREFIXES == ("ddns-",)
 
 
-@TODO
-def test_overlay_is_computed_on_the_target_from_its_live_config(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    (call,) = dhcp.gateway.actions("dhcp.config.plan")
-    assert "shared_from" in call and "config" not in call
+def test_shared_source_carries_no_credentials(pair):
+    for hook in pair.k1.config["hooks-libraries"]:
+        for entry in (hook.get("parameters") or {}).get("high-availability") or []:
+            entry["peers"][1]["basic-auth-password"] = "s3cret"
+    assert "s3cret" not in str(kea_shared.shared_source(pair.k1.config_get()))
 
 
-@TODO
-def test_both_sides_changed_gives_reconcile_overwrites(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    dhcp.record_partial("n2", "n1", "p2")
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
+def test_both_sides_changed_gives_reconcile_overwrites(pair):
+    _partial(pair, 40)
+    # ns2 got a partial of its own while ns1 was away: a record in the other direction.
+    pair.ctx.config_store.update_collection(
+        kea_files.COLLECTION,
+        lambda rows: rows.append(
+            {
+                "id": kea_files.record_id(Engine.KEA4, N2, pair.n1),
+                "engine": "kea4",
+                "source_node_id": N2,
+                "target_node_id": pair.n1,
+                "since": "2026-11-01T10:00:00Z",
+                "last_applied_at": "2026-11-01T10:00:00Z",
+                "plans": [
+                    {"plan_id": "P2", "applied_at": "2026-11-01T10:00:00Z", "created_by": "b", "summary": "s"}
+                ],
+                "plan_count": 1,
+            }
+        ),
+        "test",
+    )
+    plan = pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
     item = next(i for i in plan.impact if i.kind == "reconcile_overwrites")
-    assert "p2" in item.text and item.examples
+    assert "P2" in item.text and item.examples
 
 
-@TODO
-def test_target_hash_moved_since_the_partial_gives_reconcile_overwrites(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1", target_hash_before="old")
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
+def test_target_hash_moved_since_the_partial_gives_reconcile_overwrites(pair):
+    _partial(pair)
+    pair.k2.config["valid-lifetime"] = 7200  # changed by hand on ns2 meanwhile
+    plan = pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
     assert any(i.kind == "reconcile_overwrites" for i in plan.impact)
 
 
-@TODO
-def test_different_hooks_leave_a_reconcile_residual(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.kea("n1").add_subnet(40, "192.0.2.0/24")
-    dhcp.kea("n1").add_hook("libdhcp_lease_cmds.so")
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    assert any(i.kind == "reconcile_residual" for i in plan.impact)
+def test_different_hooks_leave_a_reconcile_residual(pair):
+    _partial(pair)
+    pair.k1.config["hooks-libraries"].append({"library": "/usr/lib/kea/hooks/libdhcp_flex_id.so"})
+    plan = pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
+    item = next(i for i in plan.impact if i.kind == "reconcile_residual")
+    assert item.count and item.count >= 1
 
 
-@TODO
-def test_reconcile_applied_sets_settled_by(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    dhcp.record_partial("n1", "n2", "p1")
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    dhcp.apply(plan)
-    (record,) = node_ctx.cluster().collection("kea_partials")
-    assert record["settled_by"]["plan_id"] == plan.id
+def test_reconcile_on_a_hub_copies_the_common_relationship_only():
+    def rel(me, peers):
+        return {
+            "this-server-name": me,
+            "mode": "hot-standby",
+            "peers": [{"name": n, "role": r, "url": f"http://{n}.example.lan:8000/"} for n, r in peers],
+        }
+
+    def config(entries, subnets):
+        return {
+            "hooks-libraries": [{"library": "libdhcp_ha.so", "parameters": {"high-availability": entries}}],
+            "subnet4": subnets,
+        }
+
+    tagged = {"id": 41, "subnet": "198.51.100.0/24", "user-context": {"ha-server-name": "hub-b"}}
+    hub = config(
+        [
+            rel("hub-a", [("hub-a", "primary"), ("s2", "standby")]),
+            rel("hub-b", [("hub-b", "primary"), ("s3", "standby")]),
+        ],
+        [{"id": 1, "subnet": "192.0.2.0/24", "user-context": {"ha-server-name": "hub-a"}}, tagged],
+    )
+    spoke = config([rel("s2", [("hub-a", "primary"), ("s2", "standby")])], [])
+    out = kea_shared.shared_overlay(hub, spoke)
+    assert [s["id"] for s in out["subnet4"]] == [1]
 
 
-@TODO
-def test_reconcile_on_a_hub_copies_the_common_relationship_only(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2", "n3"})  # n1 hub with n2 and n3
-    dhcp.kea("n1").add_subnet(41, "198.51.100.0/24", relationship="n3")
-    plan = dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    assert "198.51.100.0/24" not in plan.diff
-
-
-@TODO
 @pytest.mark.parametrize(
     ("source", "target", "code"),
-    [("n1", "n1", "validation_error"), ("n1", "n2", "engine_unavailable")],
+    [("self", "self", "validation_error"), ("self", N2, "engine_unavailable")],
 )
-def test_reconcile_refusals(node_ctx, source, target, code):
-    dhcp = _dhcp(node_ctx, reachable=set())
-    with pytest.raises(Exception) as exc:
-        dhcp.plan_reconcile(dhcp.engine, source, target, "admin")
+def test_reconcile_refusals(pair, source, target, code):
+    pair.gateway.offline.add(N2)
+    source = pair.n1 if source == "self" else source
+    target = pair.n1 if target == "self" else target
+    with pytest.raises(ServiceError) as exc:
+        pair.dhcp.plan_reconcile({"source_node_id": source, "target_node_id": target}, "admin")
     assert exc.value.code == code
 
 
-@TODO
-def test_reconcile_across_kea_major_versions_is_not_supported(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"}, versions={"n1": "2.6.3", "n2": "3.2.1"})
-    with pytest.raises(Exception) as exc:
-        dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
-    assert exc.value.code == "not_supported"
-
-
-@TODO
-def test_reconcile_with_equal_shared_hashes_is_a_conflict(node_ctx):
-    dhcp = _dhcp(node_ctx, reachable={"n2"})
-    with pytest.raises(Exception) as exc:
-        dhcp.plan_reconcile(dhcp.engine, "n1", "n2", "admin")
+def test_reconcile_across_kea_major_versions_is_a_conflict(pair):
+    _partial(pair)
+    pair.k2.version = "2.6.3"
+    with pytest.raises(ServiceError) as exc:
+        pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
     assert exc.value.code == "conflict"
+    assert exc.value.extra["detail_message"]["key"] == "problem.detail.kea_major_mismatch"
+
+
+def test_reconcile_with_equal_shared_hashes_is_a_conflict(pair):
+    with pytest.raises(ServiceError) as exc:
+        pair.dhcp.plan_reconcile({"source_node_id": pair.n1, "target_node_id": N2}, "admin")
+    assert exc.value.code == "conflict" and "nothing to reconcile" in exc.value.detail
+
+
+def test_settled_and_departed_records_are_pruned_at_the_next_write(pair):
+    _partial(pair)
+    kea_files.settle(pair.ctx.config_store, Engine.KEA4, pair.n1, N2, "R1", "test")
+    assert kea_files.stale(pair.ctx.cluster()) == {f"kea4:{pair.n1}:{N2}"}
+    pair.subnet_plan(44)
+    assert pair.records() == []

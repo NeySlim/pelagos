@@ -1296,6 +1296,12 @@
     "mode",
     "servers"
   ],
+  "plan.impact.ha_restart": [
+    "heartbeat_delay",
+    "max_response_delay",
+    "node",
+    "seconds"
+  ],
   "plan.impact.lease_conflict": [
     "client",
     "expires",
@@ -1324,6 +1330,17 @@
   ],
   "plan.impact.reason.failed": [],
   "plan.impact.reason.no_kea": [],
+  "plan.impact.reconcile_overwrites": [
+    "count",
+    "node",
+    "plans"
+  ],
+  "plan.impact.reconcile_residual": [
+    "count"
+  ],
+  "plan.impact.reconcile_soon": [
+    "nodes"
+  ],
   "plan.impact.reservation_in_pool": [
     "ip",
     "pool"
@@ -1331,6 +1348,9 @@
   "plan.impact.reservation_lease_kept": [
     "expires",
     "ip"
+  ],
+  "plan.impact.skipped_nodes": [
+    "nodes"
   ],
   "plan.impact.subnet_ddns": [
     "domains",
@@ -1457,6 +1477,11 @@
   "plan.kea.lease_delete_on": [
     "ip",
     "node"
+  ],
+  "plan.kea.reconcile": [
+    "engine",
+    "source",
+    "target"
   ],
   "plan.kea.replace_config": [
     "engine"
@@ -1690,6 +1715,12 @@
   ],
   "problem.detail.ipv6_zone_not_writable": [
     "zone"
+  ],
+  "problem.detail.kea_major_mismatch": [
+    "source",
+    "source_version",
+    "target",
+    "target_version"
   ],
   "problem.detail.option_exists": [
     "option"

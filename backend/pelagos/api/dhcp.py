@@ -379,6 +379,16 @@ class ConfigAdoptPlan(FamilyResource):
         return plan_answer(dhcp(family).plan_adopt(json_body(), username()))
 
 
+@ns.route("/<string:family>/config/reconcile/plan")
+class ConfigReconcilePlan(FamilyResource):
+    @require("write:dhcp.config")
+    @ns.expect(m.ReconcileBody)
+    @ns.response(200, "Plan: the target's configuration with the source's shared view (section 9)", m.Plan)
+    @ns.response(409, "conflict: nothing to copy, or different Kea major versions", m.Problem)
+    def post(self, family: str):
+        return plan_answer(dhcp(family).plan_reconcile(json_body(), username()))
+
+
 @ns.route("/d2/config/file")
 class D2ConfigFile(Resource):
     @require("read:dhcp")

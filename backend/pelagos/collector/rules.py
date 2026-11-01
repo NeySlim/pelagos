@@ -521,15 +521,35 @@ def serial_divergence(
 
 
 def config_divergence(
-    engine: str, hashes: dict[str, str | None], relationships: list[dict[str, Any]] | None = None
+    engine: str,
+    hashes: dict[str, str | None],
+    relationships: list[dict[str, Any]] | None = None,
+    expected: list[dict[str, Any]] | None = None,
+    critical: bool = False,
 ) -> Alert:
-    """`hashes` per divergent node; `relationships` the HA relationships (server names) involved."""
+    """`hashes` per divergent node; `relationships` the HA relationships (server names) involved;
+    `expected` the unsettled `kea_partials` records (section 9), `critical` once a skipped node is back."""
     details: dict[str, Any] = {"hashes": hashes}
     if relationships is not None:
         details["relationships"] = relationships
+    if expected:
+        details["expected_from_plan"] = [
+            {
+                "source_node_id": r.get("source_node_id"),
+                "target_node_id": r.get("target_node_id"),
+                "since": r.get("since"),
+                "plan_count": r.get("plan_count"),
+                "plans": list(r.get("plans") or []),
+            }
+            for r in expected
+        ]
+        details["reconcile"] = [
+            {"source_node_id": r.get("source_node_id"), "target_node_id": r.get("target_node_id")}
+            for r in expected
+        ]
     return Alert(
         kind=AlertKind.CONFIG_DIVERGENCE,
-        severity=Severity.WARNING,
+        severity=Severity.CRITICAL if critical else Severity.WARNING,
         node_id=None,
         engine=Engine(engine),
         subject=f"{engine}:config-hash",

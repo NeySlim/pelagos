@@ -34,7 +34,8 @@ def test_registry_names_follow_the_rules():
 
 
 def test_records_include_core_lists_and_every_collection(widgets):
-    assert cm.records() == {**cm.RECORDS, "widgets": "id"}
+    registered = {name: coll.key for name, coll in colls.COLLECTIONS.items() if name != "widgets"}
+    assert cm.records() == {**cm.RECORDS, **registered, "widgets": "id"}
     assert "widgets" not in cm.RECORDS
     doc = {"widgets": [{"id": "w1", "name": "a", "tags": {"x": 1}}, {"id": "w2", "name": "b"}]}
     values = cm.flatten(doc)

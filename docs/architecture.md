@@ -1653,7 +1653,7 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
 Expected divergence and reconciliation (B1-KEAOFFLINE, section 6 "Partial apply"):
 
 - State: the replicated collection `kea_partials` (section 10), one record per couple, natural key
-  `id = "<engine>/<source_node_id>/<target_node_id>"`: `engine`, `source_node_id`,
+  `id = "<engine>:<source_node_id>:<target_node_id>"` (colons: a record id never holds the `/` of entry paths): `engine`, `source_node_id`,
   `target_node_id`, `since` (first `applied_at`), `last_applied_at`, `plans` (the 50 newest
   `{"plan_id","applied_at","created_by","summary"}`), `plan_count` (all of them),
   `target_hash_before` (the target's relationship hash last seen by the source's collector when the
@@ -2124,7 +2124,7 @@ Adding a collection is one line there plus its tests; nothing else in
 Registered collections:
 
 - `kea_partials` (0.4.0, B1-KEAOFFLINE): `Collection()` with natural key `id =
-  "<engine>/<source_node_id>/<target_node_id>"`, one record per couple a partial apply left
+  "<engine>:<source_node_id>:<target_node_id>"`, one record per couple a partial apply left
   diverging; fields and rules in section 9, "Expected divergence and reconciliation". No secret
   field. Written by the web process of the source (after a partial apply, a rollback, a reconcile
   plan) and pruned by any web process once settled; read by every collector for the alert.

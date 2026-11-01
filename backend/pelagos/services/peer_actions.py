@@ -484,6 +484,12 @@ class PeerActions:
 
         engine, backend = self._dhcp_backend(body)
         config = body.get("config")
+        shared_from = body.get("shared_from")
+        if isinstance(shared_from, dict) and engine is not Engine.D2:
+            # B1-KEAOFFLINE: the reconciliation overlay is computed here, on this node's live config.
+            from pelagos.collector import kea_shared
+
+            config = kea_shared.shared_overlay(shared_from, backend.config_get())
         if not isinstance(config, dict):
             raise ValidationError("config must be an object", [field_error("config", "object expected")])
         created_by = _created_by(body)

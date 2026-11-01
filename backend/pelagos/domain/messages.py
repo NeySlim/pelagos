@@ -129,6 +129,23 @@ CATALOG: dict[str, str] = {
     "plan.impact.ddns_record_lease": (
         "{owner} {rtype} was written by DDNS: Kea writes it again when {ip} renews (lease until {expires})"
     ),
+    "plan.impact.skipped_nodes": (
+        "applied without {nodes}: their Kea keeps its configuration until reconciled"
+    ),
+    "plan.impact.ha_restart": (
+        "{node} reloads Kea: its HA service restarts in waiting and serves no DHCP for about {seconds} s"
+        " (max-response-delay {max_response_delay} ms + heartbeat-delay {heartbeat_delay} ms)"
+    ),
+    "plan.impact.reconcile_soon": (
+        "reconcile {nodes} as soon as they are back: their Kea rejects the lease updates of a subnet it"
+        " does not have and may terminate HA (repair it with the HA repair plan)"
+    ),
+    "plan.impact.reconcile_overwrites": (
+        "{node} changed too: {count} differences are overwritten (plans {plans})"
+    ),
+    "plan.impact.reconcile_residual": (
+        "{count} differences stay after the copy (hooks, keys outside the shared view)"
+    ),
     "note.zone_copies_removed": "secondary copies removed on {nodes}",
     "plan.kea.subnet": "{op} subnet {subnet}",
     "plan.kea.reservation": "{op} reservation {target}",
@@ -160,6 +177,7 @@ CATALOG: dict[str, str] = {
     "plan.kea.service_enable_on": "enable DHCP service ({engine} on {node})",
     "plan.kea.service_disable_on": "disable DHCP service ({engine} on {node})",
     "plan.kea.ha_maintenance_update": "HA maintenance {action} on {server}: engine packages of {node}",
+    "plan.kea.reconcile": "{engine}: reconcile {target} from {source}",
     "plan.install": "install {engines} ({source})",
     "plan.install.isc_kea": "ISC Kea {series}",
     "plan.install.distro_packages": "distro packages",
@@ -996,6 +1014,9 @@ CATALOG: dict[str, str] = {
     "problem.detail.ipv6_reverse_exists": "{zone} already serves {prefix}",
     "problem.detail.zone_too_large": (
         "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_names)"
+    ),
+    "problem.detail.kea_major_mismatch": (
+        "{source} runs Kea {source_version}, {target} runs Kea {target_version}: reconcile by hand"
     ),
 }
 

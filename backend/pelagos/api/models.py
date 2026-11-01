@@ -551,6 +551,13 @@ SecondariesBody = model(
 Utilization = items_of(fields.Raw, "Utilization")
 DhcpStats = model("DhcpStats", {"node_id": fields.String, "statistics": fields.Raw})
 DhcpConfig = model("DhcpConfig", {"node_id": fields.String, "hash": fields.String, "config": fields.Raw})
+ReconcileBody = model(
+    "ReconcileBody",
+    {
+        "source_node_id": fields.String(required=True, description="the node whose shared view is copied"),
+        "target_node_id": fields.String(required=True, description="the node whose config is replaced"),
+    },
+)
 AdoptBody = model(
     "AdoptBody",
     {
@@ -598,7 +605,13 @@ HostRequest = model(
 
 ApplyBody = model(
     "ApplyBody",
-    {"confirm": fields.Boolean(default=False), "password": fields.String(description="update plans only")},
+    {
+        "confirm": fields.Boolean(default=False),
+        "password": fields.String(description="update plans only"),
+        "partial": fields.Boolean(
+            default=False, description="Kea configuration plans: apply on the reachable nodes only"
+        ),
+    },
 )
 AlertPage = page_of(Alert, "AlertPage")
 AlertSummary = model(

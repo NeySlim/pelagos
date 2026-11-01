@@ -1560,6 +1560,8 @@ class FakeDhcpBackend(DhcpBackend):
     def apply(self, plan: Plan) -> NodeApplyResult:
         self._check()
         for pre in plan.preconditions:
+            if pre.node_id not in (None, self.node_id):
+                continue  # another node's precondition, as the Kea connector does
             if pre.kind is PreconditionKind.CONFIG_HASH and pre.value != self.config_hash():
                 raise PreconditionFailed(pre, self.config_hash())
             if pre.kind is PreconditionKind.HA_STATE and pre.value != (self.ha.state or ""):

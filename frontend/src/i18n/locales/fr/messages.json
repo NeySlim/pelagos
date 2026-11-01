@@ -596,5 +596,12 @@
   "rrset.cname_other_data": "{{owner}} a déjà d'autres enregistrements ({{types}}) ; un CNAME ne peut pas coexister avec eux",
   "rrset.is_cname": "{{owner}} est un CNAME ; aucun autre enregistrement n'est possible à ce nom",
   "rrset.no_change": "aucun changement",
-  "problem.detail.engine_rejected": "{{tool}} a refusé la modification"
+  "problem.detail.engine_rejected": "{{tool}} a refusé la modification",
+  "plan.impact.skipped_nodes": "appliqué sans {{nodes}} : leur Kea garde sa configuration jusqu'à la réconciliation",
+  "plan.impact.ha_restart": "{{node}} recharge Kea : son service HA redémarre en attente et ne sert pas le DHCP pendant environ {{seconds}} s (max-response-delay {{max_response_delay}} ms + heartbeat-delay {{heartbeat_delay}} ms)",
+  "plan.impact.reconcile_soon": "réconciliez {{nodes}} dès son retour : son Kea rejette les mises à jour de baux d'un sous-réseau qu'il n'a pas et peut terminer la HA (réparez-la avec le plan de réparation HA)",
+  "plan.impact.reconcile_overwrites": "{{node}} a aussi changé : {{count}} différences sont écrasées (plans {{plans}})",
+  "plan.impact.reconcile_residual": "{{count}} différences restent après la copie (crochets, clés hors de la vue partagée)",
+  "plan.kea.reconcile": "{{engine}} : réconcilier {{target}} depuis {{source}}",
+  "problem.detail.kea_major_mismatch": "{{source}} utilise Kea {{source_version}}, {{target}} utilise Kea {{target_version}} : réconciliez à la main"
 }

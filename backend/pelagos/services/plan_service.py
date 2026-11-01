@@ -19,12 +19,15 @@ from typing import Any
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
 from pelagos.core import ha_maintenance, permguard, plan_secrets
 from pelagos.core import settings_registry as reg
+from pelagos.core.collections import peers_missing
 from pelagos.core.context import NodeContext
 from pelagos.core.plans import NO_ROLLBACK_SCOPES
 from pelagos.domain import (
     ApplyResult,
     AuditEntry,
     AuditResult,
+    ConfirmationReason,
+    Engine,
     NodeApplyResult,
     Plan,
     PlanScope,
@@ -36,9 +39,11 @@ from pelagos.domain import (
     to_rfc3339,
     utcnow,
 )
-from pelagos.services import d2_secrets, key_sync
+from pelagos.services import d2_secrets, kea_files, key_sync
 from pelagos.services.engine_lock import engine_lock
+from pelagos.services.errors import ServiceError
 from pelagos.services.events import EventHub
+from pelagos.services.kea_files import impact_item
 from pelagos.services.masking import mask_text_values, masked, masked_text
 from pelagos.services.peers import PeerGateway
 from pelagos.services.permissions import translate_result
@@ -55,10 +60,11 @@ SWEEP_SECONDS = 60
 
 
 class PlanError(Exception):
-    def __init__(self, code: str, detail: str) -> None:
+    def __init__(self, code: str, detail: str, extra: dict[str, Any] | None = None) -> None:
         super().__init__(detail)
         self.code = code
         self.detail = detail
+        self.extra = extra
 
 
 class PlanService:
@@ -80,6 +86,8 @@ class PlanService:
         self._stop = threading.Event()
         self._sweeper: threading.Thread | None = None
         ctx.plan_store.on_expired = self._expired
+        # B1-KEAOFFLINE: the DHCP services by Kea engine (partner state, reconciliation checks).
+        self.kea: dict[Engine, Any] = {}
 
     # Rollback window ----------------------------------------------------
 
@@ -223,20 +231,30 @@ class PlanService:
     # Apply --------------------------------------------------------------
 
     def apply(
-        self, plan: Plan, user: str, confirm: bool = False, client_ip: str | None = None
+        self,
+        plan: Plan,
+        user: str,
+        confirm: bool = False,
+        client_ip: str | None = None,
+        *,
+        partial: bool = False,
     ) -> ApplyResult:
         self._track(1)
         try:
-            return self._apply(plan, user, confirm, client_ip)
+            return self._apply(plan, user, confirm, client_ip, partial)
         finally:
             self._track(-1)
 
-    def _apply(self, plan: Plan, user: str, confirm: bool, client_ip: str | None) -> ApplyResult:
+    def _apply(
+        self, plan: Plan, user: str, confirm: bool, client_ip: str | None, partial: bool = False
+    ) -> ApplyResult:
         parts = self._parts_of(plan)
         who = (user, client_ip)
         # Check and claim under the lock: a concurrent caller then sees APPLYING and gets plan_state.
         with self._lock:
             self.check_applicable(plan, confirm)
+            if partial and not confirm:
+                raise PlanError("confirmation_required", "a partial apply needs confirm=true")
             try:
                 for part in parts:
                     self.recheck_preconditions(part)
@@ -246,10 +264,13 @@ class PlanService:
                 self.ctx.plan_store.update(plan)
                 self._audit_summary(plan, user, client_ip)
                 raise PlanError("precondition_failed", str(exc)) from exc
-            problem = self._preflight(parts)
+            problem, offline = self._preflight(parts)
             if problem:
                 # Nothing was applied anywhere: the plan stays as it was, to apply once fixed.
                 raise PlanError("preflight_failed", problem)
+            if offline:
+                self._narrow(plan, parts, offline, partial)
+            self._check_reconcile(parts, set(offline))
             plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
         self._phase(plan, "applying")
@@ -304,9 +325,10 @@ class PlanService:
             )
         if plan.state is PlanState.APPLIED:
             key_sync.sync_quietly(self.ctx, self.registry, parts)
+            self._after_applied(plan, parts, user)
         self.ctx.plan_store.update(plan)
         self._finish(plan)
-        note = self._audit_summary(plan, user, client_ip)
+        note = self._audit_summary(plan, user, client_ip, partial=partial)
         if note:
             results.append(
                 NodeApplyResult(node_id=self.ctx.node.id, ok=plan.state is PlanState.APPLIED, message=note)
@@ -321,11 +343,16 @@ class PlanService:
         self._publish(result)
         return result
 
-    def _preflight(self, parts: list[Plan]) -> str | None:
+    def _preflight(self, parts: list[Plan]) -> tuple[str | None, dict[str, str]]:
         """The first reason a target of a part cannot apply it now (a file it must write), asked of
-        every node before any applies: a plan never stops half applied on a permission."""
+        every node before any applies: a plan never stops half applied on a permission. Peers of a
+        narrowable Kea part (section 6, partial apply) are asked their status first; the offline
+        ones come back in the map {node: "unreachable" | "engine_down"} instead of a problem."""
+        offline: dict[str, str] = {}
         for part in parts:
             for node_id in part.target_node_ids or [self.ctx.node.id]:
+                if node_id in offline:
+                    continue
                 if node_id == self.ctx.node.id:
                     check = getattr(self._backend(part), "preflight", None)
                     try:
@@ -334,10 +361,149 @@ class PlanService:
                         problem = str(exc)
                 else:
                     peer = self.peers.peer(node_id)
-                    problem = self.peers.preflight_plan(peer, part) if peer is not None else None
+                    if peer is None:
+                        continue
+                    if kea_files.narrowable(part) and hasattr(self.peers, "preflight_verdict"):
+                        problem, reason = self._peer_verdict(peer, part)
+                        if reason is not None:
+                            offline[node_id] = reason
+                            continue
+                    else:
+                        problem = self.peers.preflight_plan(peer, part)
                 if problem:
-                    return problem
-        return None
+                    return problem, offline
+        return None, offline
+
+    def _peer_verdict(self, peer: Any, part: Plan) -> tuple[str | None, str | None]:
+        """(problem, offline reason): a fresh status first (its short timeout), the preflight only
+        when the peer answers, so a powered-off node never holds the lock for a connect timeout."""
+        self.peers.forget(peer.id)
+        status = self.peers.status(peer)
+        if not status.reachable:
+            return None, "unreachable"
+        problem, code = self.peers.preflight_verdict(peer, part)
+        if code == "engine_down":
+            return None, "engine_down"
+        return problem, None
+
+    def _narrow(self, plan: Plan, parts: list[Plan], offline: dict[str, str], partial: bool) -> None:
+        """Section 6, partial apply: refuse with node_unreachable, or drop the skippable targets."""
+        names = {p.id: p.name for p in self.ctx.cluster().nodes}
+        engine_of = {
+            n: part.engine for part in parts if kea_files.narrowable(part) for n in part.target_node_ids
+        }
+        nodes = []
+        for node_id, reason in sorted(offline.items()):
+            dhcp = self.kea.get(engine_of.get(node_id))  # type: ignore[arg-type]
+            if dhcp is not None and dhcp.partner_state(node_id) != "lost":
+                reason = "ha_partner_in_touch"
+            nodes.append({"node_id": node_id, "reason": reason})
+        allowed = all(n["reason"] != "ha_partner_in_touch" for n in nodes)
+        if not partial or not allowed:
+            ids = [n["node_id"] for n in nodes]
+            named = ", ".join(names.get(i, i) for i in ids)
+            detail = (
+                f"the Pelagos service of {named} does not answer but its Kea still serves: restart it there"
+                if not allowed
+                else f"{named} is offline: apply on the reachable nodes only (partial) or wait for it"
+            )
+            raise PlanError(
+                "node_unreachable",
+                detail,
+                extra={
+                    "node_ids": ids,
+                    "node_names": [names.get(i, i) for i in ids],
+                    "nodes": nodes,
+                    "partial_allowed": allowed,
+                },
+            )
+        statuses = [self.peers.status(p) for p in self.peers.peers() if p.id not in offline]
+        missing = peers_missing(kea_files.COLLECTION, statuses)
+        if missing:
+            raise PlanError(
+                "collection_unavailable",
+                f"{', '.join(names.get(i, i) for i in missing)} runs an older release: upgrade it to apply"
+                " in part",
+                extra={"errors": [{"field": "partial", "message": kea_files.COLLECTION}]},
+            )
+        skipped = sorted(offline)
+        for part in parts:
+            if not kea_files.narrowable(part):
+                continue
+            left = [n for n in part.target_node_ids if n not in offline]
+            gone = [n for n in part.target_node_ids if n in offline]
+            if not gone:
+                continue
+            part.target_node_ids = left
+            for change in part.changes:
+                change.node_ids = [n for n in change.node_ids if n not in offline]
+            part.partial, part.skipped_node_ids = True, gone
+            part.skipped = [n for n in nodes if n["node_id"] in gone]
+        if all(p is not plan for p in parts):
+            plan.target_node_ids = [n for n in plan.target_node_ids if n not in offline]
+            for change in plan.changes:
+                change.node_ids = [n for n in change.node_ids if n not in offline]
+        plan.partial, plan.skipped_node_ids, plan.skipped = True, skipped, nodes
+        plan.requires_confirmation = True
+        if ConfirmationReason.PARTIAL_APPLY.value not in plan.requires_confirmation_reasons:
+            plan.requires_confirmation_reasons.append(ConfirmationReason.PARTIAL_APPLY.value)
+        self._partial_impacts(plan, parts, names)
+        self.ctx.plan_store.update(plan)
+
+    def _partial_impacts(self, plan: Plan, parts: list[Plan], names: dict[str, str]) -> None:
+        """Impact items appended to the plan (deduplicated by kind), never a second annotate."""
+        nodes = ", ".join(names.get(n, n) for n in plan.skipped_node_ids)
+        items = [impact_item("skipped_nodes", messages.msg("plan.impact.skipped_nodes", nodes=nodes))]
+        if any(
+            p.partial and p.scope in (PlanScope.DHCP_SUBNET, PlanScope.DHCP_SHARED_NETWORK) for p in parts
+        ):
+            items.append(
+                impact_item("reconcile_soon", messages.msg("plan.impact.reconcile_soon", nodes=nodes))
+            )
+        for part in parts:
+            dhcp = self.kea.get(part.engine) if part.partial else None  # type: ignore[arg-type]
+            if dhcp is not None:
+                items.extend(dhcp.ha_restart_impact(part.changes, part.target_node_ids))
+        kinds = {(i.kind, i.text) for i in plan.impact}
+        for item in items:
+            if (item.kind, item.text) not in kinds:
+                plan.impact.append(item)
+                kinds.add((item.kind, item.text))
+
+    def _check_reconcile(self, parts: list[Plan], offline: set[str]) -> None:
+        """409 reconcile_required for a plan built before a node came back (section 9)."""
+        for part in parts:
+            dhcp = self.kea.get(part.engine) if kea_files.waits_for_reconcile(part) else None  # type: ignore[arg-type]
+            if dhcp is None:
+                continue
+            try:
+                dhcp.check_reconcile(part.target_node_ids or [self.ctx.node.id], offline)
+            except ServiceError as exc:
+                raise PlanError(exc.code, exc.detail, extra=exc.extra) from None
+
+    def _after_applied(self, plan: Plan, parts: list[Plan], user: str) -> None:
+        """Records of a partial apply; the settled mark of a reconcile plan (section 9)."""
+        try:
+            for part in parts:
+                dhcp = self.kea.get(part.engine)  # type: ignore[arg-type]
+                if part.partial and dhcp is not None:
+                    hashes = {n: dhcp.relationship_hash(n) for n in part.skipped_node_ids}
+                    kea_files.record_partial(
+                        self.ctx.config_store,
+                        plan,
+                        part.engine,  # type: ignore[arg-type]
+                        self.ctx.node.id,
+                        part.skipped_node_ids,
+                        hashes,
+                        user,
+                    )
+            source = _reconcile_source(plan)
+            if source is not None and plan.engine is not None:
+                kea_files.settle(
+                    self.ctx.config_store, plan.engine, source, plan.target_node_ids[0], plan.id, user
+                )
+        except Exception:
+            log.exception("kea_partials of plan %s not written", plan.id)
 
     def _apply_one(
         self, plan: Plan, who: tuple[str, str | None], progress: list[str] | None = None
@@ -532,6 +698,35 @@ class PlanService:
             if callable(check):
                 check(part)
 
+    def _partial_parts(self, plan: Plan) -> list[Plan]:
+        return [p for p in self._parts_of(plan) if p.partial and p.engine is not None]
+
+    def _check_partial_rollback(self, plan: Plan) -> None:
+        """A partial plan rolls back only while its records wait unsettled (section 6): once the
+        skipped nodes were reconciled, undoing it on its nodes would recreate the divergence."""
+        if not plan.partial:
+            return
+        cluster = self.ctx.cluster()
+        for part in self._partial_parts(plan):
+            if not kea_files.lists_plan(cluster, plan.id, part.engine, plan.node_id, part.skipped_node_ids):  # type: ignore[arg-type]
+                names = {p.id: p.name for p in cluster.nodes}
+                nodes = ", ".join(names.get(n, n) for n in part.skipped_node_ids)
+                raise PlanError("plan_state", f"reconciled to {nodes}: undo it with a new plan")
+
+    def _forget_partial(self, plan: Plan, user: str) -> None:
+        try:
+            for part in self._partial_parts(plan):
+                kea_files.forget_plan(
+                    self.ctx.config_store,
+                    plan.id,
+                    part.engine,
+                    plan.node_id,
+                    part.skipped_node_ids,
+                    user,  # type: ignore[arg-type]
+                )
+        except Exception:
+            log.exception("kea_partials of plan %s not updated after its rollback", plan.id)
+
     def _mark(self, plan: Plan, part: Plan, state: PlanState) -> None:
         """Record one part's progress on disk, so a restart knows which parts a node finished."""
         if part is not plan:
@@ -549,6 +744,7 @@ class PlanService:
                     f" plan is {plan.state.value}",
                 )
             self._check_window(plan)
+            self._check_partial_rollback(plan)
             # A guard that refuses here leaves the plan as it is: nothing ran, nothing is audited.
             try:
                 self._check_rollback(plan, interrupted)
@@ -595,6 +791,8 @@ class PlanService:
             part.interrupted = False
         plan.interrupted = False
         key_sync.sync_quietly(self.ctx, self.registry, parts)
+        if plan.state is PlanState.ROLLED_BACK:
+            self._forget_partial(plan, user)
         if plan.state is PlanState.FAILED and plan.error and plan.error_message is None:
             plan.error_message = permguard.message_for_text(plan.error)
         self.ctx.plan_store.update(plan)
@@ -718,7 +916,9 @@ class PlanService:
             return
         result.audit_ids = [*result.audit_ids, entry.id]
 
-    def _audit_summary(self, plan: Plan, user: str, client_ip: str | None, verb: str = "apply") -> str | None:
+    def _audit_summary(
+        self, plan: Plan, user: str, client_ip: str | None, verb: str = "apply", partial: bool = False
+    ) -> str | None:
         """Best effort: a note for the caller when the entry could not be written, else None."""
         result = {
             PlanState.APPLIED: AuditResult.OK,
@@ -739,6 +939,11 @@ class PlanService:
                     masked(_without_texts(plan_secrets.without_sealed([c.to_dict() for c in plan.changes])))
                 ),
                 "target_node_ids": plan.target_node_ids,
+                **(
+                    {"partial": partial, "skipped": plan.skipped, "skipped_node_ids": plan.skipped_node_ids}
+                    if partial or plan.partial
+                    else {}
+                ),
             },
             response={"state": plan.state.value, "error": masked_text(plan.error) if plan.error else None},
             diff=masked_text(plan.diff) if plan.diff else None,
@@ -752,6 +957,14 @@ class PlanService:
             log.error("summary audit entry of plan %s not written: %s", plan.id, exc)
             return f"audit entry not written: {exc}"
         return None
+
+
+def _reconcile_source(plan: Plan) -> str | None:
+    """The source node of a reconcile plan (its `reconcile:` precondition, section 9), else None."""
+    if plan.scope is not PlanScope.DHCP_CONFIG or not plan.target_node_ids:
+        return None
+    pre = next((p for p in plan.preconditions if p.subject.startswith("reconcile:")), None)
+    return pre.node_id if pre is not None else None
 
 
 # Fixed failure texts of this module and their catalog keys.

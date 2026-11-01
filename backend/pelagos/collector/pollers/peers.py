@@ -122,6 +122,13 @@ def peer_engines(peer: Peer) -> list[str]:
     ]
 
 
+def _epoch(value: Any) -> int:
+    try:
+        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
+
 class PeersPoller:
     def __init__(
         self,
@@ -153,6 +160,8 @@ class PeersPoller:
         self.ntp: Callable[[], dict[str, Any]] = clock_mod.NTP.get
         self._self_ntp: dict[str, Any] | None = None
         self._self_name: str | None = None
+        # B1-KEAOFFLINE: unsettled `kea_partials` records of cluster.toml (section 9); tests set it.
+        self.partials: Callable[[], list[dict[str, Any]]] = lambda: []
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=owned)
@@ -402,14 +411,75 @@ class PeersPoller:
         A node that publishes no relationship hashes (an older version) falls back to the normalized
         hash of the whole configuration, then to the raw config-hash-get, across every node.
         Raised once the divergence outlasts CONFIG_DIVERGENCE_GRACE_SECONDS."""
+        try:
+            partials = self.partials()
+        except Exception:
+            log.warning("kea_partials not readable", exc_info=True)
+            partials = []
         for engine in (Engine.KEA4.value, Engine.KEA6.value):
             alert = self._config_divergence_of(engine)
+            expected = self._expected(engine, partials, now)
+            if expected:
+                # A partial apply waits for reconciliation: no grace, whatever the snapshots say.
+                out.alerts.append(self._with_partials(engine, alert, expected, now))
+                self.config_since.pop(engine, None)  # a residue left once settled gets its grace
+                continue
             if alert is None:
                 self.config_since.pop(engine, None)
                 continue
             since = self.config_since.setdefault(engine, now)
             if now - since >= CONFIG_DIVERGENCE_GRACE_SECONDS:
                 out.alerts.append(alert)
+
+    def _hash_snapshots(self, engine: str) -> dict[str, tuple[int, dict[str, Any]]]:
+        return {
+            s["node_id"]: (int(s["ts"]), s["payload"] or {})
+            for s in self.store.snapshots(engine=engine)
+            if s["kind"] == "config_hash"
+        }
+
+    def _expected(self, engine: str, partials: list[dict[str, Any]], now: int) -> list[dict[str, Any]]:
+        """Unsettled records of `engine`: no settled_by, and no pair of config_hash snapshots taken
+        after the last partial apply that agree (section 9)."""
+        snaps = self._hash_snapshots(engine)
+        out = []
+        for rec in partials:
+            if rec.get("engine") != engine or rec.get("settled_by"):
+                continue
+            since = _epoch(rec.get("last_applied_at"))
+            src, dst = snaps.get(str(rec.get("source_node_id"))), snaps.get(str(rec.get("target_node_id")))
+            if (
+                src
+                and dst
+                and src[0] >= since
+                and dst[0] >= since
+                and kea_shared.same_payload(src[1], dst[1])
+            ):
+                continue
+            out.append(rec)
+        return out
+
+    def _with_partials(
+        self, engine: str, alert: Alert | None, expected: list[dict[str, Any]], now: int
+    ) -> Alert:
+        """The config-hash alert with `expected_from_plan` and `reconcile`; critical once a skipped
+        node answers again with its Kea running (a fresh config_hash snapshot) still unreconciled."""
+        snaps = self._hash_snapshots(engine)
+        fresh = 3 * float(reg.get(self.settings, "collector.peer_poll_seconds"))
+        back = any(
+            (snap := snaps.get(str(r.get("target_node_id")))) is not None
+            and snap[0] >= _epoch(r.get("last_applied_at"))
+            and now - snap[0] <= fresh
+            for r in expected
+        )
+        details = dict(alert.details) if alert is not None else {"hashes": {}}
+        return rules.config_divergence(
+            engine,
+            details.get("hashes") or {},
+            details.get("relationships"),
+            expected=expected,
+            critical=back,
+        )
 
     def _config_divergence_of(self, engine: str) -> Alert | None:
         payloads: dict[str, dict[str, Any]] = {}

@@ -92,7 +92,7 @@ partner lost (or no common relationship). New codes: `409 node_unreachable` (`no
 `partial_allowed`) where such a plan answered `409 preflight_failed` before, and `409
 reconcile_required` (in `peers.ACTION_CODES`). `/repl/v1/plans/preflight` answers gain `code`
 (`engine_down`, `reconcile_required`; absent from a 0.3.x peer, which keeps `preflight_failed`).
-New replicated collection `kea_partials` (section 10, natural key `<engine>/<source>/<target>`):
+New replicated collection `kea_partials` (section 10, natural key `<engine>:<source>:<target>`):
 a partial apply needs 0.4.0 on every reachable node (`409 collection_unavailable` otherwise). The
 `<engine>:config-hash` `config_divergence` alert opens at once from an unsettled record, details
 `expected_from_plan` and `reconcile`, `critical` once the skipped node is back unreconciled; copies

@@ -79,6 +79,8 @@ class Services:
         ctx.plan_store.guard = self.permissions
         # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
         self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
+        # B1-KEAOFFLINE: partial apply asks the DHCP services for HA partner state and reconciliation.
+        self.plans.kea = {Engine.KEA4: self.dhcp4, Engine.KEA6: self.dhcp6}
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
         # F0-HOSTS: the hosts join cache follows lease, zone and plan events; search reads it.
         self.events.listeners.append(self.hosts.cache.on_event)

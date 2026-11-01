@@ -15,6 +15,7 @@ relationship named by its `user-context.ha-server-name`; untagged ones count in 
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from pathlib import PurePosixPath
@@ -402,3 +403,188 @@ def _differences(members: dict[str, tuple[str, Any]]) -> list[dict[str, Any]]:
         items = view_differences(members[ref][1], members[node][1], ref, node)
         out.append({"nodes": [ref, node], "items": items[:DIFFERENCES_SHOWN], "count": len(items)})
     return out
+
+
+# B1-KEAOFFLINE: copy of the shared view from one server to another (section 9, reconciliation).
+# Keys the overlay never writes: per-server keys, and what the shared view leaves out.
+NEVER_COPIED = (
+    "hooks-libraries",
+    "interfaces-config",
+    "control-socket",
+    "control-sockets",
+    "lease-database",
+    "hosts-database",
+    "hosts-databases",
+    "dhcp-ddns",
+    "multi-threading",
+    "loggers",
+    "this-server-name",
+)
+NEVER_COPIED_PREFIXES = ("ddns-",)
+GLOBAL_KEYS = (*LIFETIMES, *BEHAVIOUR)
+GLOBAL_LISTS = ("option-data", "option-def", "client-classes", "reservations")
+
+
+def servers_of(config: dict[str, Any]) -> list[frozenset[str]]:
+    """The server names of each HA relationship of a configuration."""
+    return [frozenset(p["name"] for p in _relationship(e)["peers"]) for e in ha_entries(body_of(config))]
+
+
+def common_servers(source: dict[str, Any], target: dict[str, Any]) -> frozenset[str] | None:
+    """Server names of the relationships both configurations are in (joined when they share a name);
+    an empty set when they share none, None when neither has HA (independent servers)."""
+    mine, theirs = servers_of(source), servers_of(target)
+    if not mine and not theirs:
+        return None
+    out: set[str] = set()
+    for a in mine:
+        for b in theirs:
+            if a & b:
+                out |= a | b
+    return frozenset(out)
+
+
+def same_shared(source: dict[str, Any], target: dict[str, Any]) -> bool:
+    """True when the two servers publish equal hashes for every relationship they share (or equal
+    `shared` hashes without HA): what the peers poller compares."""
+    a, b = shared_hashes(source), shared_hashes(target)
+    if not a["relationships"] and not b["relationships"]:
+        return bool(a["shared"] == b["shared"])
+    pairs = [
+        (x["hash"], y["hash"])
+        for x in a["relationships"]
+        for y in b["relationships"]
+        if set(x["servers"]) & set(y["servers"])
+    ]
+    return bool(pairs) and all(x == y for x, y in pairs)
+
+
+def _merge_keys(base: dict[str, Any] | None, src: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    """`base` with `keys` taken from `src` (absent there: removed); a new object is `src` itself."""
+    if base is None:
+        return copy.deepcopy(src)
+    out = copy.deepcopy(base)
+    for key in keys:
+        if key in src:
+            out[key] = copy.deepcopy(src[key])
+        else:
+            out.pop(key, None)
+    return out
+
+
+def _subnets(
+    body: dict[str, Any], key: str, names: frozenset[str] | None
+) -> dict[Any, tuple[str | None, dict]]:
+    """{id: (network name or None, subnet)} of the subnets of the relationship `names`."""
+    out: dict[Any, tuple[str | None, dict]] = {}
+    for s in body.get(key) or []:
+        if isinstance(s, dict) and _belongs(s, names):
+            out[s.get("id")] = (None, s)
+    for net in body.get("shared-networks") or []:
+        if not isinstance(net, dict):
+            continue
+        for s in net.get(key) or []:
+            if isinstance(s, dict) and _belongs(s, names, _tag(net)):
+                out[s.get("id")] = (str(net.get("name")), s)
+    return out
+
+
+def shared_overlay(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    """`target` with what the relationship hash covers taken from `source`, by object identity:
+    subnets by id, shared networks by name, global options, option definitions, classes,
+    reservations and lease keys; every key of NEVER_COPIED and every per-server key of the target
+    stays. Only the relationships both servers are in are touched (a hub keeps its other subnets)."""
+    out = copy.deepcopy(target)
+    wrapper = next((k for k in ("Dhcp4", "Dhcp6") if k in out), None)
+    tbody = out[wrapper] if wrapper else out
+    sbody = body_of(source)
+    names = common_servers(source, target)
+    scope = names or None
+    for key in GLOBAL_LISTS:
+        if key in sbody:
+            tbody[key] = copy.deepcopy(sbody[key])
+        else:
+            tbody.pop(key, None)
+    for key in GLOBAL_KEYS:
+        if key in sbody:
+            tbody[key] = copy.deepcopy(sbody[key])
+        else:
+            tbody.pop(key, None)
+    networks = {str(n.get("name")): n for n in tbody.get("shared-networks") or [] if isinstance(n, dict)}
+    src_networks = [n for n in sbody.get("shared-networks") or [] if isinstance(n, dict)]
+    for skey in ("subnet4", "subnet6"):
+        mine = _subnets(tbody, skey, scope)
+        theirs = _subnets(sbody, skey, scope)
+        # Remove every subnet of the relationship, then put the source's back where it lives there.
+        tbody[skey] = [s for s in tbody.get(skey) or [] if not (isinstance(s, dict) and s.get("id") in mine)]
+        for net in networks.values():
+            if skey in net:
+                net[skey] = [s for s in net[skey] if not (isinstance(s, dict) and s.get("id") in mine)]
+        placed: dict[str | None, list[dict]] = {}
+        for sid, (where, subnet) in theirs.items():
+            base = mine.get(sid, (None, None))[1]
+            placed.setdefault(where, []).append(_merge_keys(base, subnet, (*SUBNET_KEYS, *BEHAVIOUR)))
+        tbody[skey].extend(placed.pop(None, []))
+        if not tbody[skey]:
+            tbody.pop(skey)
+        for where, subnets in placed.items():
+            net = networks.get(where)
+            if net is None:
+                src_net = next(n for n in src_networks if str(n.get("name")) == where)
+                net = {k: copy.deepcopy(v) for k, v in src_net.items() if k not in ("subnet4", "subnet6")}
+                networks[where] = net
+            net.setdefault(skey, []).extend(subnets)
+    for src_net in src_networks:
+        name = str(src_net.get("name"))
+        if name in networks:
+            kept = {k: networks[name][k] for k in ("subnet4", "subnet6") if k in networks[name]}
+            networks[name] = {**_merge_keys(networks[name], src_net, (*NETWORK_KEYS, *BEHAVIOUR)), **kept}
+    src_names = {str(n.get("name")) for n in src_networks}
+    tbody["shared-networks"] = [
+        n for name, n in networks.items() if name in src_names or n.get("subnet4") or n.get("subnet6")
+    ]
+    if not tbody["shared-networks"]:
+        tbody.pop("shared-networks")
+    return out
+
+
+def shared_source(config: dict[str, Any]) -> dict[str, Any]:
+    """What `shared_overlay` reads from a source, for a peer target (`shared_from`): the copied keys
+    and the HA relationships reduced to their mode and peers (no credentials travel)."""
+    body = body_of(config)
+    out = {
+        k: copy.deepcopy(body[k])
+        for k in (*GLOBAL_LISTS, *GLOBAL_KEYS, "subnet4", "subnet6", "shared-networks")
+        if k in body
+    }
+    entries = [
+        {
+            "this-server-name": e.get("this-server-name"),
+            "mode": e.get("mode"),
+            "peers": [
+                {"name": p.get("name"), "role": p.get("role"), "url": p.get("url")}
+                for p in e.get("peers") or []
+                if isinstance(p, dict)
+            ],
+        }
+        for e in ha_entries(body)
+    ]
+    if entries:
+        out["hooks-libraries"] = [{"library": "libdhcp_ha.so", "parameters": {"high-availability": entries}}]
+    return out
+
+
+def same_payload(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """`same_shared` on two `config_hash` snapshot payloads (as the collector stores them)."""
+    ra, rb = a.get("relationships") or [], b.get("relationships") or []
+    if not ra and not rb:
+        return bool(a.get("shared")) and a.get("shared") == b.get("shared")
+    pairs = [
+        (x.get("hash"), y.get("hash"))
+        for x in ra
+        for y in rb
+        if isinstance(x, dict)
+        and isinstance(y, dict)
+        and set(x.get("servers") or []) & set(y.get("servers") or [])
+    ]
+    return bool(pairs) and all(x == y for x, y in pairs)

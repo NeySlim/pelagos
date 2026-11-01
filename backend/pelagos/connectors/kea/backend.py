@@ -919,6 +919,9 @@ class KeaBackend(DhcpBackend):
         adopt = next((c for c in plan.changes if c.target == ADOPT_FILE), None)
         if adopt is not None:
             return None
+        # B1-KEAOFFLINE: a stopped server is said before any node applies (peer code engine_down).
+        if not self.capabilities().running:
+            return f"{self.family.kea_engine.value} is not running"
         try:
             return self.file.write_problem()
         except ConnectorError as exc:

@@ -10,23 +10,30 @@ service, which applies on self first and then on the peers.
 from __future__ import annotations
 
 import ipaddress
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from pelagos.collector import kea_shared
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
 from pelagos.connectors.kea import config as kcfg
 from pelagos.connectors.kea import ha as ha_mod
+from pelagos.connectors.kea.commands import command_path_available
 from pelagos.connectors.kea.configfile import FileDiverged
 from pelagos.core import clock as clock_mod
 from pelagos.core.context import NodeContext
+from pelagos.core.keafile import view_differences
 from pelagos.domain import (
     Change,
     ChangeOp,
     ClientClass,
+    ConfirmationReason,
     D2Stats,
+    DhcpCapabilities,
     Engine,
     Family,
     HAState,
+    ImpactItem,
     Lease,
     OptionData,
     Peer,
@@ -50,6 +57,8 @@ from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, V
 from pelagos.services.masking import masked
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_targets import check_dhcp_target, model_error
+
+log = logging.getLogger(__name__)
 
 MASK = "***"
 
@@ -753,6 +762,8 @@ class DhcpService:
         kea_files.check(
             self.alerts, self.engine, targets, self.ctx.node.id, backend, self._node_names(), self.peers
         )
+        if kind != "config":
+            self.check_reconcile(targets)
         try:
             plan = self._build_config_plan(kind, body, backend, created_by)
         except FileDiverged as exc:
@@ -1458,6 +1469,299 @@ class DhcpService:
         )
         return self.ctx.plan_store.put(plan)
 
+    # B1-KEAOFFLINE: partial apply and reconciliation (sections 6 and 9) ------------------------
+
+    def live_config(self, node_id: str) -> dict[str, Any]:
+        """A node's running configuration, unmasked: config-get here, the peer's `config` snapshot
+        (computed by the peer when asked). EngineUnavailable when it does not answer."""
+        if node_id == self.ctx.node.id:
+            return self._local().config_get()
+        peer = self._engine_peer(self.engine, node_id)
+        snap = self.peers.snapshot(peer, self.engine, "config")
+        if not snap or snap.get("error") or not isinstance(snap.get("config"), dict):
+            raise EngineUnavailable(f"node {peer.name}: {(snap or {}).get('error') or 'unreachable'}")
+        return snap["config"]
+
+    def _peer_servers(self, node_id: str) -> set[str] | None:
+        """HA server names a peer last published (collector snapshot `ha`); None when unknown."""
+        cache = getattr(self.alerts, "cache", None)
+        store = cache.store if cache is not None else None
+        if store is None:
+            return None
+        names: set[str] = set()
+        for snap in store.snapshots(node_id=node_id, engine=self.engine.value):
+            payload = snap["payload"] if isinstance(snap["payload"], dict) else {}
+            if snap["kind"] == "ha":
+                for rel in [payload, *(payload.get("other_relationships") or [])]:
+                    if isinstance(rel, dict) and rel.get("server_name"):
+                        names.add(str(rel["server_name"]))
+        return names or None
+
+    def partner_state(self, node_id: str) -> str:
+        """`lost` when this node's Kea sees every partner on `node_id` lost (or the two share no HA
+        relationship), else `in_touch`. Unknown mapping or an unreadable state count as in touch."""
+        local = self.local
+        if local is None:
+            return "lost"
+        try:
+            if not local.capabilities().ha:
+                return "lost"
+            state = local.ha_state()
+        except Exception:
+            return "in_touch"
+        rels = [state, *state.other_relationships]
+        names = self._peer_servers(node_id)
+        if names is not None:
+            rels = [
+                r
+                for r in rels
+                if any(p.name in names for p in r.peers) or (r.partner and r.partner.server_name in names)
+            ]
+            if not rels:
+                return "lost"  # no common relationship: independent servers
+        lost = all(r.state == "partner-down" or ha_mod.partner_lost(r.partner) for r in rels)
+        return "lost" if lost else "in_touch"
+
+    def relationship_hash(self, node_id: str) -> str | None:
+        """A node's relationship hashes as this node's collector last saw them (target_hash_before)."""
+        cache = getattr(self.alerts, "cache", None)
+        store = cache.store if cache is not None else None
+        if store is None:
+            return None
+        for snap in store.snapshots(node_id=node_id, engine=self.engine.value):
+            if snap["kind"] == "config_hash" and isinstance(snap["payload"], dict):
+                rels = snap["payload"].get("relationships") or []
+                hashes = sorted(str(r.get("hash")) for r in rels if isinstance(r, dict) and r.get("hash"))
+                return ",".join(hashes) or snap["payload"].get("shared")
+        return None
+
+    def _current_hash(self, config: dict[str, Any]) -> str | None:
+        out = kea_shared.shared_hashes(config)
+        hashes = sorted(str(r["hash"]) for r in out["relationships"])
+        return ",".join(hashes) or out.get("shared")
+
+    def settled_live(self, record: dict[str, Any]) -> bool:
+        """Both nodes answer and publish the same shared hashes now (a reconciliation by hand)."""
+        try:
+            source = self.live_config(str(record["source_node_id"]))
+            target = self.live_config(str(record["target_node_id"]))
+        except (ServiceError, ConnectorError):
+            return False
+        return kea_shared.same_shared(source, target)
+
+    def check_reconcile(self, targets: list[str], offline: set[str] | None = None) -> None:
+        """409 reconcile_required when a reachable target waits for the reconciliation of a partial
+        apply; records settled since (by hand, or their nodes left the cluster) are removed."""
+        cluster = self.ctx.cluster()
+        recs = kea_files.waiting(cluster, self.engine, targets)
+        stale = kea_files.stale(cluster)
+        left = []
+        for rec in recs:
+            target = str(rec["target_node_id"])
+            if offline is not None and target in offline:
+                continue
+            if offline is None and target != self.ctx.node.id:
+                peer = self.peers.peer(target)
+                if peer is None or not self.peers.status(peer).reachable:
+                    continue  # node_unreachable at the apply
+            if self.settled_live(rec):
+                stale.add(str(rec["id"]))
+                continue
+            left.append(rec)
+        if stale:
+            try:
+                kea_files.drop(self.ctx.config_store, stale, "pelagos")
+            except Exception:
+                log.warning("settled kea_partials records not removed", exc_info=True)
+        if left:
+            raise kea_files.reconcile_required(self.engine, left, self._node_names())
+
+    def ha_restart_impact(self, changes: list[Change], node_ids: list[str]) -> list[ImpactItem]:
+        """`ha_restart` for each HA target that takes the config-set path (section 6)."""
+        out = []
+        names = self._node_names()
+        for node_id in node_ids:
+            try:
+                if node_id == self.ctx.node.id:
+                    caps = self._local().capabilities()
+                else:
+                    snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine) or {}
+                    caps = DhcpCapabilities.from_dict(snap["capabilities"])
+                if not caps.ha or (changes and command_path_available(changes, caps)):
+                    continue
+                timers = _ha_timers(self.live_config(node_id))
+            except Exception as exc:
+                log.info("ha_restart impact of %s not computed: %s", node_id, exc)
+                continue
+            seconds = (timers["max-response-delay"] + timers["heartbeat-delay"]) // 1000
+            message = messages.msg(
+                "plan.impact.ha_restart",
+                node=names.get(node_id, node_id),
+                seconds=seconds,
+                max_response_delay=timers["max-response-delay"],
+                heartbeat_delay=timers["heartbeat-delay"],
+            )
+            out.append(kea_files.impact_item("ha_restart", message))
+        return out
+
+    def plan_reconcile(self, body: dict[str, Any], created_by: str) -> Plan:
+        """Copy the shared view of `source_node_id` onto `target_node_id` (section 9)."""
+        source, target = str(body.get("source_node_id") or ""), str(body.get("target_node_id") or "")
+        if not source or not target or source == target:
+            raise ValidationError(
+                "source_node_id and target_node_id must name two different nodes",
+                [field_error("target_node_id", "same node")],
+            )
+        for field, node_id in (("source_node_id", source), ("target_node_id", target)):
+            if node_id == self.ctx.node.id:
+                self._local()
+            else:
+                try:
+                    self._engine_peer(self.engine, node_id)
+                except EngineUnavailable as exc:
+                    raise ValidationError(str(exc), [field_error(field, node_id)]) from None
+        src_cfg, tgt_cfg = self.live_config(source), self.live_config(target)
+        names = self._node_names()
+        common = kea_shared.common_servers(src_cfg, tgt_cfg)
+        if common is not None and not common:
+            raise ValidationError(
+                f"{names.get(source, source)} and {names.get(target, target)} share no HA relationship",
+                [field_error("target_node_id", "no common relationship")],
+            )
+        versions = {n: self._major(n) for n in (source, target)}
+        if None not in versions.values() and versions[source] != versions[target]:
+            raise ServiceError(
+                "conflict",
+                f"{names.get(source, source)} runs Kea {versions[source]}, {names.get(target, target)} runs"
+                f" Kea {versions[target]}: reconcile by hand",
+                extra={
+                    "detail_message": messages.msg(
+                        "problem.detail.kea_major_mismatch",
+                        source=names.get(source, source),
+                        source_version=versions[source],
+                        target=names.get(target, target),
+                        target_version=versions[target],
+                    )
+                },
+            )
+        if kea_shared.same_shared(src_cfg, tgt_cfg):
+            raise ServiceError(
+                "conflict", "nothing to reconcile: the two servers share the same configuration"
+            )
+        overlay = kea_shared.shared_overlay(src_cfg, tgt_cfg)
+        impact = self._reconcile_impacts(source, target, src_cfg, tgt_cfg, overlay, names)
+        if target == self.ctx.node.id:
+            kea_files.check(
+                self.alerts, self.engine, [target], self.ctx.node.id, self.local, names, self.peers
+            )
+            backend = self._local()
+            plan = self._build_config_plan("config", {"config": overlay}, backend, created_by)
+        else:
+            peer = self._engine_peer(self.engine, target)
+            kea_files.check(self.alerts, self.engine, [target], self.ctx.node.id, None, names, self.peers)
+            try:
+                plan = self.peers.build_plan(
+                    peer,
+                    "dhcp.config.plan",
+                    {
+                        "engine": self.engine.value,
+                        "shared_from": kea_shared.shared_source(src_cfg),
+                        "created_by": created_by,
+                    },
+                )
+            except ValidationError as exc:
+                # An older peer ignores `shared_from` and asks for a whole configuration.
+                if "config must be an object" not in exc.detail:
+                    raise
+                raise ServiceError(
+                    "not_supported", f"node {peer.name} cannot build a reconciliation: upgrade it"
+                ) from None
+        plan.target_node_ids = [target]
+        plan.impact.extend(impact)
+        plan.requires_confirmation = True
+        if ConfirmationReason.RECONCILE.value not in plan.requires_confirmation_reasons:
+            plan.requires_confirmation_reasons.append(ConfirmationReason.RECONCILE.value)
+        summary = messages.msg(
+            "plan.kea.reconcile",
+            engine=self.engine.value,
+            source=names.get(source, source),
+            target=names.get(target, target),
+        )
+        plan.summary, plan.summary_message = messages.render(summary), summary
+        source_hash = self._config_hash(source)
+        if source_hash:
+            plan.preconditions.append(
+                Precondition(
+                    kind=PreconditionKind.CONFIG_HASH,
+                    subject=f"reconcile:{self.engine.value}",
+                    value=source_hash,
+                    node_id=source,
+                )
+            )
+        return self.ctx.plan_store.put(plan)
+
+    def _config_hash(self, node_id: str) -> str | None:
+        try:
+            if node_id == self.ctx.node.id:
+                return self._local().config_hash()
+            snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine, "config") or {}
+            return snap.get("config_hash")
+        except Exception:
+            return None
+
+    def _major(self, node_id: str) -> str | None:
+        try:
+            if node_id == self.ctx.node.id:
+                version = self._local().capabilities().version
+            else:
+                snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine) or {}
+                version = (snap.get("capabilities") or {}).get("version")
+        except Exception:
+            return None
+        return str(version).split(".")[0] if version else None
+
+    def _reconcile_impacts(
+        self,
+        source: str,
+        target: str,
+        src_cfg: dict[str, Any],
+        tgt_cfg: dict[str, Any],
+        overlay: dict[str, Any],
+        names: dict[str, str],
+    ) -> list[ImpactItem]:
+        out: list[ImpactItem] = []
+        cluster = self.ctx.cluster()
+        back = cluster.record(kea_files.COLLECTION, kea_files.record_id(self.engine, target, source))
+        rec = cluster.record(kea_files.COLLECTION, kea_files.record_id(self.engine, source, target))
+        before = (rec or {}).get("target_hash_before")
+        moved = rec is None or not before or before != self._current_hash(tgt_cfg)
+        if (back is not None and not back.get("settled_by")) or moved:
+            lost = view_differences(
+                kea_shared.shared_view(kea_shared.body_of(tgt_cfg)),
+                kea_shared.shared_view(kea_shared.body_of(src_cfg)),
+                names.get(target, target),
+                names.get(source, source),
+            )
+            plans = [p.get("plan_id") for p in (back or {}).get("plans") or []]
+            message = messages.msg(
+                "plan.impact.reconcile_overwrites",
+                node=names.get(target, target),
+                count=len(lost),
+                plans=", ".join(str(p) for p in plans) or "-",
+            )
+            out.append(kea_files.impact_item("reconcile_overwrites", message, len(lost), lost))
+        if not kea_shared.same_shared(src_cfg, overlay):
+            rest = view_differences(
+                kea_shared.shared_view(kea_shared.body_of(src_cfg)),
+                kea_shared.shared_view(kea_shared.body_of(overlay)),
+                names.get(source, source),
+                names.get(target, target),
+            )
+            message = messages.msg("plan.impact.reconcile_residual", count=len(rest))
+            out.append(kea_files.impact_item("reconcile_residual", message, len(rest), rest))
+        out.extend(self.ha_restart_impact([], [target]))
+        return out
+
     def _peer_config_plan(self, engine: Engine, body: dict[str, Any], created_by: str) -> Plan:
         """A whole-configuration replace of a peer, built there from the configuration it served."""
         peer = self._engine_peer(engine, str(body["node_id"]))
@@ -1584,6 +1888,16 @@ def _ha_partner_of(target: HAState | None, down: str, action: str, states: list[
 def _maintenance_label(action: str, down: str, up: str) -> dict[str, Any]:
     key = "plan.kea.ha_start" if action == "start" else "plan.kea.ha_cancel"
     return messages.msg(key, down=down, up=up)
+
+
+def _ha_timers(config: dict[str, Any]) -> dict[str, int]:
+    """max-response-delay and heartbeat-delay (ms) of the first HA relationship, Kea defaults else."""
+    entries = kea_shared.ha_entries(kea_shared.body_of(config))
+    entry = entries[0] if entries else {}
+    return {
+        "max-response-delay": int(entry.get("max-response-delay") or 60000),
+        "heartbeat-delay": int(entry.get("heartbeat-delay") or 10000),
+    }
 
 
 def _summary(message: dict[str, Any]) -> dict[str, Any]:

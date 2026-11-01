@@ -86,6 +86,15 @@ def merge_copies(copies: list[Alert]) -> Alert:
     if acked is not None and out.state is AlertState.OPEN:
         out.state, out.acked_by, out.acked_at = AlertState.ACKED, acked.acked_by, acked.acked_at
     out.reported_by = sorted({n for a in copies for n in a.reported_by})
+    # B1-KEAOFFLINE: a partial apply's members survive a copy without them (an older node, a lag).
+    for member in ("expected_from_plan", "reconcile"):
+        merged: list[Any] = []
+        for copy_ in copies:
+            for item in copy_.details.get(member) or []:
+                if item not in merged:
+                    merged.append(item)
+        if merged:
+            out.details[member] = merged
     return out
 
 

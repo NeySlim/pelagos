@@ -333,6 +333,19 @@ class ReplicationClient:
         problem = out.get("problem") if isinstance(out, dict) else None
         return str(problem) if problem else None
 
+    def preflight_verdict(self, plan: Plan) -> tuple[str | None, str | None]:
+        """(problem, code) of the peer's preflight; `code` (0.4.0) is None from an older peer."""
+        try:
+            out = self._call("POST", "/plans/preflight", {"plan": plan.to_dict()})
+        except ReplicationError as exc:
+            if exc.status == 404:
+                return None, None
+            raise
+        if not isinstance(out, dict) or not out.get("problem"):
+            return None, None
+        code = out.get("code")
+        return str(out["problem"]), str(code) if code else None
+
     def permission_checks(self, plan: Plan) -> list[dict[str, Any]] | None:
         """The peer's permission guard checks of `plan` (core.permguard); None from a peer without it."""
         try:
@@ -881,6 +894,11 @@ class ReplicationApp:
             return 200, {"problem": None}
         check = getattr(self.registry, "preflight", None)
         out: dict[str, Any] = {"problem": check(plan) if callable(check) else None}
+        code = self._preflight_code(plan, out["problem"])
+        if code is not None:
+            out["code"] = code
+            if code == "reconcile_required":
+                out["problem"] = f"{self.node.name}: a target of this plan waits for a Kea reconciliation"
         guard = getattr(self.registry, "permission_checks", None)
         if callable(guard):
             try:
@@ -888,6 +906,28 @@ class ReplicationApp:
             except Exception as exc:  # no verdict is not a refusal: the apply still checks
                 log.warning("permission checks of plan %s not run: %s", plan.id, exc)
         return 200, out
+
+    def _preflight_code(self, plan: Plan, problem: str | None) -> str | None:
+        """B1-KEAOFFLINE: `engine_down` when the plan's Kea does not run here, `reconcile_required`
+        when a target waits for the reconciliation of a partial apply (section 9)."""
+        from pelagos.services import kea_files
+
+        if not kea_files.waits_for_reconcile(plan):
+            return None
+        if problem:
+            try:
+                caps = self.registry.get(plan.engine).capabilities()
+            except Exception:
+                return None
+            return "engine_down" if not getattr(caps, "running", True) else None
+        if self.config_store is None:
+            return None
+        try:
+            cluster = self.config_store.load_cluster()
+        except Exception:
+            return None
+        waiting = kea_files.waiting(cluster, plan.engine, plan.target_node_ids or [self.node.id])  # type: ignore[arg-type]
+        return "reconcile_required" if waiting else None
 
     def _unseal(self, plan: Plan) -> NodeApplyResult | None:
         """Give sealed plan secrets to the backend; a failed result when they cannot be opened."""

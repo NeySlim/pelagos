@@ -156,7 +156,11 @@ class ApplyPlan(Resource):
     @ns.expect(m.ApplyBody)
     @ns.response(200, "Applied on every target node, self first; state tells the outcome", m.ApplyResult)
     @ns.response(202, "install, import and security plans run as a Job", m.Job)
-    @ns.response(409, "precondition_failed or plan_state", m.Problem)
+    @ns.response(
+        409,
+        "precondition_failed, plan_state, node_unreachable, reconcile_required or collection_unavailable",
+        m.Problem,
+    )
     @ns.response(401, "invalid_credentials: an update plan needs the user's password", m.Problem)
     @ns.response(410, "plan_expired", m.Problem)
     @ns.response(428, "confirmation_required", m.Problem)
@@ -167,6 +171,9 @@ class ApplyPlan(Resource):
         confirm = body.get("confirm", False)
         if not isinstance(confirm, bool):
             raise ApiError("validation_error", "confirm must be a boolean")
+        partial = body.get("partial", False)
+        if not isinstance(partial, bool):
+            raise ApiError("validation_error", "partial must be a boolean")
         # A script applies only what it states it means to apply: every plan, not just the risky ones.
         if current_session().token is not None and not confirm:
             raise ApiError("confirmation_required", "a plan applied with an API token needs confirm=true")
@@ -187,7 +194,7 @@ class ApplyPlan(Resource):
             runner = s.kea_migration.runner() if kea else s.install.runner(plan.scope)
             job = s.plans.apply_as_job(plan, user, runner, s.jobs, confirm, client_ip())
             return job.to_dict(), 202
-        return s.plans.apply(plan, user, confirm, client_ip()).to_dict()
+        return s.plans.apply(plan, user, confirm, client_ip(), partial=partial).to_dict()
 
 
 @ns.route("/plans/<string:plan_id>/rollback")

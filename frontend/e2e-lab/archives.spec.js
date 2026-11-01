@@ -42,6 +42,8 @@ test('backups screen on the real backend', async ({ page }) => {
 
   // A real run of both nodes as a job; the newest row is then a new archive.
   const before = await rows.first().innerText()
+  // Rows show the minute: run in a later minute than the newest archive so the new row differs.
+  await page.waitForTimeout((61 - new Date().getSeconds()) * 1000)
   await page.getByTestId('archives-run').click()
   await expect(page.getByTestId('archives-run-job')).toHaveAttribute('data-state', 'done', { timeout: 150000 })
   await expect(page.getByTestId('archives-run-step')).toHaveCount(2)

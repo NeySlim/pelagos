@@ -27,7 +27,6 @@ from typing import Any
 
 import pytest
 
-from pelagos import __version__
 from pelagos.archives import age, bundle, retention
 from pelagos.archives.model import ArchiveMeta, archive_filename
 from tests.lab.labkit import (
@@ -269,9 +268,16 @@ def install_deb(host: str) -> None:
     )
 
 
+def installed_version() -> str:
+    """The version the installed package runs (a release deb is not this checkout's .dev0)."""
+    cmd = "/opt/pelagos/venv/bin/python -c 'import pelagos; print(pelagos.__version__)'"
+    return ssh(A1, cmd)[1].strip()
+
+
 def both_current() -> bool:
     nodes = api().get("/nodes")["items"]
-    return len(nodes) == 2 and all(n["status"] == "online" and n.get("version") == __version__ for n in nodes)
+    current = installed_version()
+    return len(nodes) == 2 and all(n["status"] == "online" and n.get("version") == current for n in nodes)
 
 
 @pytest.fixture(autouse=True)
@@ -550,7 +556,9 @@ class TestArchivesLab:
             assert result and result["ok"] is True, (name, result)
             checks = {c["what"]: c["ok"] for c in result["checks"]}
             assert checks.get("named-checkconf") is True, checks
-            assert any(w.startswith("named-checkzone") and ok for w, ok in checks.items()), checks
+            # ns2 holds secondary copies only after provision.sh: no zone file of its own to check.
+            if name == "ns1":
+                assert any(w.startswith("named-checkzone") and ok for w, ok in checks.items()), checks
             # config-test on the running daemon; `-t` on a copy is "not checked" (None) under AppArmor.
             kea = {w: ok for w, ok in checks.items() if w.startswith("kea-dhcp4")}
             assert kea and all(ok is not False for ok in kea.values()), checks
@@ -891,6 +899,8 @@ class TestArchivesLab:
             ).stdout
             (WORK / f"ns2{suffix}").write_bytes(data)
         serial = int(dig(A1, "example.lan", "SOA").split()[2])
+        # A zone signed on ns2 by hand exists on long-lived lab VMs only, not after provision.sh.
+        had_signed = bool(ssh(A2, "dig +short @127.0.0.1 signed.lan SOA")[1].strip())
 
         # ns2 is lost: every engine and Pelagos file and package gone.
         ssh(
@@ -912,8 +922,8 @@ class TestArchivesLab:
         # A fresh host: the engines and the package, then the archive.
         ssh(
             A2,
-            "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q bind9 bind9-utils kea-dhcp4-server "
-            "kea-dhcp-ddns-server kea-ctrl-agent >/dev/null",
+            "sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 install -y -q "
+            "bind9 bind9-utils kea-dhcp4-server kea-dhcp-ddns-server kea-ctrl-agent >/dev/null",
             timeout=900,
         )
         install_deb(A2)
@@ -956,8 +966,9 @@ class TestArchivesLab:
         nsupdate(f"update add {after}. 300 A 192.0.2.78")
         wait_for("transfer to ns2", lambda: dig(A2, after) == "192.0.2.78", timeout=120)
         assert int(dig(A2, "example.lan", "SOA").split()[2]) > serial
-        signed = ssh(A2, "dig +dnssec +short @127.0.0.1 signed.lan SOA")[1]
-        assert "RRSIG" in signed or "SOA" in signed, signed
+        if had_signed:
+            signed = ssh(A2, "dig +dnssec +short @127.0.0.1 signed.lan SOA")[1]
+            assert "RRSIG" in signed or "SOA" in signed, signed
         mount_receivers(A2)
         run("ns2")
         assert node_row("ns2")["complete"] is True

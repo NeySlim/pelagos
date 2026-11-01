@@ -93,7 +93,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         from pelagos.domain.cluster import clean_site
 
         if args.site is not None and clean_site(args.site) is None:
-            raise InitError("--site must be 1 to 64 characters without control characters", 1)
+            raise InitError("--site must be 1 to 64 characters without control or format characters", 1)
         password = _init_password(args)
         result = bootstrap_first_node(
             paths,

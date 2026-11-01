@@ -365,7 +365,7 @@ class EnrollmentService:
         if req.site not in (None, "") and clean_site(req.site) is None:
             raise EnrollError(
                 "validation_error",
-                "site must be 1 to 64 characters without control characters",
+                "site must be 1 to 64 characters without control or format characters",
                 400,
                 "site",
             )
@@ -679,7 +679,7 @@ def enroll_node(
 ) -> EnrollResult:
     """The whole `pelagos enroll`: node.toml if absent, key and CSR, remote call, then every file at once."""
     if site is not None and clean_site(site) is None:
-        raise ValueError("site must be 1 to 64 characters without control characters")
+        raise ValueError("site must be 1 to 64 characters without control or format characters")
     paths.ensure()
     store = ConfigStore(paths.node_toml, paths.cluster_toml, paths.locks_dir / "cluster.lock")
     if store.cluster_exists():
@@ -729,8 +729,13 @@ def enroll_node(
         cluster = ClusterConfig.from_toml(tomllib.loads(response.cluster_toml))
     except (ConfigError, tomllib.TOMLDecodeError) as exc:
         raise EnrollError("protocol_error", f"cluster.toml from {url} is invalid: {exc}", 502) from exc
-    if cluster.peer(node.id) is None:
+    registered = cluster.peer(node.id)
+    if registered is None:
         raise EnrollError("protocol_error", "the issuing node did not register this node", 502)
+    if clean_site(site) and registered.site is None:
+        notify(
+            f"warning: the issuing node ignored --site {site!r} (older release); set it with PATCH /nodes/{node.id}"
+        )
     if ca_mod.node_id_from_cert(response.cert_pem.encode()) != node.id:
         raise EnrollError("protocol_error", "the issued certificate is for another node", 502)
     try:

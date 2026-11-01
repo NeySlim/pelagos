@@ -193,6 +193,26 @@ def test_enroll_with_a_site_registers_it_on_both_nodes(cluster):
     assert a.ctx.cluster().peer(a.id).site is None
 
 
+def test_enroll_site_through_an_issuer_that_ignores_it_warns(cluster, monkeypatch):
+    a = cluster.first()
+    real = EnrollRequest.to_dict
+    monkeypatch.setattr(EnrollRequest, "to_dict", lambda self: {**real(self), "site": None})
+    messages: list[str] = []
+    paths = dev_paths(cluster.root / "ns2")
+    token = a.service.enrollment.issue_token(f"user:admin@node:{a.id}")
+    enroll_node(
+        paths,
+        url=token["url"],
+        token=token["token"],
+        ca_fingerprint=token["ca_fingerprint"],
+        name="ns2",
+        replication_url="https://127.0.0.1:1",
+        site="lyon",
+        notify=messages.append,
+    )
+    assert any("--site" in m and "older release" in m for m in messages)
+
+
 def test_enroll_with_ca_flag_hands_over_the_ca_key(cluster):
     a = cluster.first()
     c = cluster.enroll(a, name="ns3", ca=True)

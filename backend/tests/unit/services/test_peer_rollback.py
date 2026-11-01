@@ -154,6 +154,8 @@ def test_peer_gateway_verdicts_for_transport_and_server_errors(pair):
     assert gateway.check_rollback(peer, plan) == (None, None)
     gateway._client_with_timeout = lambda p, t: None  # type: ignore[method-assign]
     assert gateway.check_rollback(peer, plan)[1] == "node_unreachable"
+    gateway._client_with_timeout = lambda p, t: object()  # type: ignore[method-assign]
+    assert gateway.check_rollback(peer, plan) == (None, None)  # a client without the call
 
 
 def test_undo_after_a_failed_apply_keeps_its_order_and_goes_on(pair, monkeypatch):

@@ -270,10 +270,17 @@ class PeerGateway:
             client = self._client_with_timeout(peer, GUARD_TIMEOUT)
             if client is None:
                 return f"{peer.name}: node certificate not available", "node_unreachable"
-            problem, code = client.check_rollback(plan)
+            check = getattr(client, "check_rollback", None)
+            if not callable(check):
+                return None, None  # a client without the call: same as an older peer
+            problem, code = check(plan)
         except (ReplicationError, OSError) as exc:
             server = isinstance(exc, ReplicationError) and exc.status is not None
             return f"{peer.name}: {exc}", "engine_unavailable" if server else "node_unreachable"
+        except Exception:
+            # Not a transport answer (a bug here): no verdict, the peer's rollback still guards.
+            log.warning("rollback guards of plan %s on %s not checked", plan.id, peer.name, exc_info=True)
+            return None, None
         return (f"{peer.name}: {problem}" if problem else None), code
 
     def permission_checks(self, peer: Peer, plan: Plan) -> list[dict[str, Any]] | None:

@@ -200,6 +200,7 @@ def test_metrics_bind_counters_match_dns_stats(api):
         assert low <= value <= after["rcodes"][rcode]
     assert samples['pelagos_scrape_success{source="bind"}'] == 1
 
+
 # Non-blocking web worker (section 2): the real gunicorn worker serves /health while another
 # request waits on a slow named-checkconf or works through a zone transfer.
 HEALTH_BUDGET = 0.1

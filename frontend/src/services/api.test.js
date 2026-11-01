@@ -34,7 +34,7 @@ const invocations = [
   () => api.auth.totpDisable('pw'),
   () => api.account.getPreferences(), () => api.account.updatePreferences({ language: 'fr' }),
   () => api.nodes.list(), () => api.nodes.self(), () => api.nodes.get('n1'), () => api.nodes.enrollToken(600),
-  () => api.nodes.remove('n2'), () => api.nodes.sync('n2'), () => api.nodes.replication(),
+  () => api.nodes.remove('n2'), () => api.nodes.sync('n2'), () => api.nodes.setSite('n2', 'paris'), () => api.nodes.replication(),
   () => api.dashboard.summary(), () => api.dashboard.getLayout(), () => api.dashboard.saveLayout([]),
   () => api.dns.instances(), () => api.dns.zones({ q: 'ex' }), () => api.dns.zone('example.lan.'),
   () => api.dns.zonePlan({ op: 'add', target: '_default/x.lan.' }), () => api.dns.records('example.lan', { page: 2 }),

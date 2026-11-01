@@ -51,6 +51,7 @@ export const nodes = {
   self: () => apiClient.get('/nodes/self'),
   get: (id) => apiClient.get(`/nodes/${enc(id)}`),
   enrollToken: (ttl_seconds) => apiClient.post('/nodes/enroll-token', ttl_seconds ? { ttl_seconds } : {}),
+  setSite: (id, site) => apiClient.patch(`/nodes/${enc(id)}`, { site }),
   remove: (id) => apiClient.delete(`/nodes/${enc(id)}`),
   sync: (id) => apiClient.post(`/nodes/${enc(id)}/sync`),
   replication: () => apiClient.get('/nodes/replication'),

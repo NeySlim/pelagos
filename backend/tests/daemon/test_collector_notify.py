@@ -8,7 +8,9 @@ over after its missed peer polls and sends it (nothing lost, at most one duplica
 covers the channel policies on the same setup: confirmation delay (a brief alert never leaves),
 retries with the same delivery id, a refusing channel abandoned with `notify.failed` and announced
 by `notification_failed` on the other channel, quiet hours, the global mute and its digest, and the
-hourly cap holding events until a slot frees.
+hourly cap holding events until a slot frees. The third covers change events: a plan applied
+through the web process reaches the receiver signed as `type: "event"`, once across a restart of the
+collector, within the hourly cap, and the target guard refuses a loopback channel until allowed.
 """
 
 from __future__ import annotations
@@ -220,7 +222,8 @@ def pair(tmp_root: Path, named_server, named_secondary) -> Iterator[Pair]:
         pair.http.headers["X-CSRF-Token"] = login.json()["csrf_token"]
         pair.settings(
             collector={"poll_seconds": 5, "peer_poll_seconds": 5},
-            notifications={"group_seconds": 5, "confirm_seconds": 15},
+            # The receiver listens on loopback, which the outgoing target guard refuses by default.
+            notifications={"group_seconds": 5, "confirm_seconds": 15, "local_targets_enabled": True},
             checks={"notification_failure_warning_minutes": 1},
         )
         for i in range(2):
@@ -522,3 +525,57 @@ def test_confirmation_retries_failures_quiet_hours_mute_and_cap(pair):
     time.sleep(20)
     assert len(rx.ok("/hook")[mark:]) == 1
     restart_named(pair.named[1])
+
+
+# Change events (B1-EVENTS) -----------------------------------------------------------------------
+
+
+def apply_record(pair: Pair, i: int) -> str:
+    change = {"op": "add", "target": f"event{i}/A", "after": {"ttl": 300, "rdata": [f"192.0.2.{100 + i}"]}}
+    plan = pair.api("POST", "/dns/zones/example.lan/records/plan", {"changes": [change]})
+    result = pair.api("POST", f"/plans/{plan['id']}/apply", {"confirm": True})
+    assert result["state"] == "applied", result
+    return plan["id"]
+
+
+@LONG
+def test_change_events_signed_once_across_a_restart_and_capped(pair):
+    rx = pair.receiver
+    local = {"type": "webhook", "name": "local", "params": {"url": rx.url("/events")}}
+    pair.settings(notifications={"local_targets_enabled": False})
+    refused = pair.http.post(
+        f"http://127.0.0.1:{pair.web_port}{V1}/admin/notifications/channels", json=local, timeout=30
+    )
+    assert refused.status_code == 400 and "target address refused" in refused.text, refused.text
+    pair.settings(notifications={"local_targets_enabled": True, "messages_max_per_hour": 2})
+    hook = channel(pair, "events", "/events", alerts=False, events=["plan.applied"])
+    assert hook["events"] == ["plan.applied"] and hook["alerts"] is False
+
+    first = apply_record(pair, 1)
+    [got] = until("the plan event", lambda: rx.ok("/events"), 90)
+    assert signed(got) and got.body["type"] == "event" and got.sender == "ns1"
+    [event] = got.body["events"]
+    assert event["event"] == "plan.applied" and event["data"]["plan_id"] == first
+    assert event["data"]["rollback_until"] and event["data"]["user"] == "admin"
+    assert event["url"].endswith(f"/plans?id={first}")
+
+    # A restarted collector reads what was sent back from the audit: nothing is sent again.
+    pair.kill(0, signal.SIGTERM)
+    pair.collector(0)
+    wait_for(lambda: pair.state(1)["sender"]["node_id"] == pair.ids[0], timeout=60, what="ns1 sender")
+    time.sleep(30)
+    assert len(rx.ok("/events")) == 1
+
+    # The hourly cap (2) holds the third plan until a slot frees; nothing is dropped.
+    second = apply_record(pair, 2)
+    until("the second plan", lambda: rx.ok("/events")[1:], 90)
+    third = apply_record(pair, 3)
+    until("the third held", lambda: pair.state(0).get("queue", {}).get("pending", 0) > 0, 60)
+    time.sleep(15)
+    assert len(rx.ok("/events")) == 2
+    pair.settings(notifications={"messages_max_per_hour": 3})
+    until("the third plan", lambda: rx.ok("/events")[2:], 60)
+    plans = [e["data"]["plan_id"] for d in rx.ok("/events") for e in d.body["events"]]
+    assert plans == [first, second, third]
+    history = pair.api("GET", f"/admin/notifications/history?channel_id={hook['id']}")["items"]
+    assert all(r["type"] == "event" for r in history) and len(history) == 3

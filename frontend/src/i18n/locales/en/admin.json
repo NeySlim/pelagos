@@ -478,7 +478,10 @@
         "confirm_seconds": "Confirmation delay",
         "messages_max_per_hour": "Messages per channel and hour",
         "retry_max_hours": "Retry a failed send for",
-        "send_timeout_seconds": "Send timeout"
+        "send_timeout_seconds": "Send timeout",
+        "login_failures": "Failed sign-ins before an event",
+        "login_failures_window_seconds": "Failed sign-in window",
+        "local_targets_enabled": "Allow local and cluster targets"
       },
       "archives": {
         "schedule_enabled": "Scheduled archives",
@@ -593,7 +596,9 @@
       },
       "notifications": {
         "confirm_seconds": "An alert must stay open this long before it is sent; critical alerts are sent at once.",
-        "messages_max_per_hour": "Beyond it, one message says how many events were held back."
+        "messages_max_per_hour": "Beyond it, one message says how many events were held back.",
+        "login_failures": "An auth.login_failed event is sent when this many sign-ins fail within the window.",
+        "local_targets_enabled": "Off: webhooks, ntfy, Gotify, Matrix and Home Assistant refuse loopback, link-local and the nodes of the cluster."
       },
       "archives": {
         "schedule_enabled": "Off until an archive key exists and its private key was tested.",

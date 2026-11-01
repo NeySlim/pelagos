@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from pelagos.domain.alerts import Alert, Severity
 from pelagos.notify import catalog
-from pelagos.notify.model import SEVERITY_RANK, Batch, BatchEvent, EventKind, Reason
+from pelagos.notify.model import SEVERITY_RANK, Batch, BatchEvent, ChangeEvent, ChangeKind, EventKind, Reason
 
 SCHEMA = "pelagos.notification.v1"
 TITLE_MAX = 300
@@ -108,6 +108,8 @@ def _event_line(lang: str, e: BatchEvent) -> str:
 
 
 def render(batch: Batch, lang: str = "en") -> Rendered:
+    if batch.is_change:
+        return render_changes(batch, lang)
     events = ordered(batch.events)
     active = [e for e in events if e.event != EventKind.RESOLVED]
     sender = _clip(batch.sender_name or batch.sender_node_id, 64)
@@ -182,8 +184,107 @@ def _html(r: Rendered, intro: list[str], items: list[str], tail: list[str], link
     return "".join(parts)
 
 
+# Change events (section 22, Change events) ----------------------------------------------------
+
+CHANGE_LEVEL = {
+    ChangeKind.PLAN_FAILED: "warning",
+    ChangeKind.NODE_OFFLINE: "warning",
+    ChangeKind.ZONE_TRANSFER_FAILED: "warning",
+    ChangeKind.AUTH_LOGIN_FAILED: "warning",
+    ChangeKind.AUDIT_CONFLICT: "warning",
+    ChangeKind.NODE_ONLINE: "resolved",
+}
+LEVEL_RANK = {"info": 0, "resolved": 0, "warning": 1}
+
+
+def change_line(lang: str, e: ChangeEvent) -> str:
+    d = e.data
+    node = _clip(e.node_name or e.node_id or "", 64)
+    params: dict[str, Any] = {"node": node}
+    if e.kind in (
+        ChangeKind.PLAN_APPLIED,
+        ChangeKind.PLAN_ROLLED_BACK,
+        ChangeKind.PLAN_FAILED,
+        ChangeKind.PLAN_EXPIRED,
+    ):
+        summary = str(d.get("summary") or d.get("scope") or "")
+        if e.message:
+            summary = catalog.message(lang, e.message, summary) or summary
+        params.update(summary=_clip(summary), user=_clip(str(d.get("user") or "?"), 64))
+    elif e.kind in (ChangeKind.LEASE_NEW, ChangeKind.LEASE_RELEASE):
+        client = d.get("hostname") or d.get("hw_address") or d.get("duid") or "?"
+        params.update(ip=str(d.get("ip_address") or ""), client=_clip(str(client), 64))
+    elif e.kind is ChangeKind.ZONE_TRANSFER_FAILED:
+        params.update(zone=_clip(str(d.get("zone") or ""), 255))
+    elif e.kind is ChangeKind.AUTH_LOGIN_FAILED:
+        params.update(count=int(d.get("count") or 0), minutes=max(1, int(d.get("window_seconds") or 0) // 60))
+    elif e.kind is ChangeKind.AUDIT_CONFLICT:
+        params.update(path=_clip(str(d.get("path") or ""), 200), reason=str(d.get("reason") or ""))
+    return catalog.text(lang, f"change.{e.kind.value}", **params)
+
+
+def render_changes(batch: Batch, lang: str = "en") -> Rendered:
+    changes = sorted(batch.changes, key=lambda e: (e.ts, e.id))
+    sender = _clip(batch.sender_name or batch.sender_node_id, 64)
+    lines = [change_line(lang, e) for e in changes]
+    audit = f"{batch.base_url.rstrip('/')}/audit" if batch.base_url else None
+    out = Rendered(subject="", click=audit)
+    if len(changes) == 1:
+        out.subject = catalog.text(lang, "change.subject", line=lines[0])
+        out.click = changes[0].url or audit
+    else:
+        out.subject = catalog.text(lang, "change.subject_more", count=len(changes), first=lines[0])
+    out.subject = _clip(out.subject, 250)
+    out.level = max((CHANGE_LEVEL.get(e.kind, "info") for e in changes), key=lambda v: LEVEL_RANK[v])
+    if out.level == "resolved" and len(changes) > 1:
+        out.level = "info"
+    out.lines.extend(lines)
+    tail: list[str] = []
+    if batch.held_back:
+        tail.append(catalog.text(lang, "change.held_back", count=batch.held_back))
+    if audit:
+        tail.append(catalog.text(lang, "body.link", url=audit))
+    stamp = (batch.sent_at if batch.sent_at.tzinfo else batch.sent_at.replace(tzinfo=UTC)).astimezone(UTC)
+    tail.append(catalog.text(lang, "body.sent_by", node=sender, time=stamp.strftime("%Y-%m-%d %H:%M UTC")))
+    out.lines.append("")
+    out.lines.extend(tail)
+    out.html = _html(out, [], lines, tail, audit)
+    return out
+
+
+def change_payload(batch: Batch, lang: str = "en") -> dict[str, Any]:
+    """The `pelagos.notification.v1` document of a change batch: `type` "event", one item per event."""
+    open_counts = {s.value: int(batch.open.get(s, 0)) for s in SEVERITIES}
+    return {
+        "schema": SCHEMA,
+        "type": "event",
+        "id": batch.id,
+        "cluster_id": batch.cluster_id,
+        "sent_at": iso(batch.sent_at),
+        "sender": {"node_id": batch.sender_node_id, "name": batch.sender_name},
+        "reason": batch.reason.value,
+        "events": [
+            {
+                "event": e.kind.value,
+                "id": e.id,
+                "ts": iso(e.ts),
+                "node_id": e.node_id,
+                "node_name": _clip(e.node_name, 64) if e.node_name else None,
+                "title": _clip(change_line(lang, e)),
+                "url": e.url,
+                "data": e.data,
+            }
+            for e in sorted(batch.changes, key=lambda e: (e.ts, e.id))
+        ],
+        "open": open_counts,
+        "held_back": batch.held_back,
+    }
+
+
 def webhook_payload(batch: Batch, lang: str = "en") -> dict[str, Any]:
     """The `pelagos.notification.v1` document (fields are only ever added, never changed)."""
+    if batch.is_change:
+        return change_payload(batch, lang)
     open_counts = {s.value: int(batch.open.get(s, 0)) for s in SEVERITIES}
     return {
         "schema": SCHEMA,

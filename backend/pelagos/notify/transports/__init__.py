@@ -22,6 +22,14 @@ from pelagos.notify.render import Rendered, render
 
 USER_AGENT = f"pelagos/{__version__}"
 DETAIL_MAX = 200
+# The URL parameter of each HTTP transport, the one the target guard checks.
+URL_PARAM = {
+    ChannelType.NTFY: "url",
+    ChannelType.GOTIFY: "url",
+    ChannelType.MATRIX: "homeserver",
+    ChannelType.WEBHOOK: "url",
+    ChannelType.HOME_ASSISTANT: "url",
+}
 
 
 @dataclass(slots=True)
@@ -31,6 +39,8 @@ class SendContext:
     smtp: Callable[..., Any] | None = None
     timeout: float = 15.0
     now: Callable[[], float] = time.time
+    # Outgoing target guard of the HTTP transports; None sends anywhere (local_targets_enabled).
+    guard: nhttp.TargetGuard | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,8 +120,11 @@ def send(
     return result
 
 
-def validate(channel: Mapping[str, Any], secrets: set[str]) -> list[Issue]:
-    """Problems of a channel table; `secrets` names the secrets that are set."""
+def validate(
+    channel: Mapping[str, Any], secrets: set[str], guard: nhttp.TargetGuard | None = None
+) -> list[Issue]:
+    """Problems of a channel table; `secrets` names the secrets that are set. With `guard`, a
+    literal target address it refuses (or `localhost`) is an error; names are checked at send."""
     kind = channel.get("type")
     if kind not in set(ChannelType):
         return [Issue("type", "one of " + ", ".join(ChannelType))]
@@ -127,7 +140,18 @@ def validate(channel: Mapping[str, Any], secrets: set[str]) -> list[Issue]:
             nhttp.tls_context(ca)
         except SendError as exc:
             issues.append(Issue("params.ca_pem", exc.error))
-    return issues + transport(str(kind)).validate(params, secrets)
+    issues += transport(str(kind)).validate(params, secrets)
+    name = URL_PARAM.get(str(kind))
+    if guard is not None and name and isinstance(params.get(name), str):
+        host = urlsplit(params[name]).hostname
+        if host and (nhttp.parse_ip(host) is not None or "localhost" in host.lower()):
+            try:
+                guard.pick(host, 443)
+            except SendError as exc:
+                issues.append(Issue(f"params.{name}", exc.error))
+            except OSError:
+                pass
+    return issues
 
 
 # Helpers shared by the HTTP transports.
@@ -168,6 +192,7 @@ def http_send(ctx: SendContext, request: nhttp.HttpRequest) -> nhttp.HttpRespons
     transient."""
     request.headers.setdefault("User-Agent", USER_AGENT)
     request.timeout = ctx.timeout
+    request.guard = request.guard or ctx.guard
     if request.ca_pem:
         nhttp.tls_context(request.ca_pem)  # a broken extra CA fails the same with every client
     resp = ctx.http(request)

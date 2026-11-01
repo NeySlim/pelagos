@@ -1684,7 +1684,7 @@ def start_notify(ctx: NodeContext, replicator: Any) -> Any:
     """The notification dispatcher on its own thread; the collector loop reads its alerts."""
     import sqlite3
 
-    from pelagos.collector.notify import RESOLVED_LIMIT, Dispatcher, DispatcherThread
+    from pelagos.collector.notify import RESOLVED_LIMIT, Dispatcher, DispatcherThread, lease_reader
     from pelagos.core.cluster_alerts import ClusterAlertView
     from pelagos.services.peers import PeerGateway
 
@@ -1699,7 +1699,8 @@ def start_notify(ctx: NodeContext, replicator: Any) -> Any:
                 return None
         return conns[0]
 
-    view = ClusterAlertView(ctx.node.id, local, PeerGateway(ctx))
+    gateway = PeerGateway(ctx)
+    view = ClusterAlertView(ctx.node.id, local, gateway)
 
     def read(skip: set[str]) -> Any:
         return view.cluster(include_resolved=True, resolved_limit=RESOLVED_LIMIT, skip=skip)
@@ -1712,7 +1713,9 @@ def start_notify(ctx: NodeContext, replicator: Any) -> Any:
             return {}
         return {s.node_id: s.version for s in replicator.peer_statuses()}
 
-    thread = DispatcherThread(Dispatcher(ctx, read, offline=offline, versions=versions))
+    # B1-EVENTS: lease change events read the lease history of this node and its peers.
+    leases = lease_reader(ctx, local, gateway)
+    thread = DispatcherThread(Dispatcher(ctx, read, offline=offline, versions=versions, leases=leases))
     thread.start()
     return thread
 

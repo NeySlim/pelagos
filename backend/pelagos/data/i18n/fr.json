@@ -632,6 +632,37 @@
    "sent_by": "Envoyé par {{node}} à {{time}}.",
    "test": "Message de test envoyé par {{node}}. S'il vous parvient, ce canal fonctionne."
   },
+  "change": {
+   "audit": {
+    "conflict": "Conflit de réplication sur {{path}} ({{reason}})"
+   },
+   "auth": {
+    "login_failed_one": "{{count}} échec de connexion en {{minutes}} min",
+    "login_failed_other": "{{count}} échecs de connexion en {{minutes}} min"
+   },
+   "held_back_one": "{{count}} autre événement de bail de cette rafale n'est pas listé.",
+   "held_back_other": "{{count}} autres événements de bail de cette rafale ne sont pas listés.",
+   "lease": {
+    "new": "Nouveau bail {{ip}} pour {{client}} ({{node}})",
+    "release": "Bail {{ip}} libéré par {{client}} ({{node}})"
+   },
+   "node": {
+    "offline": "Le nœud {{node}} est hors ligne",
+    "online": "Le nœud {{node}} est de nouveau en ligne"
+   },
+   "plan": {
+    "applied": "Plan appliqué par {{user}} : {{summary}}",
+    "expired": "Fenêtre d'annulation close : {{summary}}",
+    "failed": "Échec du plan ({{user}}) : {{summary}}",
+    "rolled_back": "Plan annulé par {{user}} : {{summary}}"
+   },
+   "subject": "[Pelagos] {{line}}",
+   "subject_more_one": "[Pelagos] {{count}} événement : {{first}}",
+   "subject_more_other": "[Pelagos] {{count}} événements : {{first}}",
+   "zone": {
+    "transfer_failed": "La zone {{zone}} n'est plus rafraîchie depuis son primaire sur {{node}}"
+   }
+  },
   "count": {
    "critical_one": "{{count}} critique",
    "critical_other": "{{count}} critiques",

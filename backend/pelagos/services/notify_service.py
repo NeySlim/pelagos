@@ -30,8 +30,9 @@ from pelagos.domain import (
     to_rfc3339,
     utcnow,
 )
+from pelagos.domain.plan import PlanScope
 from pelagos.notify import transports
-from pelagos.notify.model import SECRET_NAMES, Batch, ChannelType, Reason, SendResult, secret_key
+from pelagos.notify.model import SECRET_NAMES, Batch, ChangeKind, ChannelType, Reason, SendResult, secret_key
 from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
 
 log = logging.getLogger(__name__)
@@ -50,9 +51,23 @@ COMMENT_MAX = 500
 REMINDER_MAX_HOURS = 24 * 30
 CONFIRM_MAX_SECONDS = 3600
 HHMM = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
-FIELDS = ("type", "name", "enabled", "language", "params", "filters", "schedule")
+FIELDS = (
+    "type",
+    "name",
+    "enabled",
+    "language",
+    "params",
+    "filters",
+    "schedule",
+    "alerts",
+    "events",
+    "event_filters",
+)
 # Read-only members a client may echo back from a GET: ignored on writes.
-ECHOED = ("id", "status", "secrets", "warnings", "scope")
+ECHOED = ("id", "status", "secrets", "warnings", "scope", "events_since")
+DEFAULT_EVENT_FILTERS: dict[str, Any] = {"plan_scopes": [], "users": []}
+USERS_MAX = 50
+USERNAME_MAX = 64
 # The parameter naming where a channel's secrets go: a stored secret follows it, never a new server.
 TARGET_PARAM = {
     ChannelType.EMAIL: "host",
@@ -168,6 +183,51 @@ def clean_schedule(raw: Any, errors: list[dict[str, str]]) -> dict[str, Any]:
     return {k: out[k] for k in dispatcher.DEFAULT_SCHEDULE}
 
 
+def clean_event_filters(raw: Any, errors: list[dict[str, str]]) -> dict[str, Any]:
+    raw = {} if raw is None else raw
+    if not isinstance(raw, dict):
+        errors.append(field_error("event_filters", "object expected"))
+        return copy.deepcopy(DEFAULT_EVENT_FILTERS)
+    for key in sorted(set(raw) - set(DEFAULT_EVENT_FILTERS)):
+        errors.append(field_error(f"event_filters.{key}", "unknown field"))
+    scopes = _str_list(
+        raw.get("plan_scopes"), "event_filters.plan_scopes", {s.value for s in PlanScope}, errors
+    )
+    users = [u.strip() for u in _str_list(raw.get("users"), "event_filters.users", None, errors) if u.strip()]
+    if len(users) > USERS_MAX or any(len(u) > USERNAME_MAX for u in users):
+        errors.append(
+            field_error("event_filters.users", f"at most {USERS_MAX} names of {USERNAME_MAX} characters")
+        )
+    return {"plan_scopes": scopes, "users": list(dict.fromkeys(users))}
+
+
+def clean_events(
+    channel: dict[str, Any], before: Mapping[str, Any] | None, now: datetime, errors: list[dict[str, str]]
+) -> None:
+    """`alerts`, `events`, `event_filters` and the server-kept `events_since` (section 22, Change
+    events); members at their default are left out, so an unused channel table does not change."""
+    alerts = channel.get("alerts", True)
+    if not isinstance(alerts, bool):
+        errors.append(field_error("alerts", "boolean expected"))
+        alerts = True
+    events = _str_list(channel.get("events"), "events", {k.value for k in ChangeKind}, errors)
+    filters = clean_event_filters(channel.get("event_filters"), errors)
+    kept = (before or {}).get("events_since")
+    kept = kept if isinstance(kept, dict) else {}
+    since = {k: str(kept[k]) if k in kept else to_rfc3339(now) for k in events}
+    if not alerts and not events:
+        errors.append(field_error("events", "a channel without alerts needs at least one event"))
+    for key in ("alerts", "events", "event_filters", "events_since"):
+        channel.pop(key, None)
+    if not alerts:
+        channel["alerts"] = False
+    if events:
+        channel["events"] = events
+        channel["events_since"] = since
+        if filters != DEFAULT_EVENT_FILTERS:
+            channel["event_filters"] = filters
+
+
 def _target(channel: Mapping[str, Any]) -> str:
     param = TARGET_PARAM.get(str(channel.get("type")), "url")
     value = (channel.get("params") or {}).get(param)
@@ -209,6 +269,10 @@ class NotifyService:
             for name in names
             if secret_key(channel_id, name) in stored
         }
+
+    def guard(self) -> Any:
+        """The outgoing target guard of this cluster (None when local targets are allowed)."""
+        return dispatcher.target_guard(self.ctx.settings(), self.ctx.cluster())
 
     def _update(self, actor: str, mutate: Callable[[dict[str, Any], Any], None]) -> None:
         def apply(cluster: Any) -> None:
@@ -290,6 +354,13 @@ class NotifyService:
             "params": copy.deepcopy(dict(channel.get("params") or {})),
             "filters": dispatcher.filters_of(channel),
             "schedule": dispatcher.schedule_of(channel),
+            "alerts": dispatcher.alerts_on(channel),
+            "events": [k.value for k in dispatcher.events_of(channel)],
+            "event_filters": {
+                **copy.deepcopy(DEFAULT_EVENT_FILTERS),
+                **(channel.get("event_filters") if isinstance(channel.get("event_filters"), dict) else {}),
+            },
+            "events_since": dict(channel.get("events_since") or {}),
             "secrets": {name: name in set_names for name in SECRET_NAMES.get(kind, ())},
         }
         st = ((state or {}).get("channels") or {}).get(channel_id) or {}
@@ -301,10 +372,14 @@ class NotifyService:
             "last_error": st.get("last_error"),
         }
         try:
-            issues = transports.validate(out, set_names)
+            issues = transports.validate(out, set_names, self.guard())
         except Exception:  # an unknown type stored by a newer release: shown, not refused
             issues = []
-        out["warnings"] = [{"field": i.field, "message": i.message} for i in issues if i.level == "warning"]
+        out["warnings"] = [
+            {"field": i.field, "message": i.message}
+            for i in issues
+            if i.level == "warning" or i.message.startswith("target address refused")
+        ]
         return out
 
     def mute(self) -> dict[str, Any] | None:
@@ -343,7 +418,11 @@ class NotifyService:
     # Channel input -------------------------------------------------------------------------
 
     def _check(
-        self, channel: dict[str, Any], secret_names: set[str], errors: list[dict[str, str]]
+        self,
+        channel: dict[str, Any],
+        secret_names: set[str],
+        errors: list[dict[str, str]],
+        before: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """The channel table to store; every error found is appended (one 400 lists them all)."""
         if channel.get("type") not in set(ChannelType):
@@ -364,7 +443,8 @@ class NotifyService:
         channel["params"] = _drop_none(channel["params"])
         channel["filters"] = clean_filters(channel.get("filters"), set(self._node_ids()), errors)
         channel["schedule"] = clean_schedule(channel.get("schedule"), errors)
-        for issue in transports.validate(channel, secret_names):
+        clean_events(channel, before, self.clock(), errors)
+        for issue in transports.validate(channel, secret_names, self.guard()):
             if issue.level == "error":
                 errors.append(field_error(issue.field, issue.message))
         return channel
@@ -429,6 +509,7 @@ class NotifyService:
             "params": body.get("params") or {},
             "filters": body.get("filters") or {},
             "schedule": body.get("schedule") or {},
+            **{k: body[k] for k in ("alerts", "events", "event_filters") if k in body},
         }
         secrets = self._secrets_in(body, str(channel["type"]), errors)
         set_names = {k for k, v in secrets.items() if v is not None}
@@ -459,10 +540,10 @@ class NotifyService:
         channel = copy.deepcopy(before)
         channel.setdefault("enabled", True)
         channel.setdefault("language", "en")
-        for key in ("name", "enabled", "language", "params"):
+        for key in ("name", "enabled", "language", "params", "alerts", "events"):
             if key in body:
                 channel[key] = body[key]
-        for key in ("filters", "schedule"):
+        for key in ("filters", "schedule", "event_filters"):
             if key in body:
                 given = body[key]
                 current = channel.get(key) or {}
@@ -479,7 +560,7 @@ class NotifyService:
         set_names = (stored_names | {k for k, v in secrets.items() if v is not None}) - {
             k for k, v in secrets.items() if v is None
         }
-        channel = self._check(channel, set_names, errors)
+        channel = self._check(channel, set_names, errors, before)
         self._raise(errors)
         stored = _drop_none(channel)
         seal = self._seal(channel_id, secrets)
@@ -583,7 +664,9 @@ class NotifyService:
             sent_at=self.clock(),
         )
         timeout = float(reg.get(settings, "notifications.send_timeout_seconds"))
-        result = self.send(channel, secrets, batch, transports.SendContext(timeout=timeout))
+        result = self.send(
+            channel, secrets, batch, transports.SendContext(timeout=timeout, guard=self.guard())
+        )
         answer = {"node_id": node.id, **result.to_dict()}
         request = {
             "op": "test",
@@ -716,6 +799,8 @@ def _history_row(entry: AuditEntry) -> dict[str, Any]:
         "batch_id": request.get("batch_id"),
         "reason": request.get("reason"),
         "events": list(request.get("events") or []),
+        "type": request.get("type") or "alert",
+        "changes": list(request.get("changes") or []),
         "result": "ok" if entry.action == dispatcher.ACTION_SENT else "failed",
         "status": response.get("status"),
         "duration_ms": response.get("duration_ms"),
@@ -725,4 +810,4 @@ def _history_row(entry: AuditEntry) -> dict[str, Any]:
 
 def _audited(channel: dict[str, Any]) -> dict[str, Any]:
     """A channel in an audit entry: its settings and which secrets are set, never their values."""
-    return {k: channel[k] for k in (*FIELDS, "secrets") if k in channel}
+    return {k: channel[k] for k in (*FIELDS, "secrets", "events_since") if k in channel}

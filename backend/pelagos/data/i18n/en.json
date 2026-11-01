@@ -632,6 +632,37 @@
    "sent_by": "Sent by {{node}} at {{time}}.",
    "test": "Test message sent by {{node}}. If you can read it, this channel works."
   },
+  "change": {
+   "audit": {
+    "conflict": "Replication conflict on {{path}} ({{reason}})"
+   },
+   "auth": {
+    "login_failed_one": "{{count}} failed sign-in within {{minutes}} min",
+    "login_failed_other": "{{count}} failed sign-ins within {{minutes}} min"
+   },
+   "held_back_one": "{{count}} more lease event in this burst is not listed.",
+   "held_back_other": "{{count}} more lease events in this burst are not listed.",
+   "lease": {
+    "new": "New lease {{ip}} for {{client}} ({{node}})",
+    "release": "Lease {{ip}} released by {{client}} ({{node}})"
+   },
+   "node": {
+    "offline": "Node {{node}} is offline",
+    "online": "Node {{node}} is back online"
+   },
+   "plan": {
+    "applied": "Plan applied by {{user}}: {{summary}}",
+    "expired": "Rollback window closed: {{summary}}",
+    "failed": "Plan failed ({{user}}): {{summary}}",
+    "rolled_back": "Plan rolled back by {{user}}: {{summary}}"
+   },
+   "subject": "[Pelagos] {{line}}",
+   "subject_more_one": "[Pelagos] {{count}} event: {{first}}",
+   "subject_more_other": "[Pelagos] {{count}} events: {{first}}",
+   "zone": {
+    "transfer_failed": "Zone {{zone}} is not refreshed from its primary on {{node}}"
+   }
+  },
   "count": {
    "critical_one": "{{count}} critical",
    "critical_other": "{{count}} critical",

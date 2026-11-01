@@ -29,6 +29,28 @@ class EventKind(enum.StrEnum):
     REMINDER = "reminder"
 
 
+class ChangeKind(enum.StrEnum):
+    """Change events a channel subscribes to in `events` (section 22, Change events)."""
+
+    PLAN_APPLIED = "plan.applied"
+    PLAN_ROLLED_BACK = "plan.rolled_back"
+    PLAN_FAILED = "plan.failed"
+    PLAN_EXPIRED = "plan.expired"
+    LEASE_NEW = "lease.new"
+    LEASE_RELEASE = "lease.release"
+    ZONE_TRANSFER_FAILED = "zone.transfer_failed"
+    NODE_OFFLINE = "node.offline"
+    NODE_ONLINE = "node.online"
+    AUTH_LOGIN_FAILED = "auth.login_failed"
+    AUDIT_CONFLICT = "audit.conflict"
+
+
+PLAN_KINDS = frozenset(
+    {ChangeKind.PLAN_APPLIED, ChangeKind.PLAN_ROLLED_BACK, ChangeKind.PLAN_FAILED, ChangeKind.PLAN_EXPIRED}
+)
+LEASE_KINDS = frozenset({ChangeKind.LEASE_NEW, ChangeKind.LEASE_RELEASE})
+
+
 class Reason(enum.StrEnum):
     EVENTS = "events"
     DIGEST = "digest"
@@ -61,6 +83,25 @@ class BatchEvent:
 
 
 @dataclass(slots=True)
+class ChangeEvent:
+    """One change event. `id` is stable (an audit entry id, or derived from the source), `data` is
+    the kind's member of the webhook payload, `title` the English line when no catalog key fits."""
+
+    kind: ChangeKind
+    id: str
+    ts: datetime
+    node_id: str | None = None
+    node_name: str | None = None
+    data: dict[str, Any] = field(default_factory=dict)
+    url: str | None = None
+    # A backend message for the line (a plan's summary_message), rendered in the channel's language.
+    message: dict[str, Any] | None = None
+    # Alert-derived kinds: the alert and the start of its occurrence (ledger matching).
+    alert_id: str | None = None
+    first_seen: datetime | None = None
+
+
+@dataclass(slots=True)
 class Batch:
     """One message to one channel. `id` (a ULID) is the delivery id: a resend reuses it, so Matrix
     (txnId) and webhook receivers (X-Pelagos-Delivery) see a duplicate as the same delivery."""
@@ -78,6 +119,12 @@ class Batch:
     # Web UI base URL of the sender (node.web_url) for links; None leaves them out.
     base_url: str | None = None
     sent_at: datetime = field(default_factory=utcnow)
+    # A change batch (webhook "type": "event") carries these and no alert event.
+    changes: list[ChangeEvent] = field(default_factory=list)
+
+    @property
+    def is_change(self) -> bool:
+        return bool(self.changes)
 
 
 @dataclass(frozen=True, slots=True)

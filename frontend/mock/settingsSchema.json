@@ -1124,6 +1124,27 @@
       "unit": "seconds"
     },
     {
+      "key": "notifications.login_failures",
+      "type": "integer",
+      "default": 5,
+      "min": 2,
+      "max": 1000,
+      "unit": "failures"
+    },
+    {
+      "key": "notifications.login_failures_window_seconds",
+      "type": "integer",
+      "default": 600,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "notifications.local_targets_enabled",
+      "type": "boolean",
+      "default": false
+    },
+    {
       "key": "archives.schedule_enabled",
       "type": "boolean",
       "default": false

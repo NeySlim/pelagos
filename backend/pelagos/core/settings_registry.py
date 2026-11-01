@@ -271,6 +271,10 @@ REGISTRY: tuple[Setting, ...] = (
     S("notifications.messages_max_per_hour", "integer", 30, 1, 3600, "per_hour"),
     S("notifications.retry_max_hours", "integer", 24, 1, 168, "hours"),
     S("notifications.send_timeout_seconds", "integer", 15, 1, 120, "seconds"),
+    # B1-EVENTS: change events and the outgoing target guard (section 22, Change events)
+    S("notifications.login_failures", "integer", 5, 2, 1000, "failures"),
+    S("notifications.login_failures_window_seconds", "integer", 600, 60, 86400, "seconds"),
+    S("notifications.local_targets_enabled", "boolean", False),
     # Scheduled archives (section 23)
     S("archives.schedule_enabled", "boolean", False),
     S("archives.start_time", "string", "03:15", pattern=TIME_OF_DAY_PATTERN),

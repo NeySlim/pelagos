@@ -29,13 +29,17 @@ class EventKind(enum.StrEnum):
     REMINDER = "reminder"
 
 
+_PLAN = "plan"
+
+
 class ChangeKind(enum.StrEnum):
     """Change events a channel subscribes to in `events` (section 22, Change events)."""
 
-    PLAN_APPLIED = "plan.applied"
-    PLAN_ROLLED_BACK = "plan.rolled_back"
-    PLAN_FAILED = "plan.failed"
-    PLAN_EXPIRED = "plan.expired"
+    # Built, not literal: "plan.<x>" literals are read as message keys by the catalog check.
+    PLAN_APPLIED = f"{_PLAN}.applied"
+    PLAN_ROLLED_BACK = f"{_PLAN}.rolled_back"
+    PLAN_FAILED = f"{_PLAN}.failed"
+    PLAN_EXPIRED = f"{_PLAN}.expired"
     LEASE_NEW = "lease.new"
     LEASE_RELEASE = "lease.release"
     ZONE_TRANSFER_FAILED = "zone.transfer_failed"

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { Fingerprint, PencilSimple, Trash, Plus } from '@phosphor-icons/react'
 import { Badge, Button, Input, FormModal } from '../../components'
 import { useApi } from '../../hooks'
+import { ErrorNotice } from '../../components/ErrorNotice'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
@@ -130,7 +131,8 @@ export function SecurityKeysSection({ Section }) {
           ))}
         </ul>
       )}
-      {!keysQ.loading && items.length === 0 && <p className="text-xs text-text-tertiary" data-testid="key-empty">{t('keys.none')}</p>}
+      {keysQ.error && <ErrorNotice error={keysQ.error} onRetry={keysQ.refetch} />}
+      {!keysQ.loading && !keysQ.error && items.length === 0 && <p className="text-xs text-text-tertiary" data-testid="key-empty">{t('keys.none')}</p>}
       {keysQ.data && !available && (
         <p className="text-xs status-warning-text" role="status" data-testid="key-unavailable">{t(`keys.unavailable.${reason || 'browser'}`, { rp: keysQ.data?.rp_id || '' })}</p>
       )}

@@ -131,7 +131,7 @@
       "cancelled": "La demande de clé de sécurité a été fermée.",
       "code": "Saisissez le code à 6 chiffres"
     },
-    "needFactor": "Créer un jeton demande un second facteur. Enregistrez d'abord une clé de sécurité ou activez TOTP.",
+    "needFactor": "Créer un jeton demande un second facteur. Enregistrez d'abord une clé de sécurité ou activez le TOTP.",
     "goSecurity": "Aller à Sécurité"
   },
   "tabs": {

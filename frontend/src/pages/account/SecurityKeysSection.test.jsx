@@ -24,6 +24,14 @@ describe('SecurityKeysSection', () => {
     api.auth.keys.mockResolvedValue({ items: [KEY], available: true, rp_id: 'example.lan', reason: null })
   })
 
+  it('shows the translated notice, not the empty text, when the list cannot be read', async () => {
+    api.auth.keys.mockRejectedValue(Object.assign(new TypeError('Cannot read properties of undefined'), { status: 500 }))
+    render(<SecurityKeysSection Section={Section} />)
+    expect(await screen.findByTestId('error-notice')).toBeInTheDocument()
+    expect(screen.queryByTestId('key-empty')).toBeNull()
+    expect(screen.getByTestId('error-notice-title')).not.toHaveTextContent('Cannot read properties')
+  })
+
   it('lists keys and registers a new one through the browser', async () => {
     api.auth.keyRegisterOptions.mockResolvedValue({ ceremony: 'c1', options: { challenge: 'AQ' } })
     createCredential.mockResolvedValue({ id: 'k2' })

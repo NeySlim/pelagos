@@ -91,6 +91,14 @@ describe('ApiTokensSection', () => {
     expect(notice).toBeInTheDocument()
   })
 
+  it('shows the detail the server gives when no second factor is usable here', async () => {
+    api.auth.tokenChallenge.mockRejectedValue(Object.assign(new Error('x'), { code: 'conflict', problem: { reason: 'no_second_factor', detail: 'open the node by that name' } }))
+    render(<ApiTokensSection Section={Section} />)
+    fireEvent.change(await screen.findByTestId('token-name-input'), { target: { value: 'ci' } })
+    fireEvent.click(screen.getByTestId('token-add-submit'))
+    expect(await screen.findByTestId('token-error')).toHaveTextContent(/^x$/)
+  })
+
   it('uses the expiry bounds of the settings', async () => {
     api.auth.tokens.mockResolvedValue({ items: [], meta: { unavailable: [], default_days: 30, max_days: 60 } })
     api.auth.tokenChallenge.mockResolvedValue({ methods: ['webauthn'], ceremony: 'c1', options: { challenge: 'AQ' } })

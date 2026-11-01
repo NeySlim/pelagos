@@ -128,7 +128,7 @@ export function ApiTokensSection({ Section, onGoSecurity }) {
         setNeedCode(true)
       }
     } catch (err) {
-      if (err?.problem?.reason === 'no_second_factor') setError(t('tokens.errors.noFactor'))
+      if (err?.problem?.reason === 'no_second_factor') setError(err.problem.detail ? errorMessage(err) : t('tokens.errors.noFactor'))
       else setError(cancelled(err) ? t('tokens.errors.cancelled') : errorMessage(err))
     } finally {
       setBusy(false)

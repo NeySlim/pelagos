@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, B1-WEBPROC (WP-BIND, WP-API-AUTH): web worker concurrency rules
+Section 2 gains "Web worker concurrency": what `patch_all` makes cooperative in the one gevent
+worker, what stays blocking (CPU work, blocking `flock`), and the rules (pace long CPU work with a
+short timed sleep, never `time.sleep(0)`; never hold a blocking file lock across a yield).
+`connectors/bind/dns_client.py`: `YIELD_EVERY` is replaced by `Pacer` (`PACE_SECONDS`,
+`TURN_SECONDS`), used by `_paced` (new optional `pace` argument) and by the RRset grouping of
+`axfr`; `tests/unit/connectors/bind/test_bind_zone_roles.py` follows. `gunicorn_conf.py` turns
+gunicorn's control socket off. No API change; WP-CORE and WP-API-AUTH code that does long CPU work
+in requests (audit queries, hosts cache, argon2) should follow the rules (see the B1-WEBPROC report).
+
 ## 2026-11-01, B1-LEASEHIST (WP-COLLECTOR, WP-API-AUTH): lease history
 Additive. Series cache schema version 2: table `lease_events` (section 15, Lease history), created
 in place in a version 1 cache, purged after `retention.lease_history_days` (90) in chunks; unlike

@@ -125,6 +125,37 @@ added by `InstallerRunner` from `cluster.toml [secrets]`), otherwise from
 `tsig/<new key>` in `cluster.toml`, accepted only when the entry's last
 writer (its replication stamp, section 13) is a current member.
 
+### Web worker concurrency
+
+The web process is one gunicorn worker (`gunicorn_conf.py`: `workers = 1`, `worker_connections =
+1000`, gunicorn's control socket off so nothing adds a worker at run time): WebSocket fan-out and
+the in-memory plan store live in that one process, and gevent gives the concurrency. Every request
+runs in a greenlet on one thread, so a request that holds the CPU without yielding holds every other
+one, `/health` included. `gunicorn_conf.py` calls `gevent.monkey.patch_all()` before anything is
+imported, which makes these cooperative:
+
+- subprocesses (`subprocess.run`: `named-checkconf`, `named-checkzone`, `rndc`): the greenlet
+  waits on the child's pipes;
+- sockets, TLS, `select`: Kea control sockets (`config-test` included), the helper socket, peers
+  (`/repl/v1`), DNS queries, UPDATE and AXFR;
+- `time.sleep`, `threading` locks and threads (a background thread is a greenlet).
+
+What stays blocking is CPU work and `fcntl.flock` without `LOCK_NB`. Rules for code that runs in
+the web process:
+
+- Long CPU work gives the loop a turn every 20 ms or so with a short timed sleep, never
+  `time.sleep(0)`: gevent's `sleep(0)` only reruns ready callbacks and polls I/O after 50 of them, so
+  it does not let a waiting request in. `connectors.bind.dns_client.Pacer` does this for AXFR
+  (parsing one 64 KiB transfer message, about 50 ms, is the longest step left).
+- A file lock taken with a blocking `flock` is never held across anything that yields (subprocess,
+  socket, sleep): a second greenlet asking for the same lock would block the whole worker, and the
+  holder would never resume. Hold such locks around file reads and writes only, or wait with
+  `LOCK_NB` and a sleep as `services.engine_lock` does.
+- Measured on a loaded development host (gunicorn worker as packaged, `/health` polled every
+  20 ms): a 1.5 s `named-checkconf` keeps `/health` under 30 ms; reading a 45 000 name zone keeps it
+  under 70 ms. One argon2 verification (login) holds the worker about 50 ms, so a burst of logins
+  adds up; `tests/daemon/test_api_bind.py` guards the checkconf and AXFR cases with a 100 ms budget.
+
 Both processes follow `node.toml [engines]`: the web process rebuilds its
 connectors before the next request when the file changed, and the collector
 exits with status 75 so that systemd restarts it with the new engines.
@@ -1476,7 +1507,8 @@ reloaded and the backup is restored (no reload: the engine still runs its old fi
 the write itself fails). If `reload` raises or `verify` returns
 `False`, the backup is restored and `reload` is called again; `rolled_back`
 is `True`. Validator commands run with a 30 s timeout and never through a
-shell. The pipeline never deletes a backup; retention of backups is the
+shell. In the web process `subprocess` is gevent's (section 2), so a slow `named-checkconf`
+waits without holding other requests. The pipeline never deletes a backup; retention of backups is the
 collector's job (`settings.retention.backups_days`, default 90).
 
 ### Permission guard
@@ -1532,7 +1564,10 @@ Plans: `PlanStore.guard` (set by the web process to `services.permissions.Permis
 on every new plan, on each part of a composite (registered before the plan is stored, read by
 `put`) on that part's own target nodes: locally in the web process,
 on a peer in its collector over `POST /repl/v1/plans/preflight` (`permissions`, 10 s timeout; a
-peer that does not answer or predates it is not checked). Installer scopes (`install`, `import`,
+peer that does not answer or predates it is not checked). A host plan (scope `host`, no engine of
+its own) is checked through its parts: a DNS part that rewrites a static zone file the unit cannot
+write refuses the host plan at preview, on the node that holds the zone
+(`tests/unit/services/test_permissions_host_plan.py`). Installer scopes (`install`, `import`,
 `security`, run as root by the helper) are skipped. A failed path refuses the plan: state
 `failed`, one `ValidationResult(tool="permissions", ok=false, node_id, output,
 output_message)` per node, `error`/`error_message` `permission.plan_refused` naming each node and

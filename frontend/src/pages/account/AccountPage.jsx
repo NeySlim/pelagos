@@ -2,8 +2,8 @@
 // Account: profile, password change, TOTP enrollment (QR code of the otpauth URL,
 // manual secret, confirmation code) or removal, security keys and passkeys, and
 // preferences (theme family, mode, language, animations) saved to the server.
-import { useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { UserCircle, Key, ShieldCheck, Palette } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, Input, Select, Tabs, NodeLink } from '../../components'
@@ -22,7 +22,8 @@ import { TotpQr } from './TotpQr'
 import { SecurityKeysSection } from './SecurityKeysSection'
 import { ApiTokensSection } from './ApiTokensSection'
 
-const TAB_OF_HASH = { profil: 'profile', jetons: 'tokens', tokens: 'tokens', preferences: 'preferences' }
+// The URL hash names the tab (back, forward and reload keep it); French and older anchors are aliases.
+const TAB_OF_HASH = { profile: 'profile', profil: 'profile', security: 'security', securite: 'security', tokens: 'tokens', jetons: 'tokens', preferences: 'preferences' }
 
 function Section({ icon: Icon, title, children, testId }) {
   return (
@@ -264,23 +265,37 @@ export default function AccountPage() {
   const { t } = useTranslation(['account', 'common'])
   const { user, node, restriction } = useAuth()
   const location = useLocation()
-  const [forced, setForced] = useState(0)
-  const [chosen, setChosen] = useState(null)
+  const navigate = useNavigate()
+  const rootRef = useRef(null)
+  const focusSecurity = useRef(false)
   const nodesQ = useApi(() => api.nodes.list().catch(() => ({ items: [] })), [])
   const others = (nodesQ.data?.items || []).map((n) => n.peer).filter((p) => p?.id && p.id !== node?.peer?.id)
   const mustChange = Boolean(user?.must_change_password)
   const enroll = restriction === 'webauthn_enrollment' || restriction === 'totp_enrollment' ? restriction : null
-  // Enrollment lands on the security tab; the old #securite anchor still opens it.
-  const hash = location.hash.replace('#', '')
-  const initial = enroll || mustChange || hash === 'securite' || hash === 'security' ? 'security' : TAB_OF_HASH[hash] || 'profile'
+  const tokensTab = !restriction
+  // Enrollment and a forced password change land on the security tab, once: the hash keeps it after.
+  const landOnSecurity = useRef(Boolean(enroll || mustChange))
+  const requested = TAB_OF_HASH[location.hash.replace('#', '')]
+  const tab = requested && (requested !== 'tokens' || tokensTab) ? requested : landOnSecurity.current ? 'security' : 'profile'
+  useEffect(() => {
+    if (landOnSecurity.current && !location.hash) navigate({ hash: 'security' }, { replace: true })
+    landOnSecurity.current = false
+  }, [location.hash, navigate])
+  const select = (id) => navigate({ hash: id })
   const goSecurity = () => {
-    setChosen('security')
-    setForced((n) => n + 1)
+    focusSecurity.current = true
+    select('security')
   }
+  useEffect(() => {
+    if (tab === 'security' && focusSecurity.current) {
+      focusSecurity.current = false
+      rootRef.current?.querySelector('[data-tab="security"]')?.focus()
+    }
+  }, [tab])
 
   return (
     <PageLayout icon={UserCircle} title={t('pages.account.title')} subtitle={t('pages.account.subtitle')} testId="page-account-account">
-      <div className="space-y-4 max-w-4xl">
+      <div className="space-y-4 max-w-4xl" ref={rootRef}>
         {mustChange && (
           <div className="rounded-lg border status-warning-border status-warning-bg px-3 py-2 text-sm status-warning-text" role="status" data-testid="account-must-change">
             {t('password.mustChange')}
@@ -292,22 +307,22 @@ export default function AccountPage() {
           </div>
         )}
         <Tabs
-          key={`${forced}-${initial}`}
-          defaultTab={chosen || initial}
+          value={tab}
+          onValueChange={select}
           tabs={[
             { id: 'profile', label: t('tabs.profile'), content: <ProfileSection user={user} node={node} others={others} /> },
             {
               id: 'security',
               label: t('tabs.security'),
               content: (
-                <div className="space-y-4" id="securite">
+                <div className="space-y-4">
                   <PasswordSection />
                   <TotpSection />
                   <SecurityKeysSection Section={Section} />
                 </div>
               ),
             },
-            ...(restriction ? [] : [{ id: 'tokens', label: t('tabs.tokens'), content: <ApiTokensSection Section={Section} onGoSecurity={goSecurity} /> }]),
+            ...(tokensTab ? [{ id: 'tokens', label: t('tabs.tokens'), content: <ApiTokensSection Section={Section} onGoSecurity={goSecurity} /> }] : []),
             { id: 'preferences', label: t('tabs.preferences'), content: <PreferencesSection /> },
           ]}
         />

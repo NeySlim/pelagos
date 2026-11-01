@@ -130,13 +130,28 @@ def _messages(count: int, per_message: int) -> list[dns.message.Message]:
 
 def test_paced_transfer_stops_past_the_limit_and_yields(monkeypatch) -> None:
     sleeps: list[float] = []
+    clock = iter(range(0, 1000, 1))  # one second per reading: every message is past the pace
     monkeypatch.setattr(dns_client.time, "sleep", sleeps.append)
+    monkeypatch.setattr(dns_client.time, "monotonic", lambda: float(next(clock)))
     assert len(list(dns_client._paced(iter(_messages(3, 10)), "example.lan", 30))) == 3
-    assert sleeps == [0, 0, 0]
+    # A timed turn, never sleep(0): gevent polls I/O only after 50 ready callbacks.
+    assert sleeps == [dns_client.TURN_SECONDS] * 3
     with pytest.raises(ZoneTooLarge) as exc:
         list(dns_client._paced(iter(_messages(5, 10)), "example.lan", 25))
     assert exc.value.size == 30 and exc.value.limit == 25
     assert len(list(dns_client._paced(iter(_messages(5, 10)), "example.lan", None))) == 5
+
+
+def test_pacer_turns_only_once_the_pace_went_by(monkeypatch) -> None:
+    now = [0.0]
+    sleeps: list[float] = []
+    monkeypatch.setattr(dns_client.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(dns_client.time, "sleep", sleeps.append)
+    pace = dns_client.Pacer()
+    for _ in range(100):
+        now[0] += dns_client.PACE_SECONDS * 0.3  # a turn every fourth call
+        pace()
+    assert len(sleeps) == 25
 
 
 def test_paced_transfer_counts_owner_names_not_records(monkeypatch) -> None:

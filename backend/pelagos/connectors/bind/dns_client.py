@@ -23,8 +23,10 @@ import dns.zone
 from pelagos.connectors.base import ConnectorDenied, ConnectorTimeout, ConnectorUnavailable, ZoneTooLarge
 from pelagos.domain.dns import RRset, normalize_name
 
-# Records grouped between two yields to other greenlets.
-YIELD_EVERY = 2000
+# Work done between two turns of the gevent loop; a turn is a short timed sleep, because sleep(0)
+# only reruns ready callbacks (gevent polls I/O after 50 of them) and would leave /health waiting.
+PACE_SECONDS = 0.02
+TURN_SECONDS = 0.001
 
 ALGORITHMS = {
     "hmac-md5": dns.tsig.HMAC_MD5,
@@ -94,8 +96,9 @@ class DnsClient:
 
     def axfr(self, zone: str, key: TsigKey | None = None, max_names: int | None = None) -> list[RRset]:
         """Full transfer grouped into RRsets; absolute lowercase owner names. Past `max_names`
-        owner names the transfer stops with ZoneTooLarge; each message yields to other greenlets."""
+        owner names the transfer stops with ZoneTooLarge; parsing and grouping pace the gevent loop."""
         origin = dns.name.from_text(normalize_name(zone))
+        pace = Pacer()
         try:
             xfr = _paced(
                 dns.query.xfr(
@@ -110,6 +113,7 @@ class DnsClient:
                 ),
                 zone,
                 max_names,
+                pace,
             )
             z = dns.zone.from_xfr(xfr, relativize=False)
         except (dns.exception.FormError, dns.tsig.PeerError, dns.query.TransferError) as exc:
@@ -119,15 +123,16 @@ class DnsClient:
         except OSError as exc:
             raise ConnectorUnavailable(str(exc)) from exc
         grouped: dict[tuple[str, str, int], list[str]] = defaultdict(list)
-        for i, (name, node) in enumerate(z.nodes.items()):
-            if i % YIELD_EVERY == 0:
-                time.sleep(0)
+        for name, node in z.nodes.items():
+            pace()
             for rdataset in node.rdatasets:
                 key_ = (name.to_text().lower(), dns.rdatatype.to_text(rdataset.rdtype), rdataset.ttl)
                 grouped[key_].extend(r.to_text() for r in rdataset)
-        return [
-            RRset(name=n, rtype=t, ttl=ttl, rdata=sorted(rd)) for (n, t, ttl), rd in sorted(grouped.items())
-        ]
+        out = []
+        for (n, t, ttl), rd in sorted(grouped.items()):
+            pace()
+            out.append(RRset(name=n, rtype=t, ttl=ttl, rdata=sorted(rd)))
+        return out
 
     def update(self, zone: str, key: TsigKey, build: Any) -> str:
         """Send a signed UPDATE; `build(msg)` adds prerequisites and changes. Returns the rcode text."""
@@ -148,18 +153,32 @@ class DnsClient:
         return rcode
 
 
+class Pacer:
+    """Called often during long work: gives the gevent loop a turn once PACE_SECONDS went by.
+    Without gevent (collector, CLI) the turn is a plain 1 ms pause."""
+
+    def __init__(self) -> None:
+        self._last = time.monotonic()
+
+    def __call__(self) -> None:
+        if time.monotonic() - self._last >= PACE_SECONDS:
+            time.sleep(TURN_SECONDS)
+            self._last = time.monotonic()
+
+
 def _paced(
-    messages: Iterator[dns.message.Message], zone: str, limit: int | None
+    messages: Iterator[dns.message.Message], zone: str, limit: int | None, pace: Pacer | None = None
 ) -> Iterator[dns.message.Message]:
-    """The transfer's messages, yielding to the gevent hub after each, stopped past `limit` owner
+    """The transfer's messages, pacing the gevent loop between them, stopped past `limit` owner
     names (the unit of `rndc zonestatus` nodes)."""
+    pace = pace or Pacer()
     names: set[dns.name.Name] = set()
     for msg in messages:
         if limit is not None:
             names.update(rrset.name for rrset in msg.answer)
             if len(names) > limit:
                 raise ZoneTooLarge(normalize_name(zone), "_default", len(names), limit)
-        time.sleep(0)
+        pace()
         yield msg
 
 

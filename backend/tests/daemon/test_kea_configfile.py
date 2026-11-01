@@ -405,6 +405,13 @@ def test_a_whole_configuration_replace_carries_the_comments_in_one_config_set(ke
     assert body["user-context"]["pelagos"]["comment"] == "Lab DHCPv4 server, written by hand"
     assert '"comment": "office LAN"' in kea_dhcp4.config_path.read_text()
     assert reads_as_running(backend) == []
+    # A copy the user removes in the editor stays removed: the plan recorded it before.
+    edited = backend.config_get()
+    del edited["subnet4"][0]["user-context"]["pelagos"]["comment"]
+    result = backend.apply(backend.plan_config_replace(edited))
+    assert result.ok, result.message
+    assert "comment" not in backend.config_get()["subnet4"][0]["user-context"]["pelagos"]
+    assert '"comment": "office LAN"' not in kea_dhcp4.config_path.read_text()
 
 
 def test_reconciliation_keeps_the_target_file_comments(node_ctx, tmp_root):

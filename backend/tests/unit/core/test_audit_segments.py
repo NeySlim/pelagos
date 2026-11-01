@@ -895,3 +895,24 @@ def test_long_reads_hand_the_gevent_hub_a_turn(alog, monkeypatch):
     fresh.query(user="alice")
     list(fresh.export_lines())
     assert len(turns) >= 100
+
+
+def test_event_audit_source_first_pass_uses_tail_over_segments(alog, monkeypatch):
+    """B1-EVENTS AuditSource: the first pass per needle is tail(since, needle) (a December conflict
+    in a sealed segment is found in January), later passes follow with scan."""
+    from pelagos.collector.notify import AUDIT_SOURCES, AuditSource
+
+    conflict = entry(ts(2026, 12, 30), action="replication.conflict", node=OTHER)
+    alog.merge([conflict])
+    seg.rotate(alog, NODE, ts(2027, 1, 1, 0))
+    calls: list[str] = []
+    real_tail, real_scan = alog.tail, alog.scan
+    monkeypatch.setattr(alog, "tail", lambda *a, **k: (calls.append("tail"), real_tail(*a, **k))[1])
+    monkeypatch.setattr(alog, "scan", lambda *a, **k: (calls.append("scan"), real_scan(*a, **k))[1])
+    source = AuditSource(alog)
+    source.refresh(ts(2027, 1, 2))
+    assert calls == ["tail"] * len(AUDIT_SOURCES) and conflict.id in source.entries
+    later = entry(ts(2027, 1, 2, 13), action="replication.conflict", node=OTHER)
+    alog.merge([later])
+    source.refresh(ts(2027, 1, 2, 14))
+    assert calls[len(AUDIT_SOURCES) :] == ["scan"] * len(AUDIT_SOURCES) and later.id in source.entries

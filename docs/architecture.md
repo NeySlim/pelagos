@@ -1938,7 +1938,7 @@ distro_tracker_enabled = true            # Debian security tracker: fixes of the
 [settings.dns]
 read_key = "ddi-read"
 admin_key = "ddi-admin"
-update_types_admin = ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"]
+update_types_admin = ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID", "SSHFP", "TLSA", "HTTPS", "SVCB", "NAPTR", "LOC", "DNAME", "DS", "URI"]
 update_types_kea = ["A", "AAAA", "PTR", "DHCID"]
 view_keys = { inside = "ddi-inside" }    # per view: key name, or { read = "...", admin = "..." }
 zone_read_max_names = 50000            # largest zone the web process reads (409 zone_too_large above)
@@ -3797,6 +3797,27 @@ answer may carry a refreshed `pelagos_session` cookie.
 
 `{zone}` in paths is the zone name without the trailing dot, URL encoded;
 the API normalizes to the absolute form.
+
+Record types (B1-RRTYPES, 0.4.0). `zone_updates.ADMIN_UPDATE_TYPES`, the editor's
+`EDITABLE_TYPES` and the default of `dns.update_types_admin` are A, AAAA, PTR, CNAME, TXT, SRV,
+MX, NS, CAA, DHCID, SSHFP, TLSA, HTTPS, SVCB, NAPTR, LOC, DNAME, DS and URI. `settings_registry.migrate`
+rewrites a stored `dns.update_types_admin` equal (in any order) to a former default
+(`LEGACY_ADMIN_UPDATE_TYPES` of 0.1.0 to 0.1.1, `PREVIOUS_ADMIN_UPDATE_TYPES` of 0.1.2 to 0.3.x)
+to the new default; any other list is kept. Zone grants written by the installer follow the
+tuple, and `update_types_narrow` reports an older grant (`zonesub ANY` already covers every type).
+`records/plan` (and the desired state verbs, which build through it) checks before any plan:
+each `after.rdata[j]` parses as its type with dnspython (`400 validation_error`, field
+`changes[i].after.rdata[j]`, message `invalid <TYPE> value: expected <form>`; until 0.3.x a bad
+value gave a failed plan, `422 engine_validation_failed`), and a DS add or replace at the zone apex
+(`400`, field `changes[i].target`, message `DS at apex`). `rrset.resolve_changes` adds rules that
+read the zone as it will be after the plan: DS only where the owner has NS (a delegation), an NS
+delete leaving a DS at that owner refused, DNAME holds one target, a DNAME is refused above
+existing names and any record is refused below a DNAME (RFC 6672 2.3); a DNAME and other data
+except CNAME may share an owner. These fail the plan (`422`, keys `rrset.ds_apex`,
+`rrset.ds_no_delegation`, `rrset.ns_keeps_ds`, `rrset.singleton`, `rrset.dname_below`,
+`rrset.under_dname`). rdata is stored and compared in dnspython's presentation form (hex in
+lowercase, SVCB parameters quoted). Static zone files take the same types; the zone file reader
+reads `key="value"` (SVCB, HTTPS) as one word.
 
 ### DHCP
 

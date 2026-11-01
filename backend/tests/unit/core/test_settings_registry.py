@@ -373,6 +373,18 @@ def test_legacy_admin_types_are_upgraded_custom_lists_kept():
     assert reg.migrate(custom) == [] and custom["settings"]["dns"]["update_types_admin"] == ["A", "AAAA"]
 
 
+def test_former_default_admin_types_take_the_new_record_types():
+    """B1-RRTYPES: the 0.1.2 to 0.3.x default gains SSHFP, TLSA, ...; a list edited by hand stays."""
+    former = {"settings": {"dns": {"update_types_admin": list(zone_updates.PREVIOUS_ADMIN_UPDATE_TYPES)}}}
+    assert reg.migrate(former) == [("dns.update_types_admin", "dns.update_types_admin")]
+    assert former["settings"]["dns"]["update_types_admin"] == list(zone_updates.ADMIN_UPDATE_TYPES)
+    assert {"SSHFP", "TLSA", "HTTPS", "DS"} <= set(former["settings"]["dns"]["update_types_admin"])
+    assert reg.migrate(former) == []
+    edited = {"settings": {"dns": {"update_types_admin": [*zone_updates.PREVIOUS_ADMIN_UPDATE_TYPES, "SPF"]}}}
+    assert reg.migrate(edited) == []
+    assert edited["settings"]["dns"]["update_types_admin"][-1] == "SPF"
+
+
 def test_feature_domains_of_the_sixth_pass():
     """notifications, archives, ddns (sections 22 to 24): defaults, screen entries, time of day."""
     assert {"notifications", "archives", "ddns"} <= set(reg.DOMAINS)

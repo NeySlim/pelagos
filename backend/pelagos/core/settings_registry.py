@@ -558,11 +558,11 @@ def migrate(data: dict[str, Any]) -> list[tuple[str, str]]:
                 repl["tombstones"] = {old_entry: text}
                 tombs = repl["tombstones"]
         moved.append((old, new))
-    # 0.1.x stored its admin grant as the default: that exact list still means "the default".
+    # Earlier releases stored their admin grant as the default: those exact lists still mean "the default".
     dns = settings.get("dns")
     types = dns.get("update_types_admin") if isinstance(dns, dict) else None
-    legacy_types = sorted(zone_updates.LEGACY_ADMIN_UPDATE_TYPES)
-    if isinstance(types, list) and sorted(str(t).upper() for t in types) == legacy_types:
+    former = (zone_updates.LEGACY_ADMIN_UPDATE_TYPES, zone_updates.PREVIOUS_ADMIN_UPDATE_TYPES)
+    if isinstance(types, list) and sorted(str(t).upper() for t in types) in [sorted(f) for f in former]:
         dns["update_types_admin"] = list(zone_updates.ADMIN_UPDATE_TYPES)
         moved.append(("dns.update_types_admin", "dns.update_types_admin"))
     return moved

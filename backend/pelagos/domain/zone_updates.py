@@ -8,9 +8,14 @@ from __future__ import annotations
 
 # What the admin key may write: exactly the types the zone editor offers. SOA and DNSSEC records
 # stay with named (serial, signing): an update-policy never grants them to Pelagos.
-ADMIN_UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID")
+ADMIN_UPDATE_TYPES = (
+    "A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID",
+    "SSHFP", "TLSA", "HTTPS", "SVCB", "NAPTR", "LOC", "DNAME", "DS", "URI",
+)  # fmt: skip
 # The grant of 0.1.x: zones and settings still carrying it are upgraded to ADMIN_UPDATE_TYPES.
 LEGACY_ADMIN_UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
+# The default of 0.1.2 to 0.3.x: a setting still equal to it is upgraded to ADMIN_UPDATE_TYPES too.
+PREVIOUS_ADMIN_UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID")
 KEA_UPDATE_TYPES = ("A", "AAAA", "PTR", "DHCID")
 
 

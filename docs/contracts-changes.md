@@ -142,6 +142,16 @@ F0-REPL (section 10) but missing from `api/errors.py`, is now in the code table 
 after U1-HOSTS: the Alerts page action "Reconcile from <node>" when `details.reconcile` is present
 (the route, `api.dhcp.reconcilePlan` and the mock exist; the action itself is not built yet).
 
+## 2026-11-01, B1-RRTYPES: record types SSHFP, TLSA, HTTPS, SVCB, NAPTR, LOC, DNAME, DS, URI
+`domain.zone_updates.ADMIN_UPDATE_TYPES` gains the nine types; new `PREVIOUS_ADMIN_UPDATE_TYPES`
+(the 0.1.2 to 0.3.x default) which `settings_registry.migrate` upgrades like the 0.1.x list.
+`records/plan` refuses a value that does not parse as its type, and a DS at the apex, with
+`400 validation_error` per field (was a failed plan, `422`): the desired state RRset verbs follow,
+their daemon test now expects `400`. New message keys `rrset.ds_apex`, `rrset.ds_no_delegation`,
+`rrset.ns_keeps_ds`, `rrset.singleton`, `rrset.dname_below`, `rrset.under_dname`.
+`finding.update_types_narrow.risk` no longer names NS and CAA. Installer grants and the editor's
+`EDITABLE_TYPES` follow the tuple; the test fixture `named.py` keeps its 0.3 grant (tests widen it).
+
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains
 `rollback_until` (optional, `null` by default; a 0.3.x peer drops unknown keys in

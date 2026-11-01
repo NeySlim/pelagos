@@ -3,13 +3,14 @@
 """Node by node upgrade of a production-like two-node cluster, and the way back.
 
 lab-up1 (amd64) and lab-up3 (arm64, Debian 13 under qemu-system on lab-up2, scripts/lab/emul-node.sh)
-run BIND and Kea 2.6 HA from Debian (scripts/lab/provision.sh pair), Pelagos from the packages of an
-older commit (PELAGOS_UPGRADE_OLD, default 2b86817) with the web and replication ports moved to
-9443/9444 and query_address set to the node address. Dynamic zones, the security plan (update-policy,
+run BIND and Kea 2.6 HA from Debian (scripts/lab/provision.sh pair), Pelagos from the packages of the
+previous release with the web and replication ports moved to 9443/9444 and query_address set to the
+node address. Dynamic zones, the security plan (update-policy,
 dual TSIG key switch), a reservation, leases, custom settings and audit entries exist before the
 upgrade. Then ns2 (arm64), ns1 (amd64) go to the current packages while the other node still runs the
-old ones, and both go back. Checked at each step: files migrated, no audit entry lost, replication
-between different versions, the engines untouched.
+old ones, and both go back with a plan finished in its rollback window, a session open and a sealed
+audit segment on ns1. Checked at each step: files migrated, no audit entry lost (live file and
+segments), replication between different versions, the engines untouched.
 
 The four debs come from $PELAGOS_UPGRADE_DEBS/{old,new}/pelagos_*_{amd64,arm64}.deb (default
 build/upgrade); the test is skipped without them. The hosts are not rolled back: the test cleans them.
@@ -27,7 +28,19 @@ from pathlib import Path
 
 import pytest
 
-from tests.lab.labkit import ADMIN_PASSWORD, REPO, SCRIPTS, Api, fixable, left, scp, ssh, sudo_cat, wait_for
+from tests.lab.labkit import (
+    ADMIN_PASSWORD,
+    REPO,
+    SCRIPTS,
+    Api,
+    ApiError,
+    fixable,
+    left,
+    scp,
+    ssh,
+    sudo_cat,
+    wait_for,
+)
 
 A1, A2 = "10.99.0.24", "10.99.0.26"  # lab-up1 (amd64), lab-up3 (arm64)
 ARCH = {A1: "amd64", A2: "arm64"}
@@ -36,6 +49,8 @@ DEBS = Path(os.environ.get("PELAGOS_UPGRADE_DEBS", REPO / "build" / "upgrade"))
 PASSWORD = ADMIN_PASSWORD
 STATE: dict[str, object] = {}
 AUDIT = "/var/lib/pelagos/audit/audit.jsonl"
+AUDIT_ALL = "/var/lib/pelagos/audit/audit*.jsonl"
+BASES_OWNER = "sudo stat -c %U /var/lib/pelagos/cluster.bases.json"
 CUSTOM = {"alerts_pool_warning_percent": 70, "alerts_d2_error_rate": 0.1, "session_ttl_seconds": 7200}
 
 
@@ -75,8 +90,9 @@ def api(address: str) -> Api:
 
 
 def audit_lines(address: str) -> dict[str, str]:
-    """Audit lines of the node by sha256, so a lost or rewritten entry shows."""
-    text = sudo_cat(address, AUDIT)
+    """Audit lines of the node by sha256 (live file and sealed segments), so a lost or rewritten
+    entry shows."""
+    text = ssh(address, f"sudo sh -c 'cat {AUDIT_ALL}'")[1]
     return {hashlib.sha256(line.encode()).hexdigest(): line for line in text.splitlines() if line.strip()}
 
 
@@ -192,7 +208,8 @@ class TestUpgrade:
         self._ports(A2)
         ssh(A2, "sudo systemctl start pelagos pelagos-collector")
         wait_for("both online", lambda: nodes_online(A1), timeout=240)
-        assert ".2b86817" in version(A1) and ".2b86817" in version(A2)
+        STATE["old_version"] = version(A1)
+        assert version(A1) == version(A2), (version(A1), version(A2))
 
     @staticmethod
     def _ports(address: str) -> None:
@@ -267,7 +284,7 @@ class TestUpgrade:
         STATE["node_old"] = {a: sudo_cat(a, "/etc/pelagos/node.toml") for a in (A1, A2)}
         STATE["zone"] = ssh(A1, "dig +noall +answer @127.0.0.1 example.lan AXFR | sort")[1]
         assert len(STATE["audit"]) >= 10  # type: ignore[arg-type]
-        assert "alerts_pool_warning_percent = 70" in STATE["cluster_old"]  # type: ignore[operator]
+        assert "pool_warning_percent = 70" in STATE["cluster_old"]  # type: ignore[operator]
 
     def test_04_upgrade_ns2_arm64_first(self):
         before = STATE["audit"]
@@ -335,11 +352,20 @@ class TestUpgrade:
             for line in sudo_cat(A1, AUDIT).splitlines()
             if '"op": "migrate"' in line or '"op":"migrate"' in line
         ]
-        assert len(migrations) >= 1
-        # Not once per node and restart: one migration entry for the cluster.
+        # The default changed in 0.4.0 (token reads not audited) migrates once for the cluster.
+        assert any("api_token_audit_reads_enabled" in line for line in migrations), migrations
         assert len(migrations) <= 2, migrations
-        legacy = ssh(A1, "sudo pelagos settings --legacy")[1]
-        assert "alerts_pool_warning_percent" in legacy and "70" in legacy, legacy
+        assert "api_token_audit_reads_enabled = false" in text
+        # Rotation not due: one live file, no segment; the write bases written by the service.
+        api(A1).call("PUT", "/admin/settings", {"retention": {"backups_days": 91}})
+        for address in (A1, A2):
+            listing = ssh(address, "sudo ls /var/lib/pelagos/audit")[1].split()
+            assert [n for n in listing if n.endswith(".jsonl")] == ["audit.jsonl"], listing
+            # Written by the service at its first cluster.toml write after the upgrade, not by the package.
+            wait_for(
+                f"bases on {address}",
+                lambda a=address: ssh(a, BASES_OWNER, check=False)[1].strip() == "pelagos",
+            )
 
     def test_08_engines_and_data_untouched(self):
         zone = ssh(A1, "dig +noall +answer @127.0.0.1 example.lan AXFR | sort")[1]
@@ -356,6 +382,19 @@ class TestUpgrade:
         assert set(ha.values()) <= {"hot-standby", "partner-down"}, ha
         res = api(A1).get("/dhcp/v4/reservations?subnet_id=1")["items"]
         assert any(r["ip_address"] == "10.99.1.50" for r in res)
+
+    def test_08b_plan_session_and_segment_before_the_downgrade(self):
+        """A plan finished in its rollback window, a session left open and a sealed segment on ns1."""
+        STATE["window_plan"] = add_record(A1, "in-window", "10.99.0.169")
+        session = Api(A1, port=WEB)
+        session.login("admin", PASSWORD)
+        STATE["session"] = session
+        out = ssh(A1, "sudo -u pelagos pelagos audit-log rotate")[1]
+        assert "rotated to audit-" in out, out
+        listing = ssh(A1, "sudo ls /var/lib/pelagos/audit")[1].split()
+        assert len([n for n in listing if n.endswith(".jsonl")]) == 2, listing
+        stored = api(A1).get(f"/plans/{STATE['window_plan']['id']}")
+        assert stored["state"] == "applied", stored
 
     def test_09_roll_back_ns2_then_ns1(self):
         before = {a: audit_lines(a) for a in (A1, A2)}
@@ -385,6 +424,20 @@ class TestUpgrade:
                 wait_for("config exchanged", lambda: "pool_warning_percent = 70" in entries(A1), timeout=120)
                 assert "d2_error_percent = 10" in entries(A1)
         wait_for("both online on the old version", lambda: nodes_online(A1), timeout=240)
+        # The session of the newer release ends in a login, the plan of its window rolls back.
+        with pytest.raises(ApiError) as gone:
+            STATE["session"]._call("GET", "/nodes/self", None, 60)  # type: ignore[attr-defined]
+        assert gone.value.status == 401, gone.value.body
+        plan_id = STATE["window_plan"]["id"]  # type: ignore[index]
+        assert api(A1).get(f"/plans/{plan_id}")["state"] == "applied"
+        # A restarted node answers 503 replication_syncing until it caught up with its peer.
+        wait_for(
+            "rollback on the old release",
+            lambda: api(A1).post(f"/plans/{plan_id}/rollback", {"confirm": True}, timeout=600),
+            timeout=300,
+            interval=10,
+        )
+        wait_for("plan rolled back", lambda: dig(A2, "in-window.example.lan") == "", timeout=120)
         # The old release works again end to end: a record through each node.
         add_record(A1, "back-from-ns1", "10.99.0.171")
         add_record(A2, "back-from-ns2", "10.99.0.172")
@@ -404,5 +457,5 @@ class TestUpgrade:
                 address,
                 "sudo journalctl -u pelagos-collector --since '-4min' --no-pager | grep -A3 ' ERROR ' | tail -20",
             )[1]
-        # Customised values do not come back by themselves: `pelagos settings --legacy` listed them.
-        assert api(A1).get("/admin/settings")["alerts_pool_warning_percent"] == 80
+        # Customised values survive the round trip.
+        assert api(A1).get("/admin/settings")["checks"]["pool_warning_percent"] == 70

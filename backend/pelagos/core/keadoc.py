@@ -10,6 +10,7 @@ have to cut across two files raises `KeaEditError` instead of guessing.
 
 from __future__ import annotations
 
+import bisect
 import itertools
 import json
 import re
@@ -345,26 +346,27 @@ class KeaDocument:
         body = next((m.value for m in self.root.members if self.tokens[m.key].value == root), None)
         if body is None or body.kind != "obj":
             return []
+        # Token indexes per file, in text order, for a bisect per comment.
+        per_file: dict[int, list[int]] = {}
+        for k, t in enumerate(self.tokens):
+            per_file.setdefault(t.file, []).append(k)
+        starts = {f: [self.tokens[k].start for k in ks] for f, ks in per_file.items()}
         out: list[tuple[list[str | int], str]] = []
         for c in self.comments:
             if not any(ch.isalnum() for ch in c.text):
                 continue  # rulers and blank comments
-            anchor = self._comment_anchor(c)
+            ks = per_file.get(c.file, [])
+            at = bisect.bisect_left(starts.get(c.file, []), c.start)
+            before = ks[at - 1] if at > 0 else None
+            after = ks[at] if at < len(ks) else None
+            text = self.texts[c.file]
+            trailing = before is not None and "\n" not in text[self.tokens[before].end : c.start]
+            anchor = before if trailing or after is None else after
             path: list[str | int] = [root]
             if anchor is not None and body.first <= anchor <= body.last:
                 path = self._noted_path(body, anchor, [root])
             out.append((path, c.text))
         return out
-
-    def _comment_anchor(self, c: Comment) -> int | None:
-        text = self.texts[c.file]
-        same = [k for k, t in enumerate(self.tokens) if t.file == c.file]
-        before = [k for k in same if self.tokens[k].end <= c.start]
-        after = [k for k in same if self.tokens[k].start >= c.end]
-        trailing = before and _line(text, self.tokens[before[-1]].end) == _line(text, c.start)
-        if trailing or not after:
-            return before[-1] if before else None
-        return after[0]
 
     def _noted_path(self, node: Node, k: int, path: list[str | int]) -> list[str | int]:
         """Path of the deepest object holding token `k` that may carry a user-context."""

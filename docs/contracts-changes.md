@@ -35,6 +35,26 @@ request carries an optional `site`. The label lives on the peer, not in a collec
 "Node site"). WP-FRONTEND (U1-HOSTS) groups nodes by `peer.site` and shows a site badge when at
 least two sites exist; the mock gets the `PATCH` route, U1-HOSTS adds `site` to its node data.
 
+## 2026-11-01, B1-SESSIONS (WP-API-AUTH, WP-CORE): sessions resumed on every node
+Section 16 "Sessions across nodes". The `pelagos_session` cookie becomes
+`v1.<sid>.<node>.<user>.<issued>.<seen>.<restriction>.<mac>` (HMAC-SHA256 under a key derived from the
+replicated secret `[secrets] "auth/session_signing"`, `core.secrets.SESSION_SIGNING`); a node that
+does not hold the session verifies it and resumes it with permissions resolved from `cluster.toml`.
+The CSRF token is derived from the sid, the same on every node. `auth.sessions`: `CookieClaims`,
+`parse_cookie`, `sign_cookie`, `verify_cookie`, `csrf_token`, `session_handle`, `Revocations`;
+`SessionStore.create(..., key=)`, `get(cookie)`, `resume`, `revoke_handle`,
+`revoke_user(user_id, before=None)`, `cookie(session)`; `Session` gains `handle`, `issued_at`, `key`,
+`resumed_from`. `security.session_from_cookie` shared by `load_session` and the WebSocket handshake.
+Revocations ride the replicated audit log: `auth.logout` gains `request.session` (a one-way handle),
+new action `auth.resume` (verb `resume`, section 11); logout, password change and the admin user and
+role changes that revoke sessions apply on every node. Setting `auth.session_resume_enabled`
+(default true). Responses may carry a refreshed cookie; `POST /auth/password` re-signs it (still
+`204`). A 0.3.x node answers a 0.4.0 cookie `401` and keeps the secret as a plain entry.
+WP-FRONTEND: nothing to change (the CSRF token from login or `GET /auth/session` stays valid on every
+node; a `401` already leads to the login page). E3-KEYROT re-seals the secret. E2-SSO-OIDC opens its
+sessions through `_open_session`. B1-AUDIT: `Revocations` rebuilds from the entries of the last TTL
+and follows the live file with `AuditLog.scan`; a rotation must keep both working.
+
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains
 `rollback_until` (optional, `null` by default; a 0.3.x peer drops unknown keys in

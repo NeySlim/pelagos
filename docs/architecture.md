@@ -1678,6 +1678,7 @@ require_webauthn_roles = []             # e.g. ["admin"]
 api_token_default_days = 90              # expiry proposed at creation
 api_token_max_days = 365                 # no token lives longer
 api_token_audit_reads_enabled = true     # false: only unsafe Bearer calls get an audit entry
+session_resume_enabled = true            # false: a cookie is accepted only by the process that issued it
 
 [settings.plans]
 ttl_seconds = 600
@@ -1766,6 +1767,7 @@ propagation_seconds = 180                # DNS-01: wait for the TXT on every aut
 "tsig/ddi-admin" = "enc:v1:..."
 "rndc/pelagos" = "enc:v1:..."
 "totp/admin" = "enc:v1:..."
+"auth/session_signing" = "enc:v1:..." # session cookie signing key (section 16), 32 bytes base64
 "tsig/ddi-acme" = "enc:v1:..."           # DNS-01 key, update-policy limited to the challenge TXT
 "certs/cluster/ucm_api_key" = "enc:v1:..." # certs/<cluster|node-<id>>/<eab_hmac|dns_api_token|ucm_api_key>
 "certs/acme-account/<hash>" = "enc:v1:..." # ACME account key per directory URL, shared by the nodes
@@ -2010,7 +2012,7 @@ One JSON object per line, UTF-8, `\n` terminated, never rewritten. File
 `action` vocabulary: `<scope>.<verb>` where scope is a `PlanScope` value or
 one of `auth`, `admin.user`, `admin.role`, `admin.settings`, `admin.node`, `admin.cert`,
 `admin.notify`, `admin.archive`, `admin.ipv6`, `kea.migration`, `notify`, `archive`, `alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
-`apply`, `rollback`, `login`, `logout`, `login_failed`, `enroll`, `revoke`,
+`apply`, `rollback`, `login`, `logout`, `login_failed`, `resume`, `enroll`, `revoke`,
 `ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `conflict` (section 13, merge conflicts), `op` (direct
 operations like retransfer, with the operation name in `request.op`).
 API tokens (section 16): `auth.token` (target `token:<name>`, `request.op` `create`, `revoke`
@@ -2057,8 +2059,10 @@ account enabled again), `pelagos user disable-totp <name>` and
 `pelagos user remove-keys <name>` (every security key). Root only:
 root switches to the owner of `cluster.toml` before writing. Both go through
 `AdminService` (cluster.toml version bump, push to peers, audit entry
-`admin.user.replace` by `local-recovery`). Sessions already open stay valid
-until they expire or the web process restarts.
+`admin.user.replace` by `local-recovery`). Since 0.4.0 the sessions
+already open are ended by that audit entry on every node, as for an API
+change (section 16, "Sessions across nodes"); before, they stayed valid
+until they expired or the web process restarted.
 
 ## 13. Replication protocol
 
@@ -2940,13 +2944,182 @@ drift) enforced cluster-wide by `settings.auth.require_totp`. Each accepted time
 step is used once per user and node (`var/totp_steps.json`, kept across
 restarts, not replicated). Sessions are
 server-side in the web process memory (`auth.sessions`), keyed by a 32-byte
-random id in cookie `pelagos_session` (`HttpOnly`, `Secure`,
+random id carried in a signed cookie `pelagos_session` (`HttpOnly`, `Secure`,
 `SameSite=Strict`, `Path=/`). Idle timeout `auth.session_idle_seconds`, absolute
-`auth.session_ttl_seconds`. Changing node means logging in again (sessions are
-not replicated). Every unsafe request (POST, PUT, PATCH, DELETE) must carry
-`X-CSRF-Token` equal to the token returned at login (per session, random,
+`auth.session_ttl_seconds`. Sessions are not replicated, but since 0.4.0 a
+cookie issued by one node is resumed by its peers (below). Every unsafe request
+(POST, PUT, PATCH, DELETE) must carry `X-CSRF-Token` equal to the token
+returned at login (derived from the session id, the same on every node,
 compared in constant time). Login is rate limited per client IP and per
 username (`auth.login_rate_limit_per_minute`).
+
+### Sessions across nodes (0.4.0)
+
+Goal: a browser signed in on one node is signed in on every node of the
+cluster (a load balancer in front of the UI, an OIDC redirect landing on
+another node), without replicating sessions. `auth/sessions.py`,
+`auth/csrf.py`, `api/security.py` (`load_session`), `api/auth.py`.
+
+Signing secret. `cluster.toml [secrets] "auth/session_signing"`: 32 random
+bytes, base64, sealed like every secret (section 12), replicated with
+`cluster.toml`. `core.secrets.SESSION_SIGNING` names it and
+`generate_session_secret()` makes it. Written by `bootstrap_first_node`; on a
+cluster without it (upgraded from 0.3.x, or enrolled from a 0.3.x sponsor), by
+the first login on a node whose replication state is `ready` or `isolated`
+(never while `syncing`: the peers may hold one already). The web process
+keeps the decrypted key in memory, keyed by the sealed value, so a merged
+change is picked up at the next request. Two keys are derived from it by
+HMAC-SHA256 with distinct labels: `K_cookie = HMAC(secret, "pelagos/cookie/v1")`
+and `K_csrf = HMAC(secret, "pelagos/csrf/v1")`. Without the secret (no master
+key, the secret not yet replicated while `syncing`, or a value that does not
+decrypt) the process uses a random key of its own: sessions then work on
+this process only, as before 0.4.0, and the node logs one warning. A login
+never fails because of the secret: the local admin can always sign in.
+
+Cookie value, fields joined by `.`, every field from `[A-Za-z0-9_-]`:
+
+```
+v1.<sid>.<node id>.<user id>.<issued>.<seen>.<restriction>.<mac>
+sid          32 random bytes, base64url (43 characters)
+node id      the issuing node (diagnostics and the resume audit entry; not trusted for anything)
+user id      the user's id (ULID)
+issued       login time, epoch milliseconds (absolute TTL)
+seen         last activity seen by a node, epoch milliseconds (idle timeout)
+restriction  "-" or password_change | totp_enrollment | webauthn_enrollment
+mac          base64url(HMAC-SHA256(K_cookie, "v1|" + the seven fields above joined by "|"))
+```
+
+`auth.sessions` API (pure functions plus the store):
+
+```python
+@dataclass(frozen=True, slots=True)
+class CookieClaims:
+    sid: str; node_id: str; user_id: str; issued_ms: int; seen_ms: int; restriction: str | None
+
+def parse_cookie(value: str | None) -> CookieClaims | None   # None: absent, malformed, other version
+def sign_cookie(key: bytes, claims: CookieClaims) -> str      # the cookie value with its mac
+def verify_cookie(key: bytes, value: str) -> CookieClaims | None   # constant-time mac check
+def csrf_token(key: bytes, sid: str) -> str   # base64url(HMAC(K_csrf, sid)[:16]), 22 characters
+def session_handle(sid: str) -> str           # hex(SHA-256("pelagos/session/" + sid))[:32]
+
+class SessionStore:
+    def create(self, user_id, username, permissions, client_ip=None, restriction=None, *, key) -> Session
+    def get(self, cookie: str | None) -> Session | None    # local sessions only; refreshes the idle timer
+    def peek(self, cookie_or_sid: str | None) -> Session | None
+    def resume(self, claims, username, permissions, restriction, client_ip, *, key) -> Session
+    def revoke(self, sid: str) -> None
+    def revoke_handle(self, handle: str) -> int
+    def revoke_user(self, user_id: str, before: datetime | None = None) -> int
+    def cookie(self, session: Session) -> str   # re-signed with the session's key, `seen` = now
+
+class Revocations:   # what peers revoked, rebuilt from the audit log (below)
+    def refresh(self, audit_log, cluster, sessions: SessionStore, now) -> None   # at most once a second
+    def refused(self, claims: CookieClaims) -> bool
+```
+
+`Session` gains `handle`, `issued_at` (replaces the meaning of `created_at`
+for the absolute TTL; `created_at` stays as an alias), `key` (the cookie key
+it was signed with, never serialized) and `resumed_from` (issuing node id or
+None). The CSRF token of a session is `csrf_token(key, sid)`.
+
+Resolution of a request cookie (`load_session`, the WebSocket handshake
+uses the same function, `security.session_from_cookie`):
+1. `parse_cookie`; a malformed value or an older format (a bare 0.3.x id) is
+   no session (`401` on routes that need one).
+2. A local session with that `sid`: the mac is checked with the session's own
+   key and `user_id` must match; the in-memory session is authoritative for
+   user, permissions, restriction and timers. A key replaced since by a merge
+   does not end local sessions.
+3. Otherwise, resumption, only when `auth.session_resume_enabled` (default
+   true): mac valid with the current cluster key; `now - issued <=
+   auth.session_ttl_seconds`; `now - seen <= auth.session_idle_seconds`;
+   neither `issued` nor `seen` more than 120 s in the future (clock skew);
+   not refused by `Revocations`; the user exists in `cluster.toml` and is
+   enabled. Then a local session is created under the same `sid` with
+   permissions resolved now from the user's current roles (never from the
+   cookie), `restriction` = `password_change` when the user must change it
+   now, else the cookie's enrollment restriction while still pending
+   (`twofa.after_enrollment(user)`), else none; `issued_at` kept from the
+   cookie; `last_login` not written; audit `auth.resume` (below). Any
+   failure is no session; the reason goes to the debug log only.
+4. Bearer tokens are untouched and still take precedence over the cookie.
+
+Cookie refresh. When a request is served with a session whose cookie `seen`
+is 60 s old or more, the response carries a re-signed cookie (same sid,
+issued, restriction; `seen` = now) through `flask.after_this_request`. A
+restriction lifted (password changed, TOTP confirmed, key registered) also
+re-signs the cookie. `POST /auth/password` re-signs it with `issued` = now
+(the caller just proved the current password) and resets the local
+`issued_at`, so the caller survives its own change on every node while older
+cookies of the user are refused (below). The answers keep their status and
+body (`204` stays `204`).
+
+Revocation across nodes. Nodes learn revocations from the replicated audit
+log, so no new protocol and no 0.3.x change. `Revocations.refresh` reads the
+entries appended since its last offset (`AuditLog.scan`, needle `"auth.` or
+`"admin.`) at most once a second, from `load_session`, and at process start
+rebuilds its state from the entries of the last `auth.session_ttl_seconds`.
+It applies:
+
+| Entry | Effect |
+| --- | --- |
+| `auth.logout` with `request.session` = handle | that session: local one revoked, cookie refused |
+| `auth.op` with `request.op` `password_change`, result `ok` | user's sessions issued before the entry |
+| `admin.user.replace` whose `request` has `enabled: false`, `roles`, or `op: reset_password` | user's sessions issued before the entry |
+| `admin.user.delete` | user's sessions issued before the entry (the user is gone anyway) |
+| `admin.role.replace` | sessions issued before the entry of every user holding that role now |
+
+"Issued before" compares the entry `ts` with the cookie's `issued` (and the
+local session's `issued_at`). Entries are kept `auth.session_ttl_seconds`
+after their `ts`, at most 100000 handles (oldest dropped first; a dropped
+handle's cookie is past its TTL or near it). The table lists every place that
+calls `SessionStore.revoke_user` today; a test enumerates the call sites so a
+new one cannot be forgotten. The entries written by the local recovery
+commands (`admin.user.replace`, user `local-recovery`) and by 0.3.x peers
+apply too. Delay: a logout on one node is refused by a reachable peer within
+the audit push (about 2 s) plus one second; a partitioned peer refuses once
+it has merged the entry.
+
+Audit. `auth.logout` gains `request = {"session": handle}`; new
+`auth.resume` (verb `resume`, section 11), one per resumed session, user the
+session's user, `request = {"session": handle, "from_node": issuing node id}`,
+result `ok`; refused resumptions are not audited (an unauthenticated request
+must not fill the log). The handle is a one-way hash: neither the sid, the
+cookie, the CSRF token nor the secret ever reach the audit log or a log line.
+
+Setting `auth.session_resume_enabled` (boolean, default true): false keeps
+the 0.4.0 cookie but accepts only sessions in this process's memory (the
+0.3.x behaviour: a peer or a restart means signing in again).
+
+Mixed versions. A 0.3.x node keeps `[secrets] "auth/session_signing"` (a
+plain `[secrets]` entry) and does not use it. It receives a 0.4.0 cookie as an
+unknown session id: `GET /auth/session` answers `401 unauthenticated`, the UI
+shows the login page once (no loop: the login answer sets that node's own
+cookie). A 0.4.0 node receives a 0.3.x cookie as malformed: `401`, login.
+Upgrading a node keeps the sessions of the cluster: its restarted web process
+resumes them.
+
+Rotation. E3-KEYROT re-seals `auth/session_signing` with the new master key
+(the value does not change, sessions live on). Replacing the value itself
+ends every resumption at once (local sessions live until they expire); two
+nodes generating it concurrently converge on one value by the merge, and
+the cookies signed with the other one sign in again on the other nodes.
+
+Threat model:
+
+| Threat | Defence |
+| --- | --- |
+| Forged cookie or sid guessing | 256-bit sid, HMAC-SHA256 over every field, constant-time compare; a cookie of another cluster (other secret) is refused |
+| Session fixation | Login and passkey login always create a fresh random sid, never one presented; a resumed session takes only a sid signed for that user id by the cluster; `SameSite=Strict` and no `Domain` attribute |
+| Replay of a stolen cookie | Same exposure as one node before 0.4.0, now on every node: bounded by the absolute TTL, the idle timeout (carried in `seen`, so it holds across nodes and restarts), logout and user revocations applied by every node from the audit log, restart safe |
+| Replay after logout on a partitioned peer | Accepted until that peer merges the `auth.logout` entry; documented, bounded by the TTL |
+| CSRF across nodes | Token derived with its own key (`K_csrf`), bound to the sid, unreadable cross-origin; the cookie alone never passes an unsafe request |
+| Elevation through the cookie | The cookie carries no permission; permissions come from `cluster.toml` at resumption; a disabled or deleted user is refused; a restriction is signed, so it cannot be dropped, and is lifted only by the user's current state |
+| Second factor bypass | Resumption is not a login: a cookie exists only after the full login (or with its enrollment restriction); TOTP and WebAuthn are unchanged |
+| Password change or admin action not reaching peers | User revocations from the audit table above; clock skew between nodes bounds the precision (the clock offset alert covers it) |
+| Last local admin locked out | A missing or unreadable secret falls back to a process key: login still works on the node; resumption never writes `cluster.toml` users or roles |
+| Secrets in the audit log or logs | Only the handle; a test greps the audit log and the captured logs of the suite for the sid, cookie, CSRF token and secret |
+| Compromised or removed node | It holds the secret (as it holds the master key and `cluster.toml`) and can mint cookies: replacing `auth/session_signing` ends them; node removal does not do it automatically in 0.4.0 |
 
 Security keys and passkeys (WebAuthn Level 2, `webauthn` py_webauthn 3.x,
 `auth/webauthn.py`, `auth/twofa.py`, `services/webauthn_service.py`; design
@@ -3139,7 +3312,9 @@ succeeds with `"restriction": "totp_enrollment" | "webauthn_enrollment" | "passw
 answer; every other endpoint returns `403 forbidden` with the extension
 member `"restriction"`. Confirming TOTP or changing the password lifts it.
 `GET /auth/session` carries the same `restriction` member. A password
-change revokes the user's other sessions.
+change revokes the user's other sessions, on every node (section 16,
+"Sessions across nodes"); its answer re-signs the caller's cookie. Any
+answer may carry a refreshed `pelagos_session` cookie.
 
 ### Nodes
 

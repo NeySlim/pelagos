@@ -247,3 +247,19 @@ def test_record_plan_rolled_back_hours_later_after_a_restart(pair, monkeypatch):
     assert held.rollback_until is None
     entries = [e for e in pair.peer_ctx.audit_log.read() if e.plan_id == rec.id and e.node_id == pair.peer_id]
     assert len(entries) >= 2  # the peer audits both the apply and the rollback
+
+
+# Sessions resumed on a peer (section 16, "Sessions across nodes"): two web apps over the two
+# nodes, real mTLS replication of cluster.toml and the audit log. Contract skeleton (B1-SESSIONS).
+
+
+@pytest.mark.skip(reason="B1-SESSIONS: contract skeleton, implemented after the contract review")
+def test_session_from_one_node_resumed_on_the_peer_and_logged_out_everywhere():
+    """Login on node one; GET /auth/session and a POST with its CSRF on node two pass; logout on node one,
+    one replication pass, node two answers 401; a forged cookie is 401 on both."""
+
+
+@pytest.mark.skip(reason="B1-SESSIONS: contract skeleton, implemented after the contract review")
+def test_secret_generated_on_an_upgraded_cluster_reaches_the_peer():
+    """A cluster without auth/session_signing: the first login on node one writes it, the peer gets it by
+    replication and resumes the cookie."""

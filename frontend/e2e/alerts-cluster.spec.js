@@ -47,6 +47,33 @@ test('a node that does not answer is named and its alerts are left out of the co
   await expect(page.getByTestId('tile-alerts-unavailable')).toContainText('ns2')
 })
 
+test('an alert button names where it leads, and a viewer is told why it cannot acknowledge', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/alerts')
+  await page.getByTestId('alerts-table').getByText('192.0.2.200-192.0.2.219').first().click()
+  await expect(page.getByTestId('alert-open-subject')).toHaveText('Open subnet 3')
+  await page.keyboard.press('Escape')
+  await page.goto('/alerts')
+  // Ignore opens its form inside the detail, not over it.
+  await page.getByTestId('alerts-table').getByText('192.0.2.106').first().click()
+  await page.getByTestId('alert-ignore').click()
+  await expect(page.getByTestId('alert-detail').getByTestId('ignore-dialog')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+})
+
+test.describe('at 390 px', () => {
+  test.use({ viewport: { width: 390, height: 800 } })
+
+  test('alerts are cards with the severity and an acknowledge button in reach', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/alerts')
+    const cards = page.getByTestId('data-table-card')
+    await expect(cards.first()).toBeVisible()
+    await expect(cards.first().getByTestId('alert-row-ack')).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+})
+
 async function nodeId(page, name) {
   const res = await page.request.get('/api/v1/nodes')
   const body = await res.json()

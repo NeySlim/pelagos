@@ -89,9 +89,12 @@ test.describe('at 390px', () => {
   // A table that opts into mobileCard renders as cards: nothing scrolls sideways.
   test('tables with mobile cards do not scroll horizontally', async ({ page }) => {
     await signIn(page)
-    for (const path of ['/hosts', '/dns/zones', '/nodes', '/alerts']) {
+    // The zones table has no card layout yet: nothing to wait for there.
+    for (const [path, cards] of [['/hosts', true], ['/dns/zones', false], ['/nodes', true], ['/alerts', true]]) {
       await page.goto(path)
       await expect(page.getByTestId('page-stagger')).toBeVisible()
+      // Rows load after the page: wait for the cards, or the loop below would check nothing.
+      if (cards) await expect(page.getByTestId('data-table-cards').first()).toBeVisible()
       for (const cards of await page.getByTestId('data-table-cards').all()) {
         expect(await cards.evaluate((el) => el.parentElement.scrollWidth <= el.parentElement.clientWidth)).toBe(true)
       }

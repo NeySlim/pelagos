@@ -257,27 +257,27 @@ function AlertDetail({ alert, nodeName, canAck, onAck, ignoring, onIgnore, onIgn
               onDone={onIgnoreDone}
             />
           ) : (
-          <div className="flex flex-wrap justify-end gap-2">
-            <FileAdoptActions alert={alert} />
-            {link && (
-              <Button variant="secondary" size="sm" onClick={() => navigate(link.to)} data-testid="alert-open-subject">
-                <ArrowSquareOut size={14} />
-                {link.label ? t(`actions.${link.label}`, link.params) : alert.subject}
-              </Button>
-            )}
-            {canAck && alert.state !== 'resolved' && exceptionItems(alert).length > 0 && (
-              <Button variant="secondary" size="sm" onClick={() => onIgnore(alert)} data-testid="alert-ignore">
-                <EyeSlash size={14} />
-                {t('actions.ignore')}
-              </Button>
-            )}
-            {canAck && alert.state === 'open' && (
-              <Button size="sm" onClick={() => onAck(alert)} data-testid="alert-ack">
-                <CheckCircle size={14} />
-                {t('actions.ack')}
-              </Button>
-            )}
-          </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <FileAdoptActions alert={alert} />
+              {link && (
+                <Button variant="secondary" size="sm" onClick={() => navigate(link.to)} data-testid="alert-open-subject">
+                  <ArrowSquareOut size={14} />
+                  {link.label ? t(`actions.${link.label}`, link.params) : alert.subject}
+                </Button>
+              )}
+              {canAck && alert.state !== 'resolved' && exceptionItems(alert).length > 0 && (
+                <Button variant="secondary" size="sm" onClick={() => onIgnore(alert)} data-testid="alert-ignore">
+                  <EyeSlash size={14} />
+                  {t('actions.ignore')}
+                </Button>
+              )}
+              {canAck && alert.state === 'open' && (
+                <Button size="sm" onClick={() => onAck(alert)} data-testid="alert-ack">
+                  <CheckCircle size={14} />
+                  {t('actions.ack')}
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}

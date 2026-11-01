@@ -609,17 +609,33 @@ class PlanService:
         return translate_result(self.peers.apply_plan(peer, plan))
 
     def _rollback_nodes(
-        self, plan: Plan, node_ids: list[str], who: tuple[str, str | None]
+        self, plan: Plan, node_ids: list[str], who: tuple[str, str | None], user: bool = False
     ) -> list[NodeApplyResult]:
+        """The undo after a failed apply runs on every node in reverse order. A user rollback runs
+        on the peers first and stops at the first node that does not confirm, so a refusal there
+        (an older peer without the pre-check, or a state moved since it) leaves this node as is."""
+        order = list(reversed(node_ids))
+        if user:
+            order = [n for n in order if n != self.ctx.node.id] + [n for n in order if n == self.ctx.node.id]
         out: list[NodeApplyResult] = []
-        for node_id in reversed(node_ids):
+        for i, node_id in enumerate(order):
             started = time.monotonic()
             self._step(plan, node_id, "rollback", None)
             res = self._rollback_one(plan, node_id, who)
             self._step(plan, node_id, "rollback", res, started)
             res.rolled_back = True
             out.append(res)
+            if user and not res.ok:
+                out.extend(self._not_rolled_back(order[i + 1 :], node_id))
+                break
         return out
+
+    def _not_rolled_back(self, node_ids: list[str], refused_by: str) -> list[NodeApplyResult]:
+        name = self._name(refused_by)
+        return [
+            NodeApplyResult(node_id=n, ok=False, message=f"not rolled back: {name} did not roll back first")
+            for n in node_ids
+        ]
 
     def _rollback_one(self, plan: Plan, node_id: str, who: tuple[str, str | None]) -> NodeApplyResult:
         if node_id != self.ctx.node.id:
@@ -730,15 +746,33 @@ class PlanService:
             raise PlanError("plan_state", f"plan {plan.id} does not roll back")
 
     def _check_rollback(self, plan: Plan, interrupted: bool) -> None:
-        """Each local connector's optional `check_rollback` for every part to undo (section 6)."""
-        for part in self._parts_of(plan):
-            if interrupted and (part.interrupted or part.state is not PlanState.APPLIED):
-                continue
+        """Each connector's optional `check_rollback` for every part to undo, on this node and then
+        on every peer target (section 6), before any node rolls back."""
+        parts = [
+            p
+            for p in self._parts_of(plan)
+            if not (interrupted and (p.interrupted or p.state is not PlanState.APPLIED))
+        ]
+        for part in parts:
             if self.ctx.node.id not in (part.target_node_ids or [self.ctx.node.id]):
                 continue
             check = getattr(self._backend(part), "check_rollback", None)
             if callable(check):
                 check(part)
+        peer_check = getattr(self.peers, "check_rollback", None)
+        if not callable(peer_check):
+            return
+        for part in parts:
+            for node_id in part.target_node_ids:
+                peer = self.peers.peer(node_id) if node_id != self.ctx.node.id else None
+                if peer is None:
+                    continue
+                problem, code = peer_check(peer, part)
+                if problem:
+                    raise PlanError(
+                        "precondition_failed" if code == "precondition_failed" else "engine_unavailable",
+                        problem,
+                    )
 
     def _partial_parts(self, plan: Plan) -> list[Plan]:
         return [p for p in self._parts_of(plan) if p.partial and p.engine is not None]
@@ -830,10 +864,12 @@ class PlanService:
                 if interrupted and part.state is not PlanState.APPLIED:
                     continue  # never reached, or already rolled back before the restart
                 self._mark(plan, part, PlanState.APPLYING)
-                part_results = self._rollback_nodes(part, targets, (user, client_ip))
+                part_results = self._rollback_nodes(part, targets, (user, client_ip), user=True)
                 results.extend(part_results)
                 ok = all(r.ok for r in part_results)
                 self._mark(plan, part, PlanState.ROLLED_BACK if ok else PlanState.FAILED)
+                if not ok:
+                    break  # the parts before it stay as applied on every node, never half undone
             plan.state = PlanState.ROLLED_BACK if all(r.ok for r in results) else PlanState.FAILED
             if plan.state is PlanState.FAILED:
                 plan.error = next((r.message for r in results if not r.ok), "rollback failed")

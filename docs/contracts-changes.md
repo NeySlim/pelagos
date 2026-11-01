@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, FIX-PEERROLLBACK (WP-CORE, WP-REPL): peer rollback pre-check, parts finished_at
+Additive. New replication route `POST /repl/v1/plans/check-rollback` (`{"plan"}` ->
+`{"problem", "code"?}`), served from `core.registry.ConnectorRegistry.check_rollback`; client
+`ReplicationClient.check_rollback`, `PeerGateway.check_rollback` (no verdict on `404` or a
+transport failure). `PlanService` asks every peer target before a user rollback writes anything
+(`409 precondition_failed` or `503 engine_unavailable`, plan `APPLIED`, no audit), then rolls
+back the peers first and stops at the first node that does not confirm. `PlanStore.finish` and
+the load of an interrupted plan copy `finished_at`, `expires_at`, `rollback_until` onto the parts
+of a composite plan. No API shape change; test gateways may add `check_rollback(peer, plan)`.
+
 ## 2026-11-01, B1-METRICS (WP-API-AUTH, WP-CORE): Prometheus endpoint
 Additive. New root route `GET /metrics` (section 30), `read:series` token or listed network, never
 audited; new `MetricsService` (`Services.metrics`, listener on the event hub for plan outcomes);

@@ -1203,15 +1203,29 @@ two possible refusals when the state moved since the apply:
   It runs under `PlanService`'s lock, which every apply and rollback of the process takes: a
   guard reads a hash or a few files and returns, it never waits on an engine operation.
   `RolloutWriter` (scope `update`), `BindBackend`, `KeaBackend`, `D2Backend` and the test fakes
-  implement it. Peers are not asked before: their part is guarded inside their `rollback`.
-- Inside the connector's `rollback` (a peer's part, or a connector without the hook): `200
-  ApplyResult` with state `failed`, the plan `FAILED` and terminal. There the hash, digest and
-  backup guards hold, and a missing Kea or D2 record refuses a user rollback, told by the
-  plan's `finished_at` (set by `PlanStore.finish` before any user rollback, sent to peers). The
-  undo that follows a failed apply has no `finished_at` and still runs without a record (a node
-  whose outcome was unknown may have failed before recording); so does a plan from 0.3.x. The
-  parts of a composite plan carry no `finished_at` today: on a peer they still take that path
-  (FIX-PEERROLLBACK).
+  implement it. Peers are asked next, still before anything is written (FIX-PEERROLLBACK): for
+  every part to undo and every peer target, `POST /repl/v1/plans/check-rollback` runs the
+  peer's own `check_rollback` in its collector (`GUARD_TIMEOUT`, 10 s). A refusal there answers
+  the same `409 precondition_failed` ("<peer name>: <reason>"), any other error of the peer's
+  hook `503 engine_unavailable`; the plan stays `APPLIED`, nothing is audited. A peer without the
+  route (0.3.x and early 0.4.0 builds), or one that does not answer in time, gives no verdict:
+  its part is guarded inside its `rollback`, which the order below runs first.
+- Inside the connector's `rollback` (a peer without the pre-check, a state that moved since it,
+  or a connector without the hook): `200 ApplyResult` with state `failed`, the plan `FAILED` and
+  terminal. There the hash, digest and backup guards hold, and a missing Kea or D2 record refuses
+  a user rollback, told by the plan's `finished_at` (set by `PlanStore.finish` before any user
+  rollback, sent to peers). `PlanStore.finish` (and the load of a plan a restart interrupted)
+  copies the plan's `finished_at`, `expires_at` and `rollback_until` onto each part of a
+  composite plan, so a part follows the same rule. The undo that follows a failed apply has no
+  `finished_at` and still runs without a record (a node whose outcome was unknown may have failed
+  before recording); so does a plan from 0.3.x.
+- Order of a user rollback: parts in reverse order; within a part the peer targets first (reverse
+  target order), this node last. The first node that does not confirm its rollback (refusal,
+  error or transport failure) stops the whole rollback: the nodes after it, and the parts before
+  it, are not touched (`NodeApplyResult` "not rolled back: <name> did not roll back first" for
+  the nodes of that part), so the two servers of an HA pair never end with different
+  configurations because one of them refused. The undo after a failed apply keeps its reverse
+  order and goes on past a failure.
 
 Guards per scope today:
 
@@ -1247,7 +1261,8 @@ Guards per scope today:
   `RolloutWriter.rollback` refuses the same cases with the same message (`ok` false), never a
   success that removed nothing.
 - Peers: the rollback of a part sent to a peer goes again over `/repl/v1/plans/rollback` with the
-  whole plan; peers store nothing and check their own guards the same way.
+  whole plan, after `/repl/v1/plans/check-rollback`; peers store nothing and check their own
+  guards the same way.
 
 `GET /plans` (section 17) lists the plans this node holds, newest `created_at` first, as
 `PlanSummary` items: `id`, `scope`, `engine`, `node_id`, `summary`, `summary_message`,
@@ -2329,6 +2344,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
 | `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null, "code"?: str, "permissions"?: [check]}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict). `code` (0.4.0, absent before): `engine_down` (the plan's Kea does not run here, section 6 "Partial apply"), `reconcile_required` (a Kea configuration plan other than `dhcp.config` targets a node of an unsettled `kea_partials` record, section 9). `permissions` (0.2.5): the permission guard's checks of the plan on this node, run in its collector (section 7); absent from an older peer, which is then not checked |
+| `POST /repl/v1/plans/check-rollback` | `{"plan": Plan}` | `{"problem": str or null, "code"?: "precondition_failed" or "engine_unavailable"}` | the rollback guards of this node's connector for the plan (`check_rollback`, section 6); nothing changes. No verdict (`problem` null) for an engine not run here, a connector without the hook or a job scope. `404` from an older node: no verdict (FIX-PEERROLLBACK, 0.4.0) |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/releases/<version>[/<file>]` | | listing `{"version","files": [{"name","size","sha256"}],"signature"}`, or the file's bytes | a release this node holds in `upgrade/packages/` (section 29); `404` when not held or from an older node |
@@ -3923,7 +3939,7 @@ its engine (`dns...`: `read:dns`, `kea...`: `read:dhcp`). Answer time on a warm 
 | `GET /plans?state=&user=&scope=&page=&per_page=` | any session | | paginated `PlanSummary` (section 6) of this node, newest first, `meta.node_id`; with `read:audit` every plan, else only the caller's own (`user` naming someone else: `403`); `state`: comma-separated `PlanState` values (`expired` is accepted and always empty: an expired plan left the store); `scope`: a `PlanScope` value or a prefix at least one value starts with (`dhcp.`); `400 validation_error` on an unknown state or scope |
 | `GET /plans/{id}` | creator, admin, or `read:audit` (read only) | | `Plan` (`410 plan_expired` past its retention deadline) |
 | `POST /plans/{id}/apply` | permission of the plan scope, and creator or admin | `{"confirm": bool, "partial"?: bool}` | `ApplyResult` (with `rollback_until`, section 6) or `202 Job` for `install`/`import`/`security` scopes; `409 node_unreachable` (`node_ids`, `node_names`, `nodes[].reason`, `partial_allowed`) when only offline peers of a Kea configuration part stop it; `409 reconcile_required`, `409 collection_unavailable` (section 6); `partial: true` applies on the reachable targets (section 6, "Partial apply") and needs `confirm: true` |
-| `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult` (with `rollback_until`); `410 plan_expired` past `rollback_until`; `409 plan_state` when the plan does not roll back; when the state moved since the apply (section 6): `409 precondition_failed` from a connector's `check_rollback`, the plan still `APPLIED`, or, from a guard inside the connector's rollback, `200` with state `failed`, the plan `FAILED` and terminal |
+| `POST /plans/{id}/rollback` | same, and creator or admin | | `ApplyResult` (with `rollback_until`); `410 plan_expired` past `rollback_until`; `409 plan_state` when the plan does not roll back; when the state moved since the apply (section 6): `409 precondition_failed` from a connector's `check_rollback` on this node or a peer target (`503 engine_unavailable` when that hook fails otherwise), the plan still `APPLIED`, or, from a guard inside the connector's rollback, `200` with state `failed`, the plan `FAILED` and terminal |
 | `DELETE /plans/{id}` | creator or admin (`read:audit` is not enough) | | `204` |
 | `GET /jobs/{id}` | any | | `Job` |
 

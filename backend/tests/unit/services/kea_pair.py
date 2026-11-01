@@ -9,6 +9,7 @@ from collections import Counter
 from typing import Any
 
 from pelagos.collector import kea_shared
+from pelagos.core.registry import ConnectorRegistry as CoreRegistry
 from pelagos.core.replication import PeerStatus
 from pelagos.domain import Change, ChangeOp, Engine, Family, NodeApplyResult, NodeModules, Peer, Plan
 from pelagos.services import kea_files
@@ -53,6 +54,7 @@ class Gateway:
         self.old: set[str] = set()
         self.refusing: dict[str, str] = {}
         self.counts: Counter[tuple[str, str]] = Counter()
+        self.order: list[str] = []  # nodes in the order their rollback was asked
 
     def calls(self, name: str, node_id: str) -> int:
         return self.counts[(name, node_id)]
@@ -101,10 +103,26 @@ class Gateway:
         result.node_id = peer.id
         return result
 
+    def _registry(self, peer: Peer, plan: Plan) -> CoreRegistry:
+        """The peer's collector registry: refusals come back as data, as over /repl/v1."""
+        core = CoreRegistry(peer.id)
+        core.register(plan.engine or Engine.KEA4, self.backends[peer.id])
+        return core
+
     def rollback_plan(self, peer: Peer, plan: Plan) -> NodeApplyResult:
-        result = self.backends[peer.id].rollback(self._peer_plan(peer, plan))
-        result.node_id = peer.id
-        return result
+        self.counts[("rollback_plan", peer.id)] += 1
+        self.order.append(peer.id)
+        if peer.id in self.offline:
+            return NodeApplyResult(node_id=peer.id, ok=False, message="unreachable", outcome_unknown=True)
+        return self._registry(peer, plan).rollback(self._peer_plan(peer, plan))
+
+    def check_rollback(self, peer: Peer, plan: Plan) -> tuple[str | None, str | None]:
+        """POST /repl/v1/plans/check-rollback; no verdict from an older or unreachable peer."""
+        self.counts[("check_rollback", peer.id)] += 1
+        if peer.id in self.old or peer.id in self.offline:
+            return None, None
+        problem, code = self._registry(peer, plan).check_rollback(self._peer_plan(peer, plan))
+        return (f"{peer.name}: {problem}" if problem else None), code
 
     def snapshot(
         self, peer: Peer, engine: Engine, kind: str = "summary", params: dict[str, Any] | None = None

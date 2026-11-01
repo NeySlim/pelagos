@@ -261,6 +261,21 @@ class PeerGateway:
             return None, None
         return (f"{peer.name}: {problem}" if problem else None), code
 
+    def check_rollback(self, peer: Peer, plan: Plan) -> tuple[str | None, str | None]:
+        """(problem, code) of `peer`'s rollback guards for `plan`, asked before any node rolls back.
+        No verdict (None, None) from an older peer or one that cannot answer within GUARD_TIMEOUT:
+        its part is still guarded inside its rollback, which then runs first and stops the others."""
+        try:
+            client = self._client_with_timeout(peer, GUARD_TIMEOUT)
+            check = getattr(client, "check_rollback", None)
+            if not callable(check):
+                return None, None
+            problem, code = check(plan)
+        except Exception as exc:
+            log.warning("rollback guards of plan %s on %s not checked: %s", plan.id, peer.name, exc)
+            return None, None
+        return (f"{peer.name}: {problem}" if problem else None), code
+
     def permission_checks(self, peer: Peer, plan: Plan) -> list[dict[str, Any]] | None:
         """The peer's permission guard checks of `plan`; None when it cannot say (older, unreachable).
         Asked while the plan is built: a silent peer costs at most GUARD_TIMEOUT."""

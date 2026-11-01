@@ -333,6 +333,20 @@ class ReplicationClient:
         problem = out.get("problem") if isinstance(out, dict) else None
         return str(problem) if problem else None
 
+    def check_rollback(self, plan: Plan) -> tuple[str | None, str | None]:
+        """(problem, code) of the peer's rollback guards for `plan`; (None, None) from a peer
+        without the route (0.4.0), whose part is then guarded inside its rollback only."""
+        try:
+            out = self._call("POST", "/plans/check-rollback", {"plan": plan.to_dict()})
+        except ReplicationError as exc:
+            if exc.status == 404:
+                return None, None
+            raise
+        if not isinstance(out, dict) or not out.get("problem"):
+            return None, None
+        code = out.get("code")
+        return str(out["problem"]), str(code) if code else None
+
     def preflight_verdict(self, plan: Plan) -> tuple[str | None, str | None]:
         """(problem, code) of the peer's preflight; `code` (0.4.0) is None from an older peer."""
         try:
@@ -562,6 +576,8 @@ class ReplicationApp:
             return self._plan(self._body(environ), caller, "rollback")
         if route == "/plans/preflight" and method == "POST":
             return self._preflight(self._body(environ))
+        if route == "/plans/check-rollback" and method == "POST":
+            return self._check_rollback(self._body(environ))
         if route == "/renew" and method == "POST":
             return self._renew(self._body(environ), caller)
         if route == "/events" and method == "POST":
@@ -906,6 +922,16 @@ class ReplicationApp:
             except Exception as exc:  # no verdict is not a refusal: the apply still checks
                 log.warning("permission checks of plan %s not run: %s", plan.id, exc)
         return 200, out
+
+    def _check_rollback(self, body: dict[str, Any]) -> tuple[int, Any]:
+        """The rollback guards of this node's connector for a plan built elsewhere; nothing written."""
+        try:
+            plan = Plan.from_dict(body["plan"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
+        check = getattr(self.registry, "check_rollback", None)
+        problem, code = check(plan) if callable(check) else (None, None)
+        return 200, {"problem": problem, "code": code} if problem else {"problem": None}
 
     def _preflight_code(self, plan: Plan, problem: str | None) -> str | None:
         """B1-KEAOFFLINE: `engine_down` when the plan's Kea does not run here, `reconcile_required`

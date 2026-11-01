@@ -138,3 +138,93 @@ def test_ha_pair_keeps_one_configuration_through_guarded_rollbacks(ha_pair, tmp_
         assert b.rollback(p).ok
     assert subnets(primary) == subnets(standby)
     assert all(r["hw-address"] != "aa:bb:cc:dd:ee:72" for r in subnets(primary)[0].get("reservations", []))
+
+
+# FIX-PEERROLLBACK: the PlanService of node 1 rolls back a plan of a real hot-standby pair whose
+# node 2 runs behind the in-process gateway of tests.unit.services.kea_pair.
+
+
+@pytest.fixture
+def ha_lab(node_ctx, tmp_root):
+    from tests.daemon.test_kea_ha_offline import Lab
+
+    out = Lab(node_ctx, tmp_root)
+    try:
+        yield out
+    finally:
+        out.close()
+
+
+def _reservation(pair, mac: str, ip: str):
+    after = {"subnet_id": 1, "id_type": "hw-address", "identifier": mac, "ip_address": ip}
+    return pair.dhcp.plan("reservation", {"change": {"op": "add", "target": "", "after": after}}, "admin")
+
+
+def _hand_edit(daemon, lifetime: int) -> None:
+    cfg = daemon.ok("config-get")
+    cfg.pop("hash", None)
+    cfg["Dhcp4"]["valid-lifetime"] = lifetime
+    daemon.ok("config-set", cfg)
+
+
+def _macs(daemon) -> set[str]:
+    return {r["hw-address"] for r in subnets(daemon)[0].get("reservations", [])}
+
+
+def test_hand_edit_on_the_peer_only_refuses_the_rollback_on_both_partners(ha_lab):
+    from pelagos.domain import PlanState
+    from pelagos.services.plan_service import PlanError
+    from tests.unit.services.kea_pair import N2
+
+    pair, (kea1, kea2) = ha_lab.pair, ha_lab.daemons
+    plan = _reservation(pair, "aa:bb:cc:dd:ee:73", "192.0.2.73")
+    assert plan.target_node_ids == [pair.n1, N2]
+    assert pair.plans.apply(plan, "admin", True).state is PlanState.APPLIED
+    assert "aa:bb:cc:dd:ee:73" in _macs(kea1) & _macs(kea2)
+
+    original = kea2.ok("config-get")["Dhcp4"]["valid-lifetime"]
+    _hand_edit(kea2, 4321)
+    before = [d.ok("config-get") for d in ha_lab.daemons]
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(plan, "admin")
+    assert exc.value.code == "precondition_failed" and exc.value.detail.startswith("ns2: ")
+    assert [d.ok("config-get") for d in ha_lab.daemons] == before
+    assert subnets(kea1) == subnets(kea2)
+    assert plan.state is PlanState.APPLIED and pair.ctx.plan_store.get(plan.id).rollback_until
+
+    _hand_edit(kea2, original)
+    assert pair.plans.rollback(plan, "admin").state is PlanState.ROLLED_BACK
+    assert subnets(kea1) == subnets(kea2) and "aa:bb:cc:dd:ee:73" not in _macs(kea1)
+
+
+def test_host_part_without_a_record_on_the_peer_is_refused_there_and_nothing_moves(ha_lab):
+    from pelagos.domain import Plan, PlanScope, PlanState
+    from pelagos.services.plan_service import PlanError
+    from tests.unit.services.kea_pair import N2
+
+    pair, (kea1, kea2) = ha_lab.pair, ha_lab.daemons
+    part = _reservation(pair, "aa:bb:cc:dd:ee:74", "192.0.2.74")
+    top = Plan(scope=PlanScope.HOST, node_id=pair.n1, summary="host", target_node_ids=[pair.n1, N2])
+    top.state = PlanState.VALIDATED
+    pair.ctx.plan_store.put(top)
+    pair.plans.register_composite(top, [part])
+    assert pair.plans.apply(top, "admin", True).state is PlanState.APPLIED
+    assert part.finished_at == top.finished_at is not None
+
+    pair.k2._forget(part.id)  # the peer's guard record is gone
+    before = [d.ok("config-get") for d in ha_lab.daemons]
+    with pytest.raises(PlanError) as exc:
+        pair.plans.rollback(top, "admin")
+    assert exc.value.code == "precondition_failed" and "rollback guard lost" in exc.value.detail
+    assert [d.ok("config-get") for d in ha_lab.daemons] == before
+    assert top.state is PlanState.APPLIED
+
+    # An older peer, without the pre-check: its rollback refuses the part by its finished_at, it
+    # runs first, and this node is left as is.
+    pair.gateway.old.add(N2)
+    result = pair.plans.rollback(top, "admin")
+    assert result.state is PlanState.FAILED
+    assert [d.ok("config-get") for d in ha_lab.daemons] == before
+    assert subnets(kea1) == subnets(kea2) and "aa:bb:cc:dd:ee:74" in _macs(kea1)
+    by_node = {r.node_id: r for r in result.results}
+    assert "rollback guard lost" in by_node[N2].message and not by_node[pair.n1].ok

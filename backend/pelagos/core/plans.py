@@ -159,6 +159,9 @@ class PlanStore:
         while APPLIED (or FAILED and interrupted) outside the scopes that never roll back."""
         now = utcnow()
         _finish(plan, now, timedelta(seconds=window_seconds))
+        with self._lock:
+            parts = self._parts.get(plan.id)
+        _finish_parts(plan, parts)
         self._append({plan.id: plan.expires_at})
         self._save(plan)
         self._cap_finished()
@@ -320,6 +323,7 @@ class PlanStore:
                     if part.state is PlanState.APPLYING:
                         part.state = PlanState.FAILED
                         part.interrupted = True
+                _finish_parts(plan, parts)
                 interrupted.append(plan)
             self._plans[pid] = plan
             if parts is not None:
@@ -441,3 +445,12 @@ def _finish(plan: Plan, now: datetime, window: timedelta) -> None:
     plan.expires_at = now + window
     rollable = plan.state is PlanState.APPLIED or (plan.state is PlanState.FAILED and plan.interrupted)
     plan.rollback_until = plan.expires_at if rollable and plan.scope not in NO_ROLLBACK_SCOPES else None
+
+
+def _finish_parts(plan: Plan, parts: list[Plan] | None) -> None:
+    """Parts carry their plan's times: a peer told by `finished_at` that a part's rollback is a
+    user rollback refuses it without a guard record, as it does for a plan without parts."""
+    for part in parts or []:
+        part.finished_at = plan.finished_at
+        part.expires_at = plan.expires_at
+        part.rollback_until = plan.rollback_until

@@ -95,6 +95,28 @@ class ConnectorRegistry:
             problem = check(plan)
         return str(problem) if problem else None
 
+    def check_rollback(self, plan: Plan) -> tuple[str | None, str | None]:
+        """(problem, code) of the backend's optional `check_rollback` here, nothing written: code
+        `precondition_failed` for a guard's refusal, `engine_unavailable` for any other error.
+        No backend for the engine, no hook, or a job scope: no verdict (the rollback still checks)."""
+        if plan.scope.value in UNLOCKED_SCOPES:
+            return None, None
+        try:
+            backend = self.get(plan.engine)
+        except EngineNotConfigured:
+            return None, None
+        check = getattr(backend, "check_rollback", None)
+        if not callable(check):
+            return None, None
+        try:
+            with self.lock:
+                check(plan)
+        except Exception as exc:
+            # Duck typed: core does not import connectors (PreconditionFailed carries `precondition`).
+            code = "precondition_failed" if hasattr(exc, "precondition") else "engine_unavailable"
+            return str(exc) or type(exc).__name__, code
+        return None, None
+
     def permission_checks(self, plan: Plan) -> list[dict[str, Any]]:
         """The permission guard's checks of `plan` here, run in this process (the unit's sandbox)."""
         try:

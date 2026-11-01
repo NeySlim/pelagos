@@ -86,6 +86,9 @@ def create_app(
     from pelagos.api import register_api
 
     register_api(app)
+    from pelagos.api.metrics import register_metrics  # B1-METRICS
+
+    register_metrics(app)
 
     @app.errorhandler(ApiError)
     def _api_error(err: ApiError) -> Response:

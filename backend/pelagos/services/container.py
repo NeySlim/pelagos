@@ -30,6 +30,7 @@ from pelagos.services.ipv6_plans import Ipv6Plans
 from pelagos.services.ipv6_service import Ipv6Service
 from pelagos.services.jobs import JobStore
 from pelagos.services.kea_migration_service import KeaMigrationService
+from pelagos.services.metrics_service import MetricsService
 from pelagos.services.notify_service import NotifyService
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
@@ -109,6 +110,11 @@ class Services:
         self.dashboard = DashboardService(
             ctx, self.registry, self.peers, self.dns, self.dhcp4, self.dhcp6, self.alerts
         )
+        # B1-METRICS
+        self.metrics = MetricsService(
+            ctx, self.dashboard, self.alerts, self.dns, self.dhcp4, self.dhcp6, self.peers
+        )
+        self.events.listeners.append(self.metrics.on_event)
         self.admin = AdminService(ctx)
         self.account = AccountService(ctx)
         self.webauthn = WebAuthnService(ctx)

@@ -100,3 +100,24 @@ def test_d2_key_secret_never_leaves_the_node(api, kea_d2):
     assert secret_file.read_text().strip() == SECRET
     audit = json.dumps(client.get(f"{V1}/audit?action=d2.config").get_json())
     assert SECRET not in audit
+
+
+def test_metrics_kea_counters_match_dhcp_stats(api):
+    client, ctx = api
+    ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("metrics", {}).update(allowed_networks=["127.0.0.0/8"]),
+        updated_by="test",
+    )
+    before = client.get(f"{V1}/dhcp/v4/stats").get_json()["statistics"]
+    text = client.get("/metrics").get_data(as_text=True)
+    after = client.get(f"{V1}/dhcp/v4/stats").get_json()["statistics"]
+    node = ctx.self_node().peer.name
+    packets = {n: s for n, s in before.items() if n.startswith("pkt4-")}
+    assert packets
+    for name, samples in packets.items():
+        line = next(
+            ln for ln in text.splitlines()
+            if ln.startswith(f'pelagos_kea_packets_total{{node="{node}",engine="kea4",packet="{name[5:]}"}}')
+        )  # fmt: skip
+        assert samples[0][0] <= float(line.rsplit(" ", 1)[1]) <= after[name][0][0]
+    assert 'pelagos_scrape_success{source="kea"} 1' in text

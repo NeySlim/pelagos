@@ -171,6 +171,35 @@ def test_secondary_zone_status_in_the_zone_list(tmp_root, named_server, named_se
     assert status["serial"] == 2026102401
 
 
+def scrape(client, ctx) -> dict[str, float]:
+    """GET /metrics from an allowed network (127.0.0.1) as {sample: value}."""
+    ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("metrics", {}).update(allowed_networks=["127.0.0.0/8"]),
+        updated_by="test",
+    )
+    r = client.get("/metrics")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    return {
+        line.rsplit(" ", 1)[0]: float(line.rsplit(" ", 1)[1])
+        for line in r.get_data(as_text=True).splitlines()
+        if line and not line.startswith("#")
+    }
+
+
+def test_metrics_bind_counters_match_dns_stats(api):
+    client, ctx = api
+    before = client.get(f"{V1}/dns/stats").get_json()
+    samples = scrape(client, ctx)
+    after = client.get(f"{V1}/dns/stats").get_json()
+    node = ctx.self_node().peer.name
+    for qtype, low in before["qtypes"].items():
+        value = samples[f'pelagos_bind_queries_total{{node="{node}",qtype="{qtype}"}}']
+        assert low <= value <= after["qtypes"][qtype]
+    for rcode, low in before["rcodes"].items():
+        value = samples[f'pelagos_bind_responses_total{{node="{node}",rcode="{rcode}"}}']
+        assert low <= value <= after["rcodes"][rcode]
+    assert samples['pelagos_scrape_success{source="bind"}'] == 1
+
 # Non-blocking web worker (section 2): the real gunicorn worker serves /health while another
 # request waits on a slow named-checkconf or works through a zone transfer.
 HEALTH_BUDGET = 0.1

@@ -288,6 +288,10 @@
         "title": "IPv6 observations",
         "help": "Where IPv6 addresses are observed and when one counts as stable (Administration, IPv6 observation)"
       },
+      "metrics": {
+        "title": "Metrics endpoint",
+        "help": "GET /metrics in the Prometheus text format, for a token with read:series or a listed network (Operations, Metrics and monitoring)"
+      },
       "updates": {
         "title": "Updates",
         "help": {
@@ -513,6 +517,10 @@
         "stale_days": "AAAA stale after",
         "auto_apply_enabled": "Create AAAA and PTR automatically"
       },
+      "metrics": {
+        "endpoint_enabled": "Serve GET /metrics",
+        "allowed_networks": "Networks that read it without a token"
+      },
       "updates": {
         "check_enabled": "Check for new releases",
         "check_interval_hours": "Check interval",
@@ -606,6 +614,9 @@
       "kea": {
         "migration_response_delay_milliseconds": "max-response-delay of the standby while it waits to serve alone; restored after the migration.",
         "migration_outage_max_seconds": "Past this, the pair goes back to Kea 2.6 when automatic rollback is on."
+      },
+      "metrics": {
+        "allowed_networks": "Addresses or networks (192.0.2.0/24, 2001:db8::/64). Empty: a token is always required. A listed client reads the cluster state without signing in."
       },
       "updates": {
         "source": "upload (a release folder sent from the Updates screen), github (the latest release of the repository set on that screen) or repository (the apt or dnf repository of Pelagos).",

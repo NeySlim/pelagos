@@ -51,8 +51,10 @@ DOMAINS = (
     "updates",
     # B1-DISCOVERY
     "discovery",
+    "metrics",
 )
 UPDATE_SOURCE_PATTERN = r"^(upload|github|repository)$"
+CIDR_PATTERN = r"^[0-9A-Fa-f:.]{2,45}(/[0-9]{1,3})?$"
 TIME_OF_DAY_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
@@ -314,6 +316,9 @@ REGISTRY: tuple[Setting, ...] = (
     S("updates.pause_seconds", "integer", 60, 0, DAY, "seconds"),
     S("updates.auto_rollback_enabled", "boolean", True),
     S("updates.keep_packages_count", "integer", 2, 1, 20, "packages"),
+    # Prometheus endpoint (section 30): a token with read:series, or a client of these networks
+    S("metrics.endpoint_enabled", "boolean", True),
+    S("metrics.allowed_networks", "list", [], pattern=CIDR_PATTERN),
 )
 
 BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}

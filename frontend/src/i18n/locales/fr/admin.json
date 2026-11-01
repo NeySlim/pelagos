@@ -288,6 +288,10 @@
         "title": "Observations IPv6",
         "help": "Où les adresses IPv6 sont observées et quand une adresse est stable (Administration, Observation IPv6)"
       },
+      "metrics": {
+        "title": "Point de métriques",
+        "help": "GET /metrics au format texte Prometheus, pour un jeton avec read:series ou un réseau listé (Exploitation, Métriques et supervision)"
+      },
       "updates": {
         "title": "Mises à jour",
         "help": {
@@ -513,6 +517,10 @@
         "stale_days": "AAAA obsolète après",
         "auto_apply_enabled": "Créer AAAA et PTR automatiquement"
       },
+      "metrics": {
+        "endpoint_enabled": "Servir GET /metrics",
+        "allowed_networks": "Réseaux qui le lisent sans jeton"
+      },
       "updates": {
         "check_enabled": "Rechercher les nouvelles releases",
         "check_interval_hours": "Intervalle de recherche",
@@ -606,6 +614,9 @@
       "kea": {
         "migration_response_delay_milliseconds": "max-response-delay du standby pendant qu'il attend de servir seul ; remis à la fin de la migration.",
         "migration_outage_max_seconds": "Au-delà, la paire revient en Kea 2.6 si le retour arrière automatique est actif."
+      },
+      "metrics": {
+        "allowed_networks": "Adresses ou réseaux (192.0.2.0/24, 2001:db8::/64). Vide : un jeton est toujours exigé. Un client listé lit l'état du cluster sans se connecter."
       },
       "updates": {
         "source": "upload (un répertoire de release envoyé depuis l'écran Mises à jour), github (la dernière release du dépôt réglé dans cet écran) ou repository (le dépôt apt ou dnf de Pelagos).",

@@ -3739,18 +3739,17 @@ per socket whether its queue is idle or busy), so an open socket closes within a
 revocation without any HTTP request. It costs one `stat` of the audit file
 when the file did not grow; otherwise it reads only the new tail. A local
 revocation therefore applies to the next request, with no delay. At process start it reads the entries
-of the last `auth.session_ttl_seconds` through `AuditLog.query(since=...,
-action="auth.")` and `action="admin."` (the `(ts, id)` index: merged entries
-are appended out of `ts` order), then follows the file with
-`AuditLog.scan` from its size at that moment (a replaced or rotated file,
-new inode or smaller size, triggers the same rebuild rather than a scan from
-the start), needle `"action":"a` (the
-fixed key order of section 11 makes it select `auth.*`, `admin.*`,
-`alert.*`, `archive.*` in one pass; then filtered by action). Target rule
-once B1-AUDIT lands: Revocations rebuild with `AuditLog.tail(since=now - TTL,
-needle)`, whose cursor is taken at the same instant as the read, then follow
-with `scan`; until then the rebuild, one function (`Revocations._recent`),
-uses `query(since)` and the size read just before it. Revocation entries keep
+of the last `auth.session_ttl_seconds` with `AuditLog.tail(since=now - TTL,
+needle)` over the live file and the sealed segments (section 11), whose
+cursor is taken at the same instant as the read, then follows with
+`AuditLog.scan`, needle `"action":"a` (the fixed key order of section 11
+makes it select `auth.*`, `admin.*`, `alert.*`, `archive.*` in one pass;
+then filtered by action). A rotation needs no rebuild: `scan` finds the old
+file among the segments by its inode and returns each entry once. A live
+file that shrank in place, or was replaced by a file that is not a rotation
+(the old inode is no segment), triggers the rebuild; a missing live file
+keeps the cursor. The rebuild is one function (`Revocations._recent`).
+Revocation entries keep
 their shape. It applies
 `REVOCATION_RULES`:
 

@@ -41,7 +41,7 @@ reading `audit.jsonl` and adopts the new default at the next merge. Files outsid
 approved in review: `collector/notify.py` (`Ledger` rebuilt by `tail`, one block),
 `pelagos/cli.py` (one line), `docs/user/configuration.md`, `docs/user/upgrade.md` (compare
 `audit_count`, not file lines), `frontend/mock/b1-audit.mjs`, `admin.json` (en, fr).
-B1-SESSIONS: `Revocations` rebuilds with `tail(now - ttl, needle)` and follows with `scan`.
+B1-SESSIONS: `Revocations` rebuilds with `tail(now - ttl, needle)` and follows with `scan` (switched here, `auth/sessions.py` `_recent` and `_rebuild`; a rotation no longer triggers a rebuild).
 B1-EVENTS: `collector.notify.Ledger` now rebuilds with `tail(now - LEDGER_DAYS)`; keep it when
 touching the file. B1-ARCHIVES: archives carry segments and seals, a restore merges the entries
 of every `audit*.jsonl` and does not restore seals (no "verifiable archive" from them). F0-PLANS,

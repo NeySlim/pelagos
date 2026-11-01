@@ -11,7 +11,6 @@ import logging
 import re
 import secrets
 import threading
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -418,12 +417,12 @@ class Revocations:
                 st = audit_log.path.stat()
             except FileNotFoundError:
                 st = None
-            if self._offset is None or st is None or st.st_ino != self._inode or st.st_size < self._offset:
-                # Start, or the file was rotated or replaced: rebuild from the last TTL of the log.
-                self._offset, self._inode = (st.st_size, st.st_ino) if st else (0, None)
-                entries = list(self._recent(audit_log, now))
+            if self._rebuild(audit_log, st):
+                # B1-AUDIT: start, or the file was replaced (not rotated): the last TTL over every file,
+                # with the cursor the read used, then `scan` (it follows a rotation by itself).
+                entries, self._offset, self._inode = self._recent(audit_log, now)
             else:
-                if st.st_size == self._offset and not self._due(now):
+                if (st is None or st.st_size == self._offset) and not self._due(now):
                     return
                 entries, self._offset, self._inode = audit_log.scan(self._offset, self._inode, SCAN_NEEDLE)
             for entry in entries:
@@ -447,18 +446,22 @@ class Revocations:
             self._last = now.timestamp()
         return due
 
-    def _recent(self, audit_log: Any, now: datetime) -> Iterable[Any]:
-        """The rebuild, in one place: query(since) through the (ts, id) index; it becomes
-        AuditLog.tail(since) once the log rotates into sealed segments (B1-AUDIT)."""
+    def _rebuild(self, audit_log: Any, st: Any) -> bool:
+        """B1-AUDIT: rebuild at start, when the live file shrank in place, or when it was replaced by
+        a file that is not a rotation (the old inode is no segment); a missing live file waits."""
+        if self._offset is None:
+            return True
+        if st is None:
+            return False
+        if st.st_ino == self._inode:
+            return st.st_size < self._offset
+        return not any(seg.inode == self._inode for seg in audit_log.segments())
+
+    def _recent(self, audit_log: Any, now: datetime) -> tuple[list[Any], int, int | None]:
+        """The rebuild, in one place (B1-AUDIT): AuditLog.tail over the live file and the sealed
+        segments, and the live cursor to follow with `scan`."""
         since = now - timedelta(seconds=self.max_ttl or self.ttl)
-        for prefix in _WATCHED:
-            page = 1
-            while True:
-                items, total = audit_log.query(action=prefix, since=since, page=page, per_page=1000)
-                yield from items
-                if page * 1000 >= total or not items:
-                    break
-                page += 1
+        return audit_log.tail(since, SCAN_NEEDLE)
 
     def _apply(self, entry: Any, cluster: Any, sessions: SessionStore) -> None:
         rule = next((r for r in REVOCATION_RULES if r.applies(entry)), None)

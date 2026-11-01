@@ -537,13 +537,16 @@ def test_audit_entry_of_unexpected_shape_never_answers_500(one, two):
     assert resumes(two, a.cookie) == 401  # later entries still apply
 
 
-def test_undecodable_audit_line_fails_closed_without_500(one, two):
+def test_undecodable_audit_line_is_skipped_without_500(one, two):
+    """B1-AUDIT: a line that is not an AuditEntry is skipped by every read (logged once), so it
+    neither answers 500 nor refuses every resumption while it stays in the log."""
     a = one.login()
     local = two.login()
     with two.paths.audit_log.open("a") as fh:
         fh.write('{"id":"x","ts":"2026-11-01T00:00:00Z","action":"auth.logout","request":["a"]}\n')
-    assert resumes(two, a.cookie) == 401  # refused, not 500
+    assert resumes(two, a.cookie) == 200
     assert resumes(two, local.cookie) == 200
+    assert not two.ctx.sessions.revocations.failed
 
 
 def test_failed_refresh_refuses_resumption_and_keeps_local_sessions(one, two, monkeypatch, caplog):

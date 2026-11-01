@@ -740,24 +740,37 @@ def test_audit_entry_of_a_rotated_year_merged_late(repl_cluster):
 
 
 def test_logout_revocation_survives_a_rotation(repl_cluster):
+    """B1-SESSIONS Revocations on ns1 (the real follower): logouts written on ns2 just before and
+    just after ns1 rotated are applied by the running follower, and by a fresh one (restart) that
+    rebuilds with tail() from the segment."""
+    from pelagos.auth.sessions import Revocations, SessionStore, session_handle
     from pelagos.core import audit_segments
 
     cluster = repl_cluster
     ns1, ns2, _ = cluster.nodes
     settle(cluster)
-    log1 = ns1.ctx.audit_log
-    _, offset, inode = log1.tail(utcnow() - timedelta(hours=12), b'"auth.')
-    before = _audit_entry(ns2, utcnow(), action="auth.logout")
-    ns2.ctx.audit_log.append(before)
+    log1, cluster1 = ns1.ctx.audit_log, ns1.ctx.cluster()
+    store = SessionStore(ttl_seconds=43200)
+    rev = Revocations()
+    rev.refresh(log1, cluster1, store)
+    h_before, h_after = session_handle("before-rotation"), session_handle("after-rotation")
+
+    def logout(handle: bytes):
+        e = _audit_entry(ns2, utcnow(), action="auth.logout")
+        e.target, e.request = "user:alice", {"session": handle.hex()}
+        ns2.ctx.audit_log.append(e)
+
+    logout(h_before)
     settle(cluster)
     audit_segments.rotate(log1, ns1.id, utcnow(), on_demand=True)
-    after = _audit_entry(ns2, utcnow(), action="auth.logout")
-    ns2.ctx.audit_log.append(after)
+    logout(h_after)
     settle(cluster)
-    got, _, _ = log1.scan(offset, inode, b'"auth.')
-    assert [e.id for e in got] == [before.id, after.id]
-    rebuilt, _, _ = log1.tail(utcnow() - timedelta(hours=12), b'"auth.')
-    assert [e.id for e in rebuilt if e.action == "auth.logout"] == [before.id, after.id]
+    rev.refresh(log1, cluster1, store)
+    assert h_before in rev.handles and h_after in rev.handles and not rev.failed
+    restarted = Revocations()
+    restarted.refresh(log1, cluster1, store)
+    assert h_before in restarted.handles and h_after in restarted.handles
+    assert log1.segments()
 
 
 def test_audit_purge_does_not_loop_and_waits_for_old_peers(repl_cluster, monkeypatch):

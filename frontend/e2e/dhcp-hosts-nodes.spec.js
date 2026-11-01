@@ -26,13 +26,36 @@ test('a new subnet goes through a plan and shows up', async ({ page }) => {
   await expect(page.getByTestId('subnet-detail')).toContainText('192.0.2.100 - 192.0.2.126')
   await page.getByTestId('subnet-create').click()
   await page.getByTestId('subnet-prefix').fill('198.51.100.0/24')
-  await page.getByTestId('subnet-pools').fill('198.51.100.10 - 198.51.100.50')
+  await page.getByTestId('subnet-pools-row').first().locator('input').fill('198.51.100.10 - 198.51.100.50')
   await page.getByTestId('subnet-form').getByRole('button', { name: 'Preview the plan' }).click()
   await expect(page.getByTestId('plan-preview')).toBeVisible()
   await page.getByTestId('plan-apply').click()
   await expect(page.getByTestId('plan-result')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('subnets-table')).toContainText('198.51.100.0/24')
+})
+
+test('a subnet form sent without change builds no plan', async ({ page }) => {
+  await page.goto('/dhcp/v4/subnets')
+  await page.getByTestId('row-edit').first().click()
+  await expect(page.getByTestId('subnet-form').getByRole('button', { name: 'Preview the plan' })).toBeDisabled()
+  await page.getByTestId('subnet-min-lifetime').fill('600')
+  await expect(page.getByTestId('subnet-form').getByRole('button', { name: 'Preview the plan' })).toBeEnabled()
+  await page.getByTestId('subnet-min-lifetime').fill('')
+  await expect(page.getByTestId('subnet-form').getByRole('button', { name: 'Preview the plan' })).toBeDisabled()
+  await expect(page.getByTestId('plan-preview')).toHaveCount(0)
+})
+
+test('the subnets table is not truncated at 1440 px', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/dhcp/v4/subnets')
+  const table = page.getByTestId('subnets-table')
+  await expect(table).toBeVisible()
+  const overflow = await table.evaluate((el) => {
+    const scroller = el.querySelector('.overflow-auto') || el
+    return scroller.scrollWidth - scroller.clientWidth
+  })
+  expect(overflow).toBeLessThanOrEqual(1)
 })
 
 test('DHCPv6 subnets show their prefix delegation pools', async ({ page }) => {

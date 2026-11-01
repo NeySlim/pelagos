@@ -30,7 +30,7 @@ export default function LeasesPage({ family }) {
   const [params] = useSearchParams()
   const [q, setQ] = useState(params.get('q') || '')
   const [subnetId, setSubnetId] = useState(params.get('subnet_id') || '')
-  const [state, setState] = useState('')
+  const [state, setState] = useState(params.get('state') || '')
   const [nodeId, setNodeId] = useState('')
   const [activity, setActivity] = useState(0)
   const [mobileIp, setMobileIp] = useState(null)

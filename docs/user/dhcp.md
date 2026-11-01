@@ -50,18 +50,30 @@ shows each client's.
 
 ## Subnets and pools
 
-The subnets of the node read, with ID, prefix, shared network, pools and
-their utilization bar (assigned of total, declined), prefix delegation pools
-(v6), relays and options. Search covers prefixes and notes; filter by
-shared network.
+The subnets of the node read, one full-width table with ID, prefix, shared
+network, pool count, utilization, valid lifetime, link and note. Search
+covers prefixes and notes; filter by shared network. A click on a row opens
+the subnet in a floating window (a dialog on a phone): every pool with its
+utilization bar, prefix delegation pools (v6), options, lifetimes (default,
+minimum, maximum), relays and DDNS. Notes and user-context stay folded. A
+pool with declined leases links to the leases of the subnet filtered on the
+state `declined`.
 
 "New subnet" (`write:dhcp.subnets`): ID (unique), prefix
 (`192.0.2.0/24`, `2001:db8::/64`), shared network, interface, relay
-addresses, pools one per line (`192.0.2.100 - 192.0.2.199` or a prefix),
-PD pools for v6 (`2001:db8:8000::/48 56`: prefix, then delegated length),
-options one `name = data` per line (`routers = 192.0.2.1`), client classes,
-valid and preferred lifetimes, a note. A subnet without pool serves
-reservations only. Editing and deleting a subnet are plans too.
+addresses, pools as editable rows (`192.0.2.100 - 192.0.2.199` or a prefix;
+add or remove one at a time, each row is validated), PD pools for v6
+(`2001:db8:8000::/48 56`: prefix, then delegated length), options as
+name and data rows (`routers`, `192.0.2.1`), client classes, valid lifetime
+with its minimum and maximum (and the preferred lifetime for v6), a note. A
+subnet without pool serves reservations only. Editing and deleting a subnet
+are plans too.
+
+In every DHCP form (subnets, shared networks, classes, options,
+reservations) "Preview the plan" stays disabled until a field differs from
+the object being edited, so an edit that changes nothing never creates a
+plan. The ID of a subnet and the subnet, identifier type and identifier of a
+reservation cannot be edited: delete and recreate the object to change them.
 
 Pool use raises `pool_near_full` and `pool_full` at the thresholds of the
 settings (80 % and 95 % by default), on two polls in a row, with 5 points of

@@ -111,7 +111,11 @@
     "utilization": "Remplissage",
     "validLifetime": "Durée de validité",
     "validLifetimeSeconds": "Durée de validité (s)",
-    "value": "Valeur"
+    "value": "Valeur",
+    "minValidLifetimeSeconds": "Durée de validité minimale (s)",
+    "maxValidLifetimeSeconds": "Durée de validité maximale (s)",
+    "minValidLifetime": "Validité minimale",
+    "maxValidLifetime": "Validité maximale"
   },
   "form": {
     "badHostname": "Lettres, chiffres, points et tirets seulement",
@@ -137,7 +141,16 @@
     "positiveInteger": "Nombre entier positif attendu",
     "preview": "Aperçu du plan",
     "required": "Obligatoire",
-    "testHint": "Expression de classification Kea"
+    "testHint": "Expression de classification Kea",
+    "noDifference": "Aucune différence : rien à modifier",
+    "idLocked": "Pour changer l'identifiant, supprimez puis recréez",
+    "addPool": "Ajouter un pool",
+    "removePool": "Retirer le pool",
+    "addOption": "Ajouter une option",
+    "removeOption": "Retirer l'option",
+    "optionName": "Nom ou code de l'option",
+    "optionKeyRequired": "Indiquez un nom ou un code",
+    "lifetimeOrder": "Doit respecter min <= défaut <= max"
   },
   "userContext": {
     "empty": "Aucun contexte utilisateur",
@@ -161,7 +174,11 @@
     "pdPoolCount": "Pools PD : {{n}}",
     "poolCount": "Pools : {{n}}",
     "relay": "relais {{list}}",
-    "search": "Chercher un sous-réseau ou une note..."
+    "search": "Chercher un sous-réseau ou une note...",
+    "declinedLeases": "Voir les baux refusés",
+    "notes": "Notes et user-context",
+    "openDetail": "Sous-réseau {{subnet}}",
+    "notFound": "Ce sous-réseau n'existe plus"
   },
   "sharedNetworks": {
     "create": "Nouveau réseau partagé",

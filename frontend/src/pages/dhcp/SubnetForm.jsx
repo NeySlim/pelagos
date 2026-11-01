@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next'
 import { FormModal } from '../../components/FormModal'
 import { Input } from '../../components/Input'
 import { api } from '../../services/api'
-import { NativeSelect, TextArea } from './ui'
+import { NativeSelect, OptionRows, PoolRows, TextArea } from './ui'
 import {
-  noteOf, fieldErrors, isPool, isPrefix, optionsToText, splitLines, splitList, subnetKey, textToOptions, withNote,
+  noteOf, fieldErrors, firstBadPool, isPrefix, isUnchanged, optionRowsOf, optionRowsToText, splitLines, splitList, subnetKey,
+  textToOptions, withNote,
 } from './lib'
 
 function pdPoolsToText(pdPools = []) {
@@ -31,6 +32,9 @@ function textToPdPools(text, previous = []) {
   })
 }
 
+// Row errors come as { index: message }; a server error on the whole list is a string.
+const rowErrors = (value) => (value && typeof value === 'object' ? value : {})
+
 export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, flow }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const isNew = !subnet
@@ -39,10 +43,12 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
     id: String(subnet?.id ?? nextId),
     subnet: subnet?.subnet || '',
     shared_network: subnet?.shared_network || '',
-    pools: (subnet?.pools || []).map((p) => p.pool).join('\n'),
+    pools: (subnet?.pools || []).map((p) => p.pool),
     pd_pools: pdPoolsToText(subnet?.pd_pools),
-    options: optionsToText(subnet?.options),
+    options: optionRowsOf(subnet?.options),
     valid_lifetime: subnet?.valid_lifetime ?? '',
+    min_valid_lifetime: subnet?.min_valid_lifetime ?? '',
+    max_valid_lifetime: subnet?.max_valid_lifetime ?? '',
     preferred_lifetime: subnet?.preferred_lifetime ?? '',
     interface: subnet?.interface || '',
     relay: (subnet?.relay || []).join(', '),
@@ -57,8 +63,10 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
     if (!/^\d+$/.test(form.id) || Number(form.id) < 1) e.id = t('form.positiveInteger')
     else if (isNew && existing.some((s) => String(s.id) === form.id)) e.id = t('form.idTaken')
     if (!isPrefix(form.subnet, family)) e.subnet = t('form.badPrefix')
-    const badPool = splitLines(form.pools).find((p) => !isPool(p, family))
-    if (badPool) e.pools = t('form.badPool', { value: badPool })
+    const badPool = firstBadPool(form.pools, family)
+    if (badPool) e.pools = { [badPool.index]: t('form.badPool', { value: badPool.value }) }
+    const badOption = form.options.findIndex((r) => r.value.trim() && !r.key.trim())
+    if (badOption >= 0) e.options = { [badOption]: t('form.optionKeyRequired') }
     if (family === 'v6') {
       const badPd = splitLines(form.pd_pools).find((line) => {
         const [prefix, delegated] = line.split(/\s+/)
@@ -66,39 +74,49 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
       })
       if (badPd) e.pd_pools = t('form.badPdPool', { value: badPd })
     }
-    for (const key of ['valid_lifetime', 'preferred_lifetime']) {
+    for (const key of ['valid_lifetime', 'min_valid_lifetime', 'max_valid_lifetime', 'preferred_lifetime']) {
       if (form[key] !== '' && !/^\d+$/.test(String(form[key]))) e[key] = t('form.positiveInteger')
     }
+    const num = (key) => (form[key] === '' ? null : Number(form[key]))
+    const [min, def, max] = [num('min_valid_lifetime'), num('valid_lifetime'), num('max_valid_lifetime')]
+    if (!e.min_valid_lifetime && min !== null && def !== null && min > def) e.min_valid_lifetime = t('form.lifetimeOrder')
+    if (!e.max_valid_lifetime && max !== null && def !== null && max < def) e.max_valid_lifetime = t('form.lifetimeOrder')
+    if (!e.max_valid_lifetime && max !== null && min !== null && max < min) e.max_valid_lifetime = t('form.lifetimeOrder')
     return e
   }
+
+  const num = (v) => (v === '' ? null : Number(v))
+  const prevPools = subnet?.pools || []
+  const after = {
+    ...(subnet || { family, reservations: [], ddns: {}, raw: {}, user_context: {} }),
+    id: Number(form.id),
+    subnet: form.subnet.trim(),
+    family,
+    shared_network: form.shared_network || null,
+    pools: form.pools
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((pool) => prevPools.find((p) => p.pool === pool) || { pool, client_classes: [], options: [], user_context: {}, raw: {} }),
+    pd_pools: family === 'v6' ? textToPdPools(form.pd_pools, subnet?.pd_pools) : [],
+    options: textToOptions(optionRowsToText(form.options), family, subnet?.options),
+    valid_lifetime: num(form.valid_lifetime),
+    min_valid_lifetime: num(form.min_valid_lifetime),
+    max_valid_lifetime: num(form.max_valid_lifetime),
+    preferred_lifetime: family === 'v6' ? num(form.preferred_lifetime) : subnet?.preferred_lifetime ?? null,
+    interface: form.interface.trim() || null,
+    relay: splitList(form.relay),
+    client_classes: splitList(form.client_classes),
+    user_context: withNote(subnet?.user_context, form.note.trim()),
+  }
+  const unchanged = isUnchanged(subnet, after)
 
   const submit = async () => {
     const e = validate()
     setErrors(e)
     if (Object.keys(e).length) return
-    const prevPools = subnet?.pools || []
-    const after = {
-      ...(subnet || { family, reservations: [], ddns: {}, raw: {}, user_context: {} }),
-      id: Number(form.id),
-      subnet: form.subnet.trim(),
-      family,
-      shared_network: form.shared_network || null,
-      pools: splitLines(form.pools).map(
-        (pool) => prevPools.find((p) => p.pool === pool) || { pool, client_classes: [], options: [], user_context: {}, raw: {} },
-      ),
-      pd_pools: family === 'v6' ? textToPdPools(form.pd_pools, subnet?.pd_pools) : [],
-      options: textToOptions(form.options, family, subnet?.options),
-      valid_lifetime: form.valid_lifetime === '' ? null : Number(form.valid_lifetime),
-      preferred_lifetime:
-        family === 'v6' ? (form.preferred_lifetime === '' ? null : Number(form.preferred_lifetime)) : subnet?.preferred_lifetime ?? null,
-      interface: form.interface.trim() || null,
-      relay: splitList(form.relay),
-      client_classes: splitList(form.client_classes),
-      user_context: withNote(subnet?.user_context, form.note.trim()),
-    }
     const change = { op: isNew ? 'add' : 'replace', target: `${subnetKey(family)}/${after.id}`, before: subnet || null, after }
     try {
-      const plan = await flow.build(() => api.dhcp.subnetPlan(family, change), { rethrow: true })
+      const plan = await flow.build(() => api.dhcp.subnetPlan(family, change), { rethrow: true, unchanged })
       if (plan) onClose()
     } catch (err) {
       setErrors({ ...fieldErrors(err), _form: err.message })
@@ -113,11 +131,20 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
       onSubmit={submit}
       submitLabel={t('form.preview')}
       loading={flow.building}
+      disabled={unchanged}
       size="lg"
       testId="subnet-form"
     >
       <div className="grid gap-3 sm:grid-cols-[120px_1fr_1fr]">
-        <Input label={t('fields.id')} value={form.id} onChange={set('id')} disabled={!isNew} error={errors.id} data-testid="subnet-id" />
+        <Input
+          label={t('fields.id')}
+          value={form.id}
+          onChange={set('id')}
+          disabled={!isNew}
+          error={errors.id}
+          helperText={isNew ? undefined : t('form.idLocked')}
+          data-testid="subnet-id"
+        />
         <Input
           label={t('fields.subnet')}
           value={form.subnet}
@@ -134,14 +161,15 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
           options={[{ value: '', label: t('subnets.noSharedNetwork') }, ...sharedNetworks.map((n) => ({ value: n.name, label: n.name }))]}
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <TextArea
+      <div className={family === 'v6' ? 'grid gap-3 sm:grid-cols-2' : undefined}>
+        <PoolRows
           label={t('fields.pools')}
-          hint={t('form.onePerLine')}
-          value={form.pools}
+          rows={form.pools}
           onChange={set('pools')}
           placeholder={family === 'v6' ? '2001:db8:1::1000 - 2001:db8:1::1fff' : '192.0.2.100 - 192.0.2.199'}
-          error={errors.pools}
+          errors={rowErrors(errors.pools)}
+          addLabel={t('form.addPool')}
+          removeLabel={t('form.removePool')}
           testId="subnet-pools"
         />
         {family === 'v6' ? (
@@ -154,15 +182,25 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
             error={errors.pd_pools}
             testId="subnet-pd-pools"
           />
-        ) : (
-          <TextArea label={t('fields.options')} hint={t('form.optionHint')} value={form.options} onChange={set('options')} placeholder="routers = 192.0.2.1" />
-        )}
+        ) : null}
       </div>
-      {family === 'v6' && (
-        <TextArea label={t('fields.options')} hint={t('form.optionHint')} value={form.options} onChange={set('options')} placeholder="dns-servers = 2001:db8::53" />
-      )}
+      <OptionRows
+        label={t('fields.options')}
+        rows={form.options}
+        onChange={set('options')}
+        keyLabel={t('form.optionName')}
+        valueLabel={t('fields.data')}
+        keyPlaceholder={family === 'v6' ? 'dns-servers' : 'routers'}
+        valuePlaceholder={family === 'v6' ? '2001:db8::53' : '192.0.2.1'}
+        errors={rowErrors(errors.options)}
+        addLabel={t('form.addOption')}
+        removeLabel={t('form.removeOption')}
+        testId="subnet-options"
+      />
       <div className="grid gap-3 sm:grid-cols-3">
-        <Input label={t('fields.validLifetimeSeconds')} value={form.valid_lifetime} onChange={set('valid_lifetime')} error={errors.valid_lifetime} />
+        <Input label={t('fields.validLifetimeSeconds')} value={form.valid_lifetime} onChange={set('valid_lifetime')} error={errors.valid_lifetime} data-testid="subnet-valid-lifetime" />
+        <Input label={t('fields.minValidLifetimeSeconds')} value={form.min_valid_lifetime} onChange={set('min_valid_lifetime')} error={errors.min_valid_lifetime} data-testid="subnet-min-lifetime" />
+        <Input label={t('fields.maxValidLifetimeSeconds')} value={form.max_valid_lifetime} onChange={set('max_valid_lifetime')} error={errors.max_valid_lifetime} data-testid="subnet-max-lifetime" />
         {family === 'v6' && (
           <Input label={t('fields.preferredLifetimeSeconds')} value={form.preferred_lifetime} onChange={set('preferred_lifetime')} error={errors.preferred_lifetime} />
         )}
@@ -171,6 +209,9 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
         <Input label={t('fields.clientClasses')} value={form.client_classes} onChange={set('client_classes')} helperText={t('form.commaSeparated')} />
       </div>
       <Input label={t('fields.note')} value={form.note} onChange={set('note')} helperText={t('form.noteHint')} />
+      {[errors.pools, errors.options].filter((v) => typeof v === 'string').map((v) => (
+        <p key={v} className="text-xs status-danger-text">{v}</p>
+      ))}
       {errors._form && <p className="text-xs status-danger-text">{errors._form}</p>}
     </FormModal>
   )

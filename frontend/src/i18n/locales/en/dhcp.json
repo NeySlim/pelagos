@@ -111,7 +111,11 @@
     "utilization": "Utilization",
     "validLifetime": "Valid lifetime",
     "validLifetimeSeconds": "Valid lifetime (s)",
-    "value": "Value"
+    "value": "Value",
+    "minValidLifetimeSeconds": "Minimum valid lifetime (s)",
+    "maxValidLifetimeSeconds": "Maximum valid lifetime (s)",
+    "minValidLifetime": "Minimum valid lifetime",
+    "maxValidLifetime": "Maximum valid lifetime"
   },
   "form": {
     "badHostname": "Letters, digits, dots and hyphens only",
@@ -137,7 +141,16 @@
     "positiveInteger": "Expected a positive whole number",
     "preview": "Preview the plan",
     "required": "Required",
-    "testHint": "Kea classification expression"
+    "testHint": "Kea classification expression",
+    "noDifference": "No difference: nothing to change",
+    "idLocked": "To change the identifier, delete then recreate",
+    "addPool": "Add a pool",
+    "removePool": "Remove pool",
+    "addOption": "Add an option",
+    "removeOption": "Remove option",
+    "optionName": "Option name or code",
+    "optionKeyRequired": "Give a name or a code",
+    "lifetimeOrder": "Must satisfy min <= default <= max"
   },
   "userContext": {
     "empty": "No user context",
@@ -161,7 +174,11 @@
     "pdPoolCount": "PD pools: {{n}}",
     "poolCount": "Pools: {{n}}",
     "relay": "relay {{list}}",
-    "search": "Search subnets or notes..."
+    "search": "Search subnets or notes...",
+    "declinedLeases": "Show declined leases",
+    "notes": "Notes and user-context",
+    "openDetail": "Subnet {{subnet}}",
+    "notFound": "This subnet no longer exists"
   },
   "sharedNetworks": {
     "create": "New shared network",

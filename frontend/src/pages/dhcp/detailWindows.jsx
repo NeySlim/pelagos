@@ -3,7 +3,7 @@
 // page can open a lease card; the card itself loads on first use.
 import { Suspense } from 'react'
 import { lazyPage } from '../../lib/lazyPage'
-import { Clock } from '@phosphor-icons/react'
+import { Clock, Network } from '@phosphor-icons/react'
 import { registerDetailRenderer } from '../../components/FloatingDetailWindow'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 
@@ -16,6 +16,23 @@ export function LazyLeaseWindow(props) {
     </Suspense>
   )
 }
+
+const SubnetWindow = lazyPage(() => import('./SubnetDetail'))
+
+function LazySubnetWindow({ data, close }) {
+  return (
+    <Suspense fallback={<LoadingSpinner size="sm" />}>
+      <SubnetWindow family={data?.family} id={data?.id} onClose={close} />
+    </Suspense>
+  )
+}
+
+registerDetailRenderer('subnet', {
+  component: LazySubnetWindow,
+  icon: Network,
+  iconClass: 'icon-bg-violet',
+  meta: (data) => ({ title: data?.title, subtitle: data?.subtitle }),
+})
 
 registerDetailRenderer('lease', {
   component: LazyLeaseWindow,

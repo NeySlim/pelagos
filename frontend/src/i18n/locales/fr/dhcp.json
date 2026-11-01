@@ -229,7 +229,13 @@
     "previous": "Précédent",
     "next": "Suivant",
     "page": "Page {{page}}",
-    "deleteAll": "Supprimer sur les {{count}} serveurs"
+    "deleteAll": "Supprimer sur les {{count}} serveurs",
+    "detail": "Détail",
+    "dnsForwardOn": "Enregistrement direct (A/AAAA) mis à jour par Kea",
+    "dnsForwardOff": "Pas de mise à jour DNS directe",
+    "dnsReverseOn": "Enregistrement inverse (PTR) mis à jour par Kea",
+    "dnsReverseOff": "Pas de mise à jour DNS inverse",
+    "dns": "DNS"
   },
   "reservations": {
     "create": "Nouvelle réservation",
@@ -378,7 +384,9 @@
       "steps": "Corrigez d'abord les horloges (NTP, voir la colonne Horloge de la page Nœuds), puis réparez : Pelagos redémarre le service HA de chaque serveur l'un après l'autre.",
       "repair": "Réparer la HA",
       "nodes": "Vérifier les horloges"
-    }
+    },
+    "maintenanceBlocked": "Le partenaire {{server}} est en maintenance : terminez-la d'abord",
+    "moreActions": "Autres actions"
   },
   "ddns": {
     "add": "Ajouter un paramètre",
@@ -415,7 +423,8 @@
     "row": "Kea {{series}} sur {{nodes}} : l'ISC ne maintient plus cette série",
     "rowSince": "Kea {{series}} sur {{nodes}} : l'ISC ne maintient plus cette série depuis le {{date}}",
     "analyze": "Analyser la migration vers Kea 3.x",
-    "dismiss": "Masquer"
+    "dismiss": "Masquer",
+    "reduced": "Mode réduit sur {{nodes}} (Kea 2.6) : chaque changement remplace la configuration entière et les commentaires sont perdus. Migrez vers Kea 3."
   },
   "keaFile": {
     "comments_one": "{{path}} sur {{node}} contient {{count}} commentaire et aucune inclusion : Pelagos le copie dans user-context (\"pelagos\": {\"comment\"}) avant que Kea réécrive le fichier.",
@@ -451,7 +460,8 @@
     "historyLabel": "Adresses utilisées sur la dernière journée, actuellement {{value}}",
     "dayAgo": "-24 h",
     "utilization": "Usage",
-    "subnetUse": "Adresses utilisées du sous-réseau {{id}}"
+    "subnetUse": "Adresses utilisées du sous-réseau {{id}}",
+    "sqlLeases": "Base de baux {{backend}} sur {{nodes}} : le suivi des baux et la migration Kea ne sont pas pris en charge."
   },
   "ddnsFailover": {
     "denied": "Lire la reprise DDNS demande read:dhcp et read:dns.",
@@ -557,6 +567,7 @@
       "auto": "Automatique : la copie au serial le plus haut",
       "noTarget": "Aucun nœud en ligne ne porte une copie de chaque zone choisie.",
       "failoverRisk": "Si les nœuds se sont seulement perdus de vue, les deux pourraient devenir primaires : ne promouvez que si l'ancien primaire est vraiment arrêté."
-    }
+    },
+    "twoNodes": "À deux nœuds, une coupure réseau est indiscernable d'une panne : la bascule automatique reste désactivée."
   }
 }

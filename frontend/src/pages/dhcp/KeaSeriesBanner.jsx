@@ -4,8 +4,8 @@
 // cluster: a line per series naming every node that runs it (review E4).
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
-import { Info, X } from '@phosphor-icons/react'
+import { Link, useLocation } from 'react-router-dom'
+import { Info, Warning, X } from '@phosphor-icons/react'
 import { usePermission } from '../../hooks/usePermission'
 import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
@@ -23,7 +23,7 @@ function readDismissed() {
   }
 }
 
-export function KeaSeriesBanner() {
+function SeriesBanner() {
   const { t } = useTranslation('dhcp')
   const { hasPermission } = usePermission()
   const { nameOf } = useNodeNames()
@@ -72,6 +72,36 @@ export function KeaSeriesBanner() {
         <X size={14} />
       </button>
     </div>
+  )
+}
+
+// Kea 2.6 has no config-set write path that keeps comments: every change replaces the whole
+// configuration. Shown on the pages that edit it, for the nodes running a series before 3.
+const READ_ONLY_PAGES = /\/dhcp\/v[46]\/(leases|stats)\/?$/
+
+function ReducedModeBanner() {
+  const { t } = useTranslation('dhcp')
+  const { pathname } = useLocation()
+  const family = pathname.match(/^\/dhcp\/(v[46])\//)?.[1]
+  const { nameOf } = useNodeNames()
+  const servers = useApi(() => api.dhcp.servers(family), [family], { enabled: Boolean(family) && !READ_ONLY_PAGES.test(pathname) })
+  if (!family || READ_ONLY_PAGES.test(pathname)) return null
+  const old = (servers.data?.items || []).filter((s) => Number.parseInt(s.capabilities?.version, 10) < 3)
+  if (!old.length) return null
+  return (
+    <div role="status" className="flex items-start gap-2 rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="kea-reduced-banner">
+      <Warning size={16} weight="fill" className="shrink-0 mt-0.5" />
+      <p className="flex-1 min-w-0">{t('keaSeries.reduced', { nodes: old.map((s) => nameOf(s.node_id)).join(', '), count: old.length })}</p>
+    </div>
+  )
+}
+
+export function KeaSeriesBanner() {
+  return (
+    <>
+      <SeriesBanner />
+      <ReducedModeBanner />
+    </>
   )
 }
 

@@ -42,6 +42,9 @@ shows each client's.
 - With Kea 3.x and the `subnet_cmds` and `host_cmds` hooks, subnets and
   reservations change through those commands. With Kea 2.6 (reduced mode),
   the whole configuration is replaced with `config-set`.
+  The DHCP editing screens show a banner naming the nodes in reduced mode:
+  every change replaces the whole configuration and comments are lost, so
+  migrate to Kea 3.
 - Each plan carries the configuration hash of every node as a
   precondition: an edit made elsewhere in between makes the apply fail
   instead of overwriting it.
@@ -131,8 +134,11 @@ boot fields (next server, server hostname, boot file name), a note.
 
 ## Leases
 
-Active leases, page by page, with IP, MAC or DUID, hostname, subnet,
-state, expiry, the DNS forward and reverse flags, and the node read.
+Active leases, page by page, with IP, MAC or DUID, hostname, subnet (its
+prefix, the id in the tooltip), state, expiry, the DNS forward and reverse
+flags (two icons, lit when Kea sends that update; the tooltips say which)
+and the node read. On a phone each lease is a card with its IP, name, MAC,
+state and expiry, and a "Detail" button.
 
 - **Search**: an IP, a MAC, a DUID or an exact hostname (Kea lookup
   commands). Filters: subnet, state, node. Page size up to 1000.
@@ -146,9 +152,19 @@ state, expiry, the DNS forward and reverse flags, and the node read.
   only ("Delete the lease on ns2").
 - **Host card**: the [host](screens.md#hosts) joining this lease with its
   reservation and records.
+- **Lease card**: a floating window, wider when more than two nodes hold
+  copies. Once the last copy is deleted and the plan result is closed, the
+  card closes too.
 
 A banner "lease changes, refresh" appears when the collector sees leases
 come and go.
+
+### Lease database
+
+Lease tracking (the lease pages, the address use of the pools, the
+[history](#statistics)) and the migration to Kea 3 read a `memfile` lease
+database. A server whose `lease-database` is `mysql` or `postgresql` is not
+supported for them: the Statistics screen says so and names the node.
 
 ### Lease history
 
@@ -390,8 +406,11 @@ Without Pelagos, the same repair is: fix the clocks, then restart
 
 To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
 
-1. On the card of the server that goes down, "Start maintenance", review
-   and confirm the plan. It sends `ha-maintenance-start` to its partner,
+1. On the card of the server that goes down, "Start maintenance": type the
+   server name to confirm, then review the plan; the typed name is the only
+   confirmation, the plan has no second checkbox. The button is off on the
+   partner of a server already in maintenance (the tooltip says so).
+   The plan It sends `ha-maintenance-start` to its partner,
    which takes over every client (`partner-in-maintenance`) while the
    server enters `in-maintenance`. The partner is found by its server name,
    from any node of the cluster; backups keep receiving lease updates and
@@ -413,7 +432,16 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
 "End maintenance" (on the card of the server in `in-maintenance`) is for a
 maintenance you started but did not go through: while the server was not
 shut down, it sends `ha-maintenance-cancel` and both return to their normal
-state. Once the partner is `partner-down`, Pelagos refuses it (`409`).
+state. Once the partner is `partner-down`, Pelagos refuses it (`409`). It
+is offered on that card only, not on the partner's.
+
+"Remove HA" is in the "..." menu of the page header; it asks for the server
+names and, like the start of a maintenance, needs no second confirmation of
+the plan.
+
+An account without `ops:dhcp.ha` or `write:dhcp.config` sees a note under
+the summary naming what it lacks. The roles read "Standby" and "Backup" in
+English, "Secours (standby)" and "Sauvegarde (backup)" in French.
 
 "Disable DHCP" and "Enable DHCP" (`dhcp-disable`, `dhcp-enable`) stop and
 resume answering clients on one server, as confirmed plans. The HA mode and
@@ -499,6 +527,9 @@ writes them to secret files (mode 0640, Kea group) under the Kea
 configuration directory.
 
 ### The Failover tab
+
+With two nodes a network cut cannot be told from a failure of the other
+node, so the automatic failover stays disabled; the tab says so.
 
 DHCP > DDNS > **Failover** (`/dhcp/v4/ddns?tab=failover`, `read:dhcp` and
 `read:dns`) shows every dynamic zone D2 updates:
@@ -666,7 +697,9 @@ the hooks already in use, on every node; "Unload" removes one.
 
 Server counters and per-subnet counters (total, assigned, declined,
 reclaimed addresses; NA and PD for v6), filterable, a live rate of leases
-handed out, and the address use of the last 24 hours.
+handed out, and the address use of the last 24 hours. A note names the
+servers that keep their leases in MySQL or PostgreSQL (see
+[Lease database](#lease-database)).
 
 ## Kea file and running configuration
 

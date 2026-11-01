@@ -70,7 +70,7 @@ export function DdnsFailoverPanel({ selectedZone, refreshKey = 0 }) {
     }, [refetchAll]),
   )
   const flow = usePlanFlow({ onApplied: refetchAll })
-  const { nameOf } = useNodeNames()
+  const { nameOf, nodes } = useNodeNames()
   const [dialog, setDialog] = useState(null)
   const [replayOpen, setReplayOpen] = useState(false)
 
@@ -93,6 +93,9 @@ export function DdnsFailoverPanel({ selectedZone, refreshKey = 0 }) {
   return (
     <div className="space-y-4" data-testid="ddns-failover">
       <OutageBanner outage={outage} windowOpen={data?.outage} nameOf={nameOf} canPlan={canPlan} onPromote={(list) => setDialog({ kind: 'failover', zones: list })} />
+      {nodes.length === 2 && (
+        <p className="text-xs text-text-secondary" data-testid="ddns-two-nodes-note">{t('ddnsFailover.twoNodes')}</p>
+      )}
       <StaleBanner zones={zones} stale={byZone.stale} nameOf={nameOf} />
       {offline.length > 0 && (
         <div role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="ddns-offline">

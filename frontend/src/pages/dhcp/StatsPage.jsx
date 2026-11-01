@@ -4,7 +4,7 @@
 // with the live lease rate and the address use of the last day (GET /series/pools).
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChartBar } from '@phosphor-icons/react'
+import { ChartBar, Info } from '@phosphor-icons/react'
 import { Card } from '../../components/Card'
 import { EmptyState } from '../../components/EmptyState'
 import { Input } from '../../components/Input'
@@ -22,6 +22,7 @@ import { useNodeNames } from './hooks'
 import { poolHistory, splitStatistics, subnetColumns, subnetUtilization } from './keaStats'
 
 const DAY_MS = 86400000
+const SQL_BACKENDS = ['mysql', 'postgresql']
 
 // Share of the addresses in use over the last day, summed over the pools of the server.
 function PoolHistory({ family, nodeId }) {
@@ -152,6 +153,8 @@ export default function StatsPage({ family }) {
   const [filter, setFilter] = useState('')
   const [round, setRound] = useState(0)
   const items = servers.data?.items || []
+  // Lease tracking and the Kea migration read the memfile lease database only.
+  const sqlLeases = items.filter((s) => SQL_BACKENDS.includes(s.capabilities?.lease_backend))
 
   return (
     <AreaPage
@@ -166,6 +169,12 @@ export default function StatsPage({ family }) {
       }}
     >
       <div className="space-y-4">
+        {sqlLeases.length > 0 && (
+          <p role="status" className="flex items-start gap-2 rounded-lg border status-primary-bg status-primary-border px-3 py-2 text-xs status-primary-text" data-testid="dhcp-sql-leases-note">
+            <Info size={16} weight="fill" className="shrink-0 mt-0.5" />
+            <span>{t('stats.sqlLeases', { nodes: sqlLeases.map((s) => nameOf(s.node_id)).join(', '), backend: sqlLeases[0].capabilities.lease_backend })}</span>
+          </p>
+        )}
         <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('stats.filter')} aria-label={t('stats.filter')} className="max-w-xs" />
         {servers.loading && !servers.data ? (
           <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>

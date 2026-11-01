@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import '../../i18n'
 
-const db = vi.hoisted(() => ({ res: null, alerts: [], perms: null }))
+const db = vi.hoisted(() => ({ res: null, alerts: [], perms: null, nodes: ['ns1', 'ns2'] }))
 const calls = vi.hoisted(() => ({ prepare: vi.fn(), failover: vi.fn(), switchover: vi.fn(), replay: vi.fn() }))
 
 vi.mock('../../hooks/useWebSocket', () => ({ useWebSocket: () => ({ isConnected: true }), useWsTopic: () => {} }))
@@ -21,7 +21,7 @@ vi.mock('../../services/api', () => {
       replayPlan: (...a) => { calls.replay(...a); return plan('replay')() },
     },
     alerts: { list: async ({ kind }) => ({ items: db.alerts.filter((a) => a.kind === kind) }) },
-    nodes: { list: async () => ({ items: [{ peer: { id: 'N1', name: 'ns1' } }, { peer: { id: 'N2', name: 'ns2' } }] }) },
+    nodes: { list: async () => ({ items: db.nodes.map((name, i) => ({ peer: { id: `N${i + 1}`, name } })) }) },
   }
   return { api, default: api }
 })
@@ -58,9 +58,21 @@ beforeEach(() => {
   db.res = base()
   db.alerts = []
   db.perms = null
+  db.nodes = ['ns1', 'ns2']
 })
 
 describe('DdnsFailoverPanel', () => {
+  it('explains on two nodes why the automatic failover stays off, and not on three', async () => {
+    const { unmount } = renderPanel()
+    expect(await screen.findByTestId('ddns-two-nodes-note')).toHaveTextContent('a network cut looks the same as a failure')
+    unmount()
+    resetNodeNameCache()
+    db.nodes = ['ns1', 'ns2', 'ns3']
+    renderPanel()
+    await screen.findByTestId('ddns-zones')
+    expect(screen.queryByTestId('ddns-two-nodes-note')).toBeNull()
+  })
+
   it('shows each zone state, its blockers and the handover link of an unmanaged zone', async () => {
     renderPanel()
     await screen.findByTestId('ddns-zones')

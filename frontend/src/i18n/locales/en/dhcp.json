@@ -229,7 +229,13 @@
     "previous": "Previous",
     "next": "Next",
     "page": "Page {{page}}",
-    "deleteAll": "Delete on the {{count}} servers"
+    "deleteAll": "Delete on the {{count}} servers",
+    "detail": "Detail",
+    "dnsForwardOn": "Forward record (A/AAAA) updated by Kea",
+    "dnsForwardOff": "No forward DNS update",
+    "dnsReverseOn": "Reverse record (PTR) updated by Kea",
+    "dnsReverseOff": "No reverse DNS update",
+    "dns": "DNS"
   },
   "reservations": {
     "create": "New reservation",
@@ -378,7 +384,9 @@
       "steps": "Fix the clocks first (NTP, see the Clock column of the Nodes page), then repair: Pelagos restarts each server's HA service one after the other.",
       "repair": "Repair HA",
       "nodes": "Check the clocks"
-    }
+    },
+    "maintenanceBlocked": "The partner {{server}} is in maintenance: end it there first",
+    "moreActions": "More actions"
   },
   "ddns": {
     "add": "Add parameter",
@@ -415,7 +423,8 @@
     "row": "Kea {{series}} on {{nodes}}: ISC no longer maintains this series",
     "rowSince": "Kea {{series}} on {{nodes}}: ISC no longer maintains this series since {{date}}",
     "analyze": "Analyze the migration to Kea 3.x",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "reduced": "Reduced mode on {{nodes}} (Kea 2.6): every change replaces the whole configuration and comments are lost. Migrate to Kea 3."
   },
   "keaFile": {
     "comments_one": "{{path}} on {{node}} has {{count}} comment and no include: Pelagos copies it into user-context (\"pelagos\": {\"comment\"}) before Kea rewrites the file.",
@@ -451,7 +460,8 @@
     "historyLabel": "Address use over the last day, now {{value}}",
     "dayAgo": "-24 h",
     "utilization": "Use",
-    "subnetUse": "Subnet {{id}} address use"
+    "subnetUse": "Subnet {{id}} address use",
+    "sqlLeases": "Lease database {{backend}} on {{nodes}}: lease tracking and the Kea migration are not supported."
   },
   "ddnsFailover": {
     "denied": "Reading the DDNS failover needs read:dhcp and read:dns.",
@@ -557,6 +567,7 @@
       "auto": "Automatic: the copy with the highest serial",
       "noTarget": "No online node holds a copy of every selected zone.",
       "failoverRisk": "If the nodes only lost sight of each other, both may end up primary: promote only when the old primary is really down."
-    }
+    },
+    "twoNodes": "With two nodes, a network cut looks the same as a failure: automatic failover stays disabled."
   }
 }

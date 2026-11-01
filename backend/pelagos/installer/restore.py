@@ -302,6 +302,11 @@ class OfflineRestore:
         for f in m.files:
             if group_of(f.part) in plan.groups:
                 plan.writes.append(Write(f.path, self.copy_of(f.path), f.mode, f.owner, f.part, f.size))
+        # Write bases belong to the cluster.toml being replaced: a stale file could outlive a reused stamp.
+        toml = self.env.node_paths.cluster_toml
+        bases = str(toml.with_suffix(".bases.json"))
+        if any(w.path == str(toml) for w in plan.writes) and os.path.lexists(bases):
+            plan.removes.append(bases)
         if not m.complete:
             plan.warnings.append(
                 "the archive is incomplete; not archived: " + (", ".join(m.unreadable) or "unknown")

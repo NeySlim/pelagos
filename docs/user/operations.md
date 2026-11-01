@@ -122,7 +122,9 @@ leases; its peers need not be running.
 5. The services start on the restored files. Kea HA synchronizes the leases
    with the partner and the pair goes back to `hot-standby`; the node
    catches up on the cluster changes made since the archive; secondary zones
-   transfer again.
+   transfer again. The restore also deletes `cluster.bases.json` (the
+conflict detection data kept beside `cluster.toml`, never archived); it
+starts again empty.
 
 Changes the node received after the archive (DNS updates on its primary
 zones, leases it alone handed out) are lost: archive often enough. A zone

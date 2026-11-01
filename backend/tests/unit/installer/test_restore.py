@@ -197,6 +197,27 @@ def test_rebuilds_every_part_and_restarts_the_services(rig):
     assert entry["response"]["zones"] == ["example.lan (_default)"]
 
 
+def test_restore_deletes_stale_write_bases(rig):
+    bases = rig["env"].node_paths.cluster_toml.with_suffix(".bases.json")
+    _write(bases, "{}")
+    with _restore(rig) as r:
+        result = r.apply(r.prepare())
+    assert result.ok, result.errors
+    assert not bases.exists()
+    assert rig["files"]["cluster"].read_bytes() == rig["original"]["cluster"][0]
+
+
+def test_restore_without_bases_file_and_rollback_keeps_it(rig):
+    bases = rig["env"].node_paths.cluster_toml.with_suffix(".bases.json")
+    with _restore(rig) as r:
+        assert r.apply(r.prepare()).ok
+    _write(bases, "{}")
+    failing = [{"what": "x", "ok": False, "output": ""}]
+    with _restore(rig, checker=lambda plan: failing) as r:
+        result = r.apply(r.prepare())
+    assert result.rolled_back and bases.read_text() == "{}"
+
+
 def test_operator_identity_and_identity_files(rig, tmp_path):
     ident = tmp_path / "operator.txt"
     ident.write_text(f"# created: 2026-10-28\n# public key: x\n\n{rig['operator_id']}\n")

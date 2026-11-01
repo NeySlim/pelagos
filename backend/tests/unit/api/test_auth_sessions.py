@@ -9,6 +9,7 @@ import json
 import logging
 import shutil
 import threading
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from pelagos.core.context import NodeContext
 from pelagos.core.enrollment import EnrollmentService
 from pelagos.core.paths import Paths
 from pelagos.core.secrets import SESSION_SIGNING
-from pelagos.domain import ApiToken, Peer
+from pelagos.domain import ApiToken, AuditEntry, Peer
 from pelagos.domain.common import new_id, utcnow
 from pelagos.services.admin_service import AdminService
 from pelagos.services.container import Services
@@ -487,3 +488,135 @@ def test_suite_audit_and_logs_hold_no_session_secret(one, two, caplog):
     )
     for s in secrets_seen:
         assert s not in text
+
+
+def test_websocket_on_a_busy_topic_closes_on_a_merged_logout(one, two):
+    """The liveness check runs every second even when the queue never empties."""
+    a = one.login("admin", ADMIN_PASSWORD)
+    hub = Services.of(two.ctx).events
+    stop = threading.Event()
+
+    def feed():
+        while not stop.is_set():
+            hub.publish("alerts", "opened", {"kind": "busy"})
+            time.sleep(0.01)
+
+    ws = ScriptedSocket([json.dumps({"action": "subscribe", "topics": ["alerts"]})])
+    runner = threading.Thread(target=_open, args=(two.client(a.cookie), ws))
+    runner.start()
+    ws.wait_for(lambda m: m["event"] == "subscribed")
+    feeder = threading.Thread(target=feed, daemon=True)
+    feeder.start()
+    try:
+        ws.wait_for(lambda m: m["topic"] == "alerts")
+        assert a.post("/api/v1/auth/logout").status_code == 204
+        sync(one, two)
+        started = time.monotonic()
+        runner.join(timeout=4)
+        assert not runner.is_alive() and ws.close_code == CLOSE_UNAUTHENTICATED
+        assert time.monotonic() - started < 3
+    finally:
+        stop.set()
+
+
+def test_audit_entry_of_unexpected_shape_never_answers_500(one, two):
+    a = one.login()
+    assert resumes(two, a.cookie) == 200
+    odd = [
+        AuditEntry(node_id="n9", user="x", action="auth.logout", target="user:vera", request={"session": 42}),
+        AuditEntry(
+            node_id="n9", user="x", action="auth.logout", target="user:vera", request={"session": "zz"}
+        ),
+        AuditEntry(node_id="n9", user="x", action="auth.op", target="user:vera", request={"op": ["x"]}),
+        AuditEntry(node_id="n9", user="x", action="admin.role.replace", target="role:", request={}),
+    ]
+    two.ctx.audit_log.merge(odd)
+    assert resumes(two, a.cookie) == 200
+    assert a.post("/api/v1/auth/logout").status_code == 204
+    sync(one, two)
+    assert resumes(two, a.cookie) == 401  # later entries still apply
+
+
+def test_undecodable_audit_line_fails_closed_without_500(one, two):
+    a = one.login()
+    local = two.login()
+    with two.paths.audit_log.open("a") as fh:
+        fh.write('{"id":"x","ts":"2026-11-01T00:00:00Z","action":"auth.logout","request":["a"]}\n')
+    assert resumes(two, a.cookie) == 401  # refused, not 500
+    assert resumes(two, local.cookie) == 200
+
+
+def test_failed_refresh_refuses_resumption_and_keeps_local_sessions(one, two, monkeypatch, caplog):
+    a = one.login()
+    local = two.login()
+
+    def broken(*args, **kw):
+        raise RuntimeError("audit log unreadable")
+
+    monkeypatch.setattr(two.ctx.sessions.revocations, "refresh", broken)
+    with caplog.at_level(logging.ERROR, logger="pelagos.api.security"):
+        assert resumes(two, a.cookie) == 401
+        assert resumes(two, local.cookie) == 200
+    monkeypatch.undo()
+    assert resumes(two, a.cookie) == 200
+
+
+def test_raised_ttl_does_not_bring_a_logged_out_cookie_back(one, two):
+    a = one.login()
+    assert a.post("/api/v1/auth/logout").status_code == 204
+    sync(one, two)
+    assert resumes(two, a.cookie) == 401
+    two.ctx.sessions.ttl = timedelta(days=2)
+    rev = two.ctx.sessions.revocations
+    rev.refresh(two.ctx.audit_log, two.ctx.cluster(), two.ctx.sessions, now=utcnow() + timedelta(hours=13))
+    assert rev.handles  # kept for the longest TTL seen, not the one at revocation
+    two.ctx.sessions.ttl = timedelta(hours=1)
+    rev.refresh(two.ctx.audit_log, two.ctx.cluster(), two.ctx.sessions, now=utcnow() + timedelta(hours=13))
+    assert rev.handles
+
+
+def test_resumed_copy_follows_an_enrollment_done_elsewhere(one, two):
+    keys, _ = security.cluster_keys(two.ctx)
+    vera = next(u for u in two.ctx.cluster().users if u.username == "vera")
+    two.ctx.config_store.update_cluster(lambda c: c.settings["auth"].update({"require_totp": True}), "t")
+    now = sm.now_ms()
+    cookie = sign_cookie(keys, sm.CookieClaims(new_id(), "n1", vera.id, now, now, "totp_enrollment"))
+    c = two.client(cookie)
+    assert c.get(SESSION).get_json()["restriction"] == "totp_enrollment"
+    two.ctx.config_store.update_cluster(
+        lambda cfg: setattr(next(u for u in cfg.users if u.id == vera.id), "totp_secret", "enc:v1:x"), "t"
+    )
+    assert c.get(SESSION).get_json()["restriction"] is None
+
+
+def test_password_change_never_lifts_a_pending_key_enrollment(one, two):
+    keys, _ = security.cluster_keys(two.ctx)
+    vera = next(u for u in two.ctx.cluster().users if u.username == "vera")
+
+    def setup(c):
+        c.settings["auth"]["require_webauthn_roles"] = ["viewer"]
+        next(u for u in c.users if u.id == vera.id).must_change_password = True
+
+    two.ctx.config_store.update_cluster(setup, "t")
+    now = sm.now_ms()
+    cookie = sign_cookie(keys, sm.CookieClaims(new_id(), "n1", vera.id, now, now, "webauthn_enrollment"))
+    c = two.client(cookie)
+    body = c.get(SESSION).get_json()
+    assert body["restriction"] == "webauthn_enrollment"
+    c.environ_base["HTTP_X_CSRF_TOKEN"] = body["csrf_token"]
+    r = c.post(
+        "/api/v1/auth/password", json={"current_password": USER_PASSWORD, "new_password": "New-Password-77x"}
+    )
+    assert r.status_code == 204
+    assert c.get(SESSION).get_json()["restriction"] == "webauthn_enrollment"
+    assert c.get("/api/v1/dns/zones").status_code == 403
+
+
+def test_local_session_of_a_deleted_user_ends_at_the_next_request(one, two):
+    a = one.login()
+    assert resumes(two, a.cookie) == 200
+    vera = next(u for u in two.ctx.cluster().users if u.username == "vera")
+    two.ctx.config_store.update_cluster(
+        lambda c: c.users.remove(next(u for u in c.users if u.id == vera.id)), "t"
+    )
+    assert resumes(two, a.cookie) == 401

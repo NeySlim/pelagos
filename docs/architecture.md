@@ -3049,8 +3049,11 @@ Resolution of a request cookie (`security.session_from_cookie`, used by
 2. A local session with that `sid`: the mac is checked with the session's own
    keys, `user_id` must match and `issued` must not be older than the
    session's `issued_at` (a copy from before `POST /auth/password` re-issued
-   it is refused). A live local session is authoritative for
-   user, permissions and restriction; its idle timer takes
+   it is refused). The user must still exist and be enabled (else the
+   session is dropped). A live local session is authoritative for user and
+   permissions; a restriction it carries is evaluated again from the user's
+   current state with the rule of step 3 (an enrollment done on another node
+   lifts it on a resumed copy); its idle timer takes
    `max(last_seen, seen)`. A local session dead by idle time or TTL is
    dropped and the cookie goes on to step 3 (the user may have been active
    on another node meanwhile). A key replaced since by a merge does not end
@@ -3065,11 +3068,13 @@ Resolution of a request cookie (`security.session_from_cookie`, used by
    a local session is created under the same `sid`:
    - permissions resolved now from the user's current roles (never from the
      cookie);
-   - restriction: `password_change` when `user.must_change_password`; else
-     `totp_enrollment` kept while the cookie carries it, `user.totp_secret`
-     is empty and `auth.require_totp` is true; `webauthn_enrollment` kept
-     while the cookie carries it, `user.webauthn` is empty and
-     `twofa.key_required(user, settings)` is true; else none. A cookie
+   - restriction: `totp_enrollment` kept while the cookie carries it,
+     `user.totp_secret` is empty and `auth.require_totp` is true;
+     `webauthn_enrollment` kept while the cookie carries it, `user.webauthn`
+     is empty and `twofa.key_required(user, settings)` is true (a pending
+     enrollment comes first, as at login, so a password change never lifts
+     it); else `twofa.after_enrollment(user)` (`password_change` when
+     `user.must_change_password`, else none). A cookie
      without a restriction gets none (the session was opened by a full
      login; a policy tightened since applies at the next login);
    - `issued_at` kept from the cookie; `last_login` and `cluster.toml` not
@@ -3096,7 +3101,7 @@ Revocation across nodes. Nodes learn revocations from the replicated audit
 log, so no new protocol and no 0.3.x change (the entry shapes below are those
 0.3.5 writes). `Revocations.refresh` runs from `session_from_cookie` and
 from the WebSocket `alive()` check (`security.session_alive`, once a second
-per socket), so an open socket closes within about a second of a merged
+per socket whether its queue is idle or busy), so an open socket closes within about a second of a merged
 revocation without any HTTP request. It costs one `stat` of the audit file
 when the file did not grow; otherwise it reads only the new tail. A local
 revocation therefore applies to the next request, with no delay. At process start it reads the entries
@@ -3142,7 +3147,11 @@ Invariants:
 - The table lists every place that calls `SessionStore.revoke_user`; a test
   inspects the source of each function of `pelagos/` calling it and checks
   that the audit action it writes is in `REVOCATION_RULES`.
-- Entries are kept `auth.session_ttl_seconds` after their `ts`. At most
+- Entries are kept for the longest `auth.session_ttl_seconds` this process
+  has seen after their `ts` (a raised TTL never brings a logged-out cookie
+  back). An entry of an unexpected shape is skipped with a warning; a
+  refresh that fails is logged and refuses every resumption until one
+  succeeds (local sessions go on, never a `500`). At most
   100000 handles (16 bytes each): at the cap, `refused` answers true for
   every resumption (local sessions go on) and one warning is logged, until
   entries age out. Fail closed, never drop the oldest.

@@ -140,23 +140,28 @@ def ensure_session_secret(c: NodeContext | None = None) -> None:
 
 
 def follow_revocations(c: NodeContext | None = None) -> None:
-    """Apply the revocations the audit log gained (at most once a second)."""
+    """Apply the revocations the audit log gained (one stat when it did not grow). A failure never
+    answers 500: it is logged and every resumption is refused until a refresh succeeds."""
     c = c or ctx()
+    rev = c.sessions.revocations
     try:
-        c.sessions.revocations.refresh(c.audit_log, c.cluster(), c.sessions)
-    except OSError:
-        log.exception("reading session revocations from the audit log failed")
+        rev.refresh(c.audit_log, c.cluster(), c.sessions)
+    except Exception:
+        if not rev.failed:
+            log.exception("reading session revocations from the audit log failed; resumption refused")
+        rev.failed = True
+    else:
+        rev.failed = False
 
 
 def resume_restriction(user, claimed: str | None, settings) -> str | None:  # type: ignore[no-untyped-def]
     """The restriction of a resumed session: what the user's current state still requires of the cookie's."""
-    if user.must_change_password:
-        return twofa.PASSWORD_CHANGE
+    # A pending enrollment comes first, as at login: a password change must not lift it.
     if claimed == twofa.TOTP_ENROLLMENT and not user.totp_secret and reg.get(settings, "auth.require_totp"):
         return claimed
     if claimed == twofa.WEBAUTHN_ENROLLMENT and not user.webauthn and twofa.key_required(user, settings):
         return claimed
-    return None
+    return twofa.after_enrollment(user)
 
 
 def _resume(c: NodeContext, value: str) -> Session | None:
@@ -217,7 +222,17 @@ def session_from_cookie(value: str | None, c: NodeContext | None = None) -> Sess
     if not value:
         return None
     follow_revocations(c)
-    return c.sessions.get(value) or _resume(c, value)
+    session = c.sessions.get(value)
+    if session is None:
+        return _resume(c, value)
+    user = next((u for u in c.cluster().users if u.id == session.user_id), None)
+    if user is None or not user.enabled:
+        c.sessions.revoke(session.id)
+        return None
+    if session.restriction:
+        # Lifted on another node (a resumed copy): the current state decides, never looser than it.
+        session.restriction = resume_restriction(user, session.restriction, c.settings())
+    return session
 
 
 def session_alive(sid: str, c: NodeContext) -> bool:

@@ -355,7 +355,7 @@ class RevocationRule:
         if entry.action != self.action:
             return False
         result = getattr(entry.result, "value", entry.result)
-        request = entry.request or {}
+        request = entry.request if isinstance(entry.request, dict) else {}
         if self.action == "auth.logout":
             return isinstance(request.get("session"), str)
         if self.action == "auth.op":
@@ -388,13 +388,17 @@ class Revocations:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self.handles: dict[bytes, float] = {}  # handle -> expiry (epoch seconds)
-        self.users: dict[str, tuple[float, float]] = {}  # username -> (latest entry ts, expiry)
+        self.handles: dict[bytes, float] = {}  # handle -> entry ts (epoch seconds)
+        self.users: dict[str, float] = {}  # username -> latest entry ts
         self._offset: int | None = None
         self._inode: int | None = None
         self._last = 0.0
         self._warned = False
         self.ttl = 43200.0
+        # Entries live for the longest TTL this process has seen: a raised TTL never revives a cookie.
+        self.max_ttl = 0.0
+        # A refresh that failed refuses every resumption until one succeeds (fail closed).
+        self.failed = False
 
     @property
     def capped(self) -> bool:
@@ -409,6 +413,7 @@ class Revocations:
         with self._lock:
             now = now or utcnow()
             self.ttl = sessions.ttl.total_seconds()
+            self.max_ttl = max(self.max_ttl, self.ttl)
             try:
                 st = audit_log.path.stat()
             except FileNotFoundError:
@@ -422,7 +427,10 @@ class Revocations:
                     return
                 entries, self._offset, self._inode = audit_log.scan(self._offset, self._inode, SCAN_NEEDLE)
             for entry in entries:
-                self._apply(entry, cluster, sessions)
+                try:
+                    self._apply(entry, cluster, sessions)
+                except (AttributeError, KeyError, TypeError, ValueError):
+                    log.warning("session revocations: audit entry %s skipped (unexpected shape)", entry.id)
             self._expire(now.timestamp())
             if self.capped and not self._warned:
                 self._warned = True
@@ -442,7 +450,7 @@ class Revocations:
     def _recent(self, audit_log: Any, now: datetime) -> Iterable[Any]:
         """The rebuild, in one place: query(since) through the (ts, id) index; it becomes
         AuditLog.tail(since) once the log rotates into sealed segments (B1-AUDIT)."""
-        since = now - timedelta(seconds=self.ttl)
+        since = now - timedelta(seconds=self.max_ttl or self.ttl)
         for prefix in _WATCHED:
             page = 1
             while True:
@@ -457,7 +465,6 @@ class Revocations:
         if rule is None:
             return
         ts = entry.ts.timestamp()
-        expiry = ts + self.ttl
         if rule.kind == "handle":
             try:
                 handle = bytes.fromhex(entry.request["session"])
@@ -465,7 +472,7 @@ class Revocations:
                 return
             if len(handle) != 16:
                 return
-            self.handles[handle] = max(expiry, self.handles.get(handle, 0.0))
+            self.handles[handle] = max(ts, self.handles.get(handle, 0.0))
             sessions.revoke_handle(handle)
             return
         if rule.kind == "role":
@@ -474,21 +481,21 @@ class Revocations:
         else:
             names = [entry.target.removeprefix("user:")]
         for name in names:
-            latest, _ = self.users.get(name, (0.0, 0.0))
-            if ts > latest:
-                self.users[name] = (ts, expiry)
+            if ts > self.users.get(name, 0.0):
+                self.users[name] = ts
             # By name: a deleted user is already gone from cluster.toml when its entry arrives.
             sessions.revoke_username(name, before=entry.ts)
 
     def _expire(self, now: float) -> None:
-        self.handles = {h: e for h, e in self.handles.items() if e > now}
-        self.users = {n: v for n, v in self.users.items() if v[1] > now}
+        keep = self.max_ttl or self.ttl
+        self.handles = {h: ts for h, ts in self.handles.items() if ts + keep > now}
+        self.users = {n: ts for n, ts in self.users.items() if ts + keep > now}
 
     def refused(self, claims: CookieClaims, user: Any) -> bool:
         with self._lock:
-            if self.capped:
+            if self.capped or self.failed:
                 return True
             if session_handle(claims.sid) in self.handles:
                 return True
             bound = self.users.get(user.username)
-            return bound is not None and claims.issued_ms < bound[0] * 1000
+            return bound is not None and claims.issued_ms < bound * 1000

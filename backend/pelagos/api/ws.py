@@ -16,6 +16,7 @@ import logging
 import queue
 import struct
 import threading
+import time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -125,12 +126,19 @@ class SocketSession:
         self.system("error", {"message": "action must be subscribe, unsubscribe or ping"})
 
     def _sender(self) -> None:
+        checked = time.monotonic()
         while not self._stop.is_set():
             try:
                 message = self.sub.queue.get(timeout=SEND_POLL_SECONDS)
             except queue.Empty:
+                message = None
+            # B1-SESSIONS: checked every second even on a busy topic, so a revoked session stops at once.
+            if message is None or time.monotonic() - checked >= SEND_POLL_SECONDS:
+                checked = time.monotonic()
                 if not self.alive():
                     self.close(CLOSE_UNAUTHENTICATED, "session expired")
+                    continue
+            if message is None:
                 continue
             try:
                 self.send(message)

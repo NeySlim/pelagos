@@ -621,9 +621,21 @@ class D2Backend(DdnsBackend):
                 f"{lost}; restore from the backup directory",
             )
 
+    def _check_stale(self, plan: Plan) -> None:
+        """The hash guard of an applied plan; a failed apply (rolled back right away) has none."""
+        private = self._private.get(plan.id)
+        if private is None or not private.applied or private.after_hash is None:
+            return
+        observed = self.config_hash()
+        if observed != private.after_hash:
+            raise PreconditionFailed(
+                Precondition(PreconditionKind.CONFIG_HASH, "d2:config", private.after_hash, self.ctx.node_id),
+                observed,
+            )
+
     def rollback(self, plan: Plan) -> NodeApplyResult:
-        """`check_rollback` first, under the engine lock; the private state is spent by the rollback."""
-        self.check_rollback(plan)
+        self._sweep()
+        self._check_stale(plan)
         adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
         if adopt is not None:
             return self._rollback_adopt(plan, adopt)

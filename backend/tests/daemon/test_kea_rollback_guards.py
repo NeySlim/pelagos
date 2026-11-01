@@ -117,7 +117,7 @@ def test_ha_pair_keeps_one_configuration_through_guarded_rollbacks(ha_pair, tmp_
     # The same hand edit on both partners: each guard refuses, nothing moves.
     for d in ha_pair:
         cfg = d.ok("config-get")
-        cfg["Dhcp4"].pop("hash", None)
+        cfg.pop("hash", None)
         cfg["Dhcp4"]["valid-lifetime"] = 4321
         d.ok("config-set", cfg)
     edited = [d.ok("config-get") for d in ha_pair]
@@ -130,7 +130,7 @@ def test_ha_pair_keeps_one_configuration_through_guarded_rollbacks(ha_pair, tmp_
     # Hand edit undone: both guards hold, both roll back, the pair agrees again.
     for d in ha_pair:
         cfg = d.ok("config-get")
-        cfg["Dhcp4"].pop("hash", None)
+        cfg.pop("hash", None)
         cfg["Dhcp4"]["valid-lifetime"] = 3600
         d.ok("config-set", cfg)
     for b, p in zip(backends, plans, strict=True):

@@ -677,9 +677,9 @@ def test_d2_running_clear_secret_stays_out_of_plans(tmp_root):
     d2._private.clear()
     with pytest.raises(PreconditionFailed, match="no longer held"):
         d2.check_rollback(plan)
-    with pytest.raises(PreconditionFailed, match="no longer held"):
-        d2.rollback(plan)
     assert fake.cfg == applied
+    result = d2.rollback(plan)
+    assert not result.ok and "backup" in result.message and fake.cfg == applied
 
 
 def test_d2_rollback_refused_after_a_later_change(tmp_root):

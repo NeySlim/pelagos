@@ -1165,10 +1165,11 @@ two possible refusals when the state moved since the apply:
   It runs under `PlanService`'s lock, which every apply and rollback of the process takes: a
   guard reads a hash or a few files and returns, it never waits on an engine operation.
   `RolloutWriter` (scope `update`), `BindBackend`, `KeaBackend`, `D2Backend` and the test fakes
-  implement it; each connector's `rollback` calls its own `check_rollback` first, under the
-  engine lock, so a peer (which stores nothing and is not asked before) refuses the same way.
+  implement it. Peers are not asked before: their part is guarded inside their `rollback`.
 - Inside the connector's `rollback` (a peer's part, or a connector without the hook): `200
-  ApplyResult` with state `failed`, the plan `FAILED` and terminal.
+  ApplyResult` with state `failed`, the plan `FAILED` and terminal. There the hash, digest and
+  backup guards hold, but a missing Kea or D2 record does not refuse: the rollback that follows
+  a failed apply (a node whose outcome was unknown) must still run on a node that never recorded.
 
 Guards per scope today:
 

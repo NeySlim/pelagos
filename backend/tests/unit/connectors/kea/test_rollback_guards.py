@@ -77,8 +77,6 @@ def test_kea_record_survives_a_restart_and_its_loss_refuses(tmp_root):
     fake.sent.clear()
     with pytest.raises(PreconditionFailed, match="rollback guard lost"):
         restarted.check_rollback(plan)
-    with pytest.raises(PreconditionFailed, match="rollback guard lost"):
-        restarted.rollback(plan)
     assert writes(fake) == []
 
 

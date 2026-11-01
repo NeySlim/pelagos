@@ -15,8 +15,8 @@ What changed (file, symbol). Why. Which packages must react, and how.
 
 ## 2026-11-01, W1-ROLLBACK-GUARDS (WP-BIND, WP-KEA, WP-COLLECTOR): connector rollback guards
 Additive. `BindBackend`, `KeaBackend` and `D2Backend` implement `check_rollback(plan)` (section 6):
-reads only (a backup set and a few digests, one `config-hash-get`), raises `PreconditionFailed`;
-each connector's `rollback` calls it first. Kea refuses a `dhcp.*` rollback without its record
+reads only (a backup set and a few digests, one `config-hash-get`), raises `PreconditionFailed`.
+Kea refuses a `dhcp.*` rollback without its record
 ("rollback guard lost") and keeps records 7 days (`APPLIED_KEPT_SECONDS`) instead of the newest
 256. D2 keeps a plan's private state for `plans.rollback_window_seconds` after the apply (memory
 only). The collector's backup purge keeps at least `ceil(window / 86400)` days. No API shape change:

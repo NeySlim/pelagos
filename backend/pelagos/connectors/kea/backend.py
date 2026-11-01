@@ -1004,9 +1004,16 @@ class KeaBackend(DhcpBackend):
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         """Apply the inverse changes through the same path; a config replace restores the exact JSON.
-        `check_rollback` runs first, under the engine lock."""
-        self.check_rollback(plan)
+        The hash guard holds whenever a record exists; without one (an apply whose outcome was
+        unknown may have failed before recording) only `check_rollback` refuses."""
         recorded = self._recorded(plan.id)
+        if recorded is not None and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+            observed = self.config_hash()
+            if observed != recorded[0]:
+                guard = Precondition(
+                    PreconditionKind.CONFIG_HASH, f"{self.engine_name}:config", recorded[0], self.ctx.node_id
+                )
+                raise PreconditionFailed(guard, observed)
         if plan.scope is PlanScope.DHCP_LEASE and any(c.target.startswith("resend/") for c in plan.changes):
             # A resent DNS update is not undone (D2 settles names by DHCID); there is nothing to revert.
             return NodeApplyResult(

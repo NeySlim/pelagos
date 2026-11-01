@@ -128,4 +128,15 @@ describe('useSearchShortcut', () => {
     fireEvent.keyDown(window, { key: 'k' })
     expect(onOpen).toHaveBeenCalledTimes(2)
   })
+
+  it('uses Cmd+K only on a Mac', () => {
+    const spy = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel')
+    const onOpen = vi.fn()
+    render(<Probe onOpen={onOpen} />)
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(onOpen).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
 })

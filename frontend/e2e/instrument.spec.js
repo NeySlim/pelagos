@@ -47,11 +47,13 @@ test('the nav cursor glides to the active entry and the tab ink follows the tab'
   await signIn(page)
   const cursor = page.getByTestId('nav-cursor')
   await expect(cursor).toHaveClass(/is-placed/)
+  // The first measure can be mid-transition (not a 2D matrix yet): wait for a finite value.
+  await expect.poll(async () => Number.isFinite(translateY(await style(cursor, 'transform')))).toBe(true)
   const onDashboard = translateY(await style(cursor, 'transform'))
   expect(await style(cursor, 'transitionTimingFunction')).toContain('linear(')
   await page.locator('[data-nav="dns-zones"]').click()
   await expect(page.getByTestId('zones-table')).toBeVisible()
-  await expect.poll(async () => translateY(await style(cursor, 'transform'))).toBeGreaterThan(onDashboard + 20)
+  await expect.poll(async () => translateY(await style(cursor, 'transform')) > onDashboard + 20).toBe(true)
   // The nav list scrolls (the click scrolls the entry into view), so compare both boxes on
   // screen at each poll instead of reading the entry once and assuming an unscrolled list.
   const zones = page.locator('[data-nav="dns-zones"]')

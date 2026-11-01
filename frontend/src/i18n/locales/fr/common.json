@@ -110,8 +110,7 @@
     "label": "Langue"
   },
   "nav": {
-    "collapse": "Replier la barre latérale",
-    "expand": "Déplier la barre latérale",
+    "sidebar": "Barre latérale",
     "account": "Compte",
     "dashboard": "Tableau de bord",
     "main": "Navigation principale",

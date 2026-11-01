@@ -17,6 +17,7 @@ import { NavCursor } from './motion/Cursors'
 import { languages } from '../i18n'
 import { persistPreference } from '../stores/preferencesStore'
 import { navGroups, allNavItems } from '../pages/routes'
+import { searchShortcutLabel, isMac } from '../hooks/useGlobalSearch'
 
 const EXPANDED_KEY = 'pelagos-nav-expanded'
 const COLLAPSED_KEY = 'pelagos-nav-collapsed'
@@ -174,6 +175,7 @@ export function Sidebar({ activeId, onSearch }) {
     <aside
       className="ui-sidebar w-[200px] h-full border-r border-border bg-bg-secondary flex flex-col py-2.5 overflow-hidden"
       style={collapsed ? { width: COLLAPSED_WIDTH } : undefined}
+      id="app-sidebar"
       data-testid="sidebar"
       data-collapsed={collapsed ? 'true' : 'false'}
     >
@@ -194,13 +196,13 @@ export function Sidebar({ activeId, onSearch }) {
             onClick={onSearch}
             title={collapsed ? t('search.title') : undefined}
             aria-label={t('search.title')}
-            aria-keyshortcuts="Control+K /"
+            aria-keyshortcuts={isMac() ? 'Meta+K /' : 'Control+K /'}
             className={cn('ui-search-trigger w-full flex items-center gap-2 rounded-md border border-border-op50 bg-bg-primary text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary text-xs py-1.5', collapsed ? 'justify-center px-0' : 'px-2')}
             data-testid="global-search-open"
           >
             <MagnifyingGlass size={14} className="shrink-0" aria-hidden="true" />
             {!collapsed && <span className="flex-1 text-left truncate">{t('search.open')}</span>}
-            {!collapsed && <kbd className="font-mono text-3xs px-1 rounded border border-border-op50" aria-hidden="true">Ctrl K</kbd>}
+            {!collapsed && <kbd className="font-mono text-3xs px-1 rounded border border-border-op50" aria-hidden="true">{searchShortcutLabel()}</kbd>}
           </button>
         </div>
       )}
@@ -237,8 +239,9 @@ export function Sidebar({ activeId, onSearch }) {
           type="button"
           onClick={toggleCollapsed}
           aria-expanded={!collapsed}
-          aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
-          title={collapsed ? t('nav.expand') : t('nav.collapse')}
+          aria-controls="app-sidebar"
+          aria-label={t('nav.sidebar')}
+          title={t('nav.sidebar')}
           className="p-1.5 rounded-md text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary"
           data-testid="nav-collapse"
         >
@@ -250,7 +253,7 @@ export function Sidebar({ activeId, onSearch }) {
         <div className="ui-sidebar-rule h-px bg-border mx-1 mb-1.5" />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <button type="button" className={cn('ui-user-button w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-bg-tertiary transition-colors', collapsed && 'justify-center !px-0')} aria-label={user?.username || t('nav.account')} data-testid="user-menu">
+            <button type="button" className={cn('ui-user-button w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-bg-tertiary transition-colors', collapsed && 'justify-center !px-0')} aria-label={collapsed ? user?.username || t('nav.account') : undefined} data-testid="user-menu">
               <div className="relative shrink-0">
                 <div className="ui-avatar w-7 h-7 rounded-full bg-accent-primary-op15 border border-accent-primary-op20 flex items-center justify-center">
                   <UserCircle size={16} weight="bold" className="text-accent-primary" />

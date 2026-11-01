@@ -220,6 +220,23 @@ export default function ZonesPage() {
     { icon: ArrowsClockwise, label: t('zones.stats.divergent'), value: counts.divergent, variant: counts.divergent ? 'warning' : 'success' },
   ]
 
+  const resyncButton = (row) =>
+    canOps && !CONFIG_KINDS.includes(row.zone.kind) ? (
+      <Button
+        variant={row.divergent ? 'warning-soft' : 'secondary'}
+        size="xs"
+        loading={resyncing === `${row.zone.view}/${row.zone.name}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          resync(row)
+        }}
+        data-testid="zone-resync"
+      >
+        <ArrowsClockwise size={12} />
+        {t('zones.resync')}
+      </Button>
+    ) : null
+
   const columns = [
     {
       key: 'zone.name',
@@ -249,21 +266,7 @@ export default function ZonesPage() {
       label: '',
       align: 'right',
       render: (row) =>
-        canOps && !CONFIG_KINDS.includes(row.zone.kind) ? (
-          <Button
-            variant={row.divergent ? 'warning-soft' : 'secondary'}
-            size="xs"
-            loading={resyncing === `${row.zone.view}/${row.zone.name}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              resync(row)
-            }}
-            data-testid="zone-resync"
-          >
-            <ArrowsClockwise size={12} />
-            {t('zones.resync')}
-          </Button>
-        ) : null,
+        resyncButton(row),
     },
   ]
 
@@ -323,21 +326,7 @@ export default function ZonesPage() {
             subtitle: (row) => t(`kind.${row.zone.kind}`, { defaultValue: row.zone.kind }),
             status: (row) => <StatusBadge status={row.divergent ? 'divergent' : 'in-sync'} />,
             fields: ['zone.view', 'mode', 'serials'],
-            primaryAction: (row) => (canOps && !CONFIG_KINDS.includes(row.zone.kind) ? (
-              <Button
-                variant={row.divergent ? 'warning-soft' : 'secondary'}
-                size="xs"
-                loading={resyncing === `${row.zone.view}/${row.zone.name}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  resync(row)
-                }}
-                data-testid="zone-resync"
-              >
-                <ArrowsClockwise size={12} />
-                {t('zones.resync')}
-              </Button>
-            ) : null),
+            primaryAction: resyncButton,
           }}
           emptyTitle={t('zones.empty')}
           shared={{ name: 'zones-panel', to: '/' }}

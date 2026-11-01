@@ -254,7 +254,7 @@ function HistoryTab({ nodeName, reloadKey }) {
         columns={columns}
         rows={list.items}
         loading={list.loading}
-        error={list.error ? errorMessage(list.error) : null}
+        error={list.error}
         onRetry={list.refetch}
         emptyTitle={t('history.none')}
         pagination={{ page: list.page, perPage: list.perPage, total: list.total, onPageChange: list.setPage, onPerPageChange: list.setPerPage }}

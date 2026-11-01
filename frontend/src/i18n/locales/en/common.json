@@ -110,8 +110,7 @@
     "label": "Language"
   },
   "nav": {
-    "collapse": "Collapse the sidebar",
-    "expand": "Expand the sidebar",
+    "sidebar": "Sidebar",
     "account": "Account",
     "dashboard": "Dashboard",
     "main": "Main navigation",

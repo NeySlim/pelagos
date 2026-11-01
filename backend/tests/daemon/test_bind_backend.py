@@ -406,7 +406,7 @@ def _answer(port: int, name: str, rtype: str) -> list[str]:
     ).stdout
     want = dns.rdatatype.from_text(rtype)
     return sorted(
-        dns.rdata.from_text(dns.rdataclass.IN, want, line, origin=dns.name.root).to_text()
+        dns.rdata.from_text(dns.rdataclass.IN, want, line, origin=dns.name.root, relativize=False).to_text()
         for line in out.splitlines()
         if line.strip()
     )

@@ -112,7 +112,10 @@ def test_ns_removal_after_the_audit_widens_the_grant(server, tmp_root):
     job = apply_plan(build_security_plan(env, IDS, created_by="admin"), env)
     assert job.state is JobState.DONE, job.error
     conf = server.named_conf.read_text()
-    assert conf.count(f"grant ddi-admin zonesub {LEGACY} NS CAA;") == 2  # missing types appended
+    added = " ".join(
+        t for t in zone_updates.ADMIN_UPDATE_TYPES if t not in zone_updates.LEGACY_ADMIN_UPDATE_TYPES
+    )
+    assert conf.count(f"grant ddi-admin zonesub {LEGACY} {added};") == 2  # missing types appended
     assert 'grant "kea-ddns" zonesub A AAAA PTR DHCID;' in conf
     assert not set(IDS) & {f.id for f in run_audit(env)}
     server.rndc("reconfig")

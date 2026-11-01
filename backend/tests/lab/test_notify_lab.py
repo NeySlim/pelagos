@@ -26,12 +26,12 @@ from typing import Any
 
 import pytest
 
-from pelagos import __version__
 from tests.lab.labkit import (
     ADMIN_PASSWORD,
     DOCKER,
     Api,
     deb_package,
+    fixable,
     keep,
     lab_password,
     put,
@@ -228,10 +228,14 @@ class TestNotifyLab:
                 "&& sudo systemctl start pelagos pelagos-collector",
             )
 
+        # The version the installed package runs (a release deb is not this checkout's .dev0).
+        installed = ssh(A1, "/opt/pelagos/venv/bin/python -c 'import pelagos; print(pelagos.__version__)'")
+        current = installed[1].strip()
+
         def both_current() -> bool:
             nodes = api(A1).get("/nodes")["items"]
             return len(nodes) == 2 and all(
-                n["status"] == "online" and n.get("version") == __version__ for n in nodes
+                n["status"] == "online" and n.get("version") == current for n in nodes
             )
 
         wait_for("both nodes online on this version", both_current, timeout=300, interval=5)
@@ -239,6 +243,20 @@ class TestNotifyLab:
             for address in (A1, A2):
                 api(address).apply(
                     api(address).post("/install/import/plan", {"engines": ["bind", "kea4", "d2"]})
+                )
+
+            # The security plan gives Pelagos its keys on the zones (AXFR, updates); the HA TLS
+            # push to the peer can be refused at first, hence the retries.
+            def secured(address: str) -> bool:
+                todo = fixable(api(address).get("/install/security")["findings"])
+                if todo:
+                    plan = api(address).post("/install/security/plan", {"finding_ids": todo})
+                    api(address).apply(plan, timeout=900)
+                return True
+
+            for address in (A1, A2):
+                wait_for(
+                    f"security plan on {address}", lambda a=address: secured(a), timeout=300, interval=10
                 )
         # Production defaults for the timings under test; a fast collector poll.
         api(A1).call(

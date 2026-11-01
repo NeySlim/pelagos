@@ -39,21 +39,32 @@ least two sites exist; the mock gets the `PATCH` route, U1-HOSTS adds `site` to 
 Section 16 "Sessions across nodes". The `pelagos_session` cookie becomes
 `v1.<sid>.<node>.<user>.<issued>.<seen>.<restriction>.<mac>` (HMAC-SHA256 under a key derived from the
 replicated secret `[secrets] "auth/session_signing"`, `core.secrets.SESSION_SIGNING`); a node that
-does not hold the session verifies it and resumes it with permissions resolved from `cluster.toml`.
-The CSRF token is derived from the sid, the same on every node. `auth.sessions`: `CookieClaims`,
-`parse_cookie`, `sign_cookie`, `verify_cookie`, `csrf_token`, `session_handle`, `Revocations`;
-`SessionStore.create(..., key=)`, `get(cookie)`, `resume`, `revoke_handle`,
-`revoke_user(user_id, before=None)`, `cookie(session)`; `Session` gains `handle`, `issued_at`, `key`,
-`resumed_from`. `security.session_from_cookie` shared by `load_session` and the WebSocket handshake.
-Revocations ride the replicated audit log: `auth.logout` gains `request.session` (a one-way handle),
-new action `auth.resume` (verb `resume`, section 11); logout, password change and the admin user and
-role changes that revoke sessions apply on every node. Setting `auth.session_resume_enabled`
-(default true). Responses may carry a refreshed cookie; `POST /auth/password` re-signs it (still
-`204`). A 0.3.x node answers a 0.4.0 cookie `401` and keeps the secret as a plain entry.
-WP-FRONTEND: nothing to change (the CSRF token from login or `GET /auth/session` stays valid on every
-node; a `401` already leads to the login page). E3-KEYROT re-seals the secret. E2-SSO-OIDC opens its
-sessions through `_open_session`. B1-AUDIT: `Revocations` rebuilds from the entries of the last TTL
-and follows the live file with `AuditLog.scan`; a rotation must keep both working.
+does not hold the session verifies it and resumes it with permissions resolved from `cluster.toml`
+(never while `syncing` or `isolated`). The CSRF token is derived from the sid, the same on every node.
+`auth.sessions`: `CookieClaims`, `SessionKeys`, `derive_keys`, `parse_cookie`, `sign_cookie`,
+`verify_cookie`, `csrf_token`, `session_handle`, `REVOCATION_RULES`, `Revocations`;
+`SessionStore.create(..., keys=, node_id=)`, `get(cookie)`, `resume`, `revoke_handle`,
+`revoke_user(user_id, before=None)`, `cookie(session)`; `Session` gains `handle`, `issued_at`, `keys`,
+`node_id`, `seen_ms`. `security.session_from_cookie` shared by `load_session` and the WebSocket
+handshake (`api/ws.py`, whose `alive()` check also follows revocations). Revocations ride the
+replicated audit log: `auth.logout` gains `request.session` (a one-way handle), new action
+`auth.resume` (verb `resume`, section 11); logout, password change and the admin user and role
+changes that revoke sessions apply on every node. Setting `auth.session_resume_enabled` (default
+true, cluster-wide). Responses may carry a refreshed cookie; `POST /auth/password` re-signs it
+(still `204`). `Enrollment.revoke` (`core/enrollment.py`, one line in its mutation) replaces the
+secret when a node is removed. `auth/recovery.py`: only `reset-password` ends open sessions.
+`docs/user/operations.md`: supported load balancer topology. A 0.3.x node answers a 0.4.0 cookie
+`401` and keeps the secret as a plain entry.
+Dependency on the audit log (B1-AUDIT, not started): `Revocations` reads the entries of the last
+`auth.session_ttl_seconds` with `AuditLog.query(since=, action=)` at process start and follows the
+live file with `AuditLog.scan(offset, inode, needle)`; a rotation of the log must keep both working
+(the TTL window may span a sealed segment).
+WP-FRONTEND: nothing required (the CSRF token from login or `GET /auth/session` stays valid on every
+node; a `401` already leads to the login page). Optional hardening: on `403 csrf_failed`, read
+`GET /auth/session` once and replay (the token changes when the secret was replaced).
+E2-SSO-OIDC: opens its sessions through `_open_session`; with `SameSite=Strict` the cookie is not
+sent on the cross-site redirect to the callback, so the OIDC state and PKCE verifier cannot depend
+on it. E3-KEYROT: re-seals the secret and adds `pelagos secrets rotate auth/session_signing`.
 
 ## 2026-10-31, F0-PLANS: rollback window, plan list, audit by plan
 Additive. `domain.plan.Plan` gains `finished_at` and `rollback_until`, `ApplyResult` gains

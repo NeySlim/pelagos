@@ -77,10 +77,47 @@ How it behaves:
 - **Several nodes**: each node replicates with every other one, so a change
   made on any node reaches the others as long as one path is up; a node
   that was down pulls what it missed from any peer when it returns.
-- **Management**: every node serves the whole UI and API. Use any node; sign
-  in again when you switch. To enroll new nodes after losing the first
-  one, another node needs a copy of the CA key: enroll it with `"ca": true`
+- **Management**: every node serves the whole UI and API. Use any node. To
+  enroll new nodes after losing the first one, another node needs a copy of
+  the CA key: enroll it with `"ca": true`
   ([Getting started](getting-started.md#keep-the-ca-on-more-than-one-node)).
+
+### A load balancer in front of the UI
+
+A session opened on one node is accepted by every node of the cluster
+reached under the same name: the session cookie is signed with a secret
+that replicates with `cluster.toml`, and the other node checks it and
+takes the session over with the user's current roles. Restarting the web
+service or upgrading a node no longer signs anybody out. Two nodes opened
+under their own names (`https://ns1.example.lan:8443`,
+`https://ns2.example.lan:8443`) still need a login each: a browser keeps
+one cookie per name.
+
+Supported in front of the nodes:
+
+- **TLS passthrough** (TCP or SNI routing, HAProxy `mode tcp` for example):
+  the nodes terminate TLS with a certificate that carries the shared name
+  (Administration > Certificates).
+- **DNS round robin**: one name with the addresses of every node.
+
+A load balancer that terminates TLS and talks plain HTTP to the nodes is
+not supported: the cookie would lose its `Secure` flag and the login rate
+limit would see every client as the proxy's address.
+
+Signing out on one node signs out everywhere: the other nodes learn it
+from the replicated audit log within a few seconds. Changing a password,
+disabling a user, changing their roles or resetting their password ends
+their other sessions on every node the same way. A node cut off from the
+others accepts a signed-out session until it catches up, at most for the
+idle timeout (`auth.session_idle_seconds`) when that session is not used.
+Removing a node signs everyone out of the other nodes once (the signing
+secret is replaced, so the removed node cannot open sessions any more).
+`auth.session_resume_enabled` (Administration > Settings) set to false
+goes back to one login per node and per restart.
+
+During a rolling upgrade from 0.3.x, a node on the older release does not
+accept the new sessions and the reverse: use session affinity on the load
+balancer, or upgrade the nodes one right after the other.
 
 ## Backup and restore
 

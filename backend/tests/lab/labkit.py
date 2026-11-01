@@ -211,7 +211,12 @@ def frontend_dist() -> None:
 
 @functools.cache
 def deb_package() -> Path:
-    """The deb built from this checkout on lab-dev (same Debian 13 and Python as the targets)."""
+    """The deb built from this checkout on lab-dev (same Debian 13 and Python as the targets).
+
+    $PELAGOS_LAB_DEB names a release deb to test instead (the release cut lab)."""
+    given = os.environ.get("PELAGOS_LAB_DEB")
+    if given:
+        return Path(given).resolve(strict=True)
     frontend_dist()
     for old in (REPO / "build" / "deb").glob("pelagos_*.deb"):
         old.unlink()

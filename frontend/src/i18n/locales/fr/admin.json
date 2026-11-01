@@ -153,7 +153,8 @@
       "kea4": "Kea DHCPv4",
       "kea6": "Kea DHCPv6",
       "d2": "DHCP-DDNS"
-    }
+    },
+    "kea6Needs": "Activez d'abord DHCPv6 pour la grappe : le moteur Kea DHCPv6 ne tourne qu'avec le module."
   },
   "settings": {
     "saved": "Paramètres enregistrés",

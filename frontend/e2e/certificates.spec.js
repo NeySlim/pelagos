@@ -79,3 +79,16 @@ test('makes a key and request on the node', async ({ page }) => {
   await page.getByTestId('cert-make-request').click()
   await expect(page.getByTestId('cert-pending-request')).toContainText('BEGIN CERTIFICATE REQUEST')
 })
+
+test('a cluster of three nodes lists every certificate without an error', async ({ page }) => {
+  await signIn(page)
+  await page.request.post('/api/v1/_mock/scenario', { data: { name: 'three' } })
+  try {
+    await page.goto('/admin/certificates')
+    await expect(page.getByTestId('cert-node')).toHaveCount(3)
+    await expect(page.getByText('Cannot read properties')).toHaveCount(0)
+    await expect(page.getByTestId('error-notice')).toHaveCount(0)
+  } finally {
+    await page.request.post('/api/v1/_mock/scenario', { data: { name: 'pair' } })
+  }
+})

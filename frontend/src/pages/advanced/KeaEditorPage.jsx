@@ -84,6 +84,7 @@ function KeyEditor({ path, value, schemaKey, readOnly, canDelete, onSave, onDele
       ) : (
         <Input label={t('kea.value')} value={text} onChange={(e) => setText(e.target.value)} disabled={readOnly} error={error} data-testid="kea-scalar-input" className="font-mono" />
       )}
+      {path.length === 0 && <p className="text-xs text-text-tertiary" data-testid="kea-root-hint">{t('kea.rootHint')}</p>}
       {!readOnly && (
         <div className="flex gap-2">
           <Button size="sm" onClick={save} disabled={text === initial} data-testid="kea-save">

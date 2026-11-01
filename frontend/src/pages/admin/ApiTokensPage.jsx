@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowsClockwise, Code, Trash } from '@phosphor-icons/react'
-import { Badge, Button, ConfirmDialog, DataTable, PageLayout } from '../../components'
+import { Badge, Button, ConfirmDialog, DataTable, ErrorNotice, PageLayout } from '../../components'
 import { useApi } from '../../hooks'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
@@ -80,12 +80,22 @@ export default function ApiTokensPage() {
       }
     >
       {unavailable.length > 0 && <p className="text-xs status-warning-text mb-2" role="status">{t('tokens.unavailable', { nodes: unavailable.join(', ') })}</p>}
+      {tokensQ.error && <ErrorNotice error={tokensQ.error} onRetry={tokensQ.refetch} className="mb-2" />}
       <DataTable
         columns={columns}
         rows={tokensQ.data?.items || []}
         loading={tokensQ.loading}
-        error={tokensQ.error}
-        onRetry={tokensQ.refetch}
+        mobileCard={{
+          title: (r) => r.name,
+          subtitle: (r) => r.username,
+          status: (r) => (r.expired ? <Badge size="sm" variant="danger">{t('tokens.expired')}</Badge> : null),
+          fields: ['permissions', 'expires_at', 'last_used_at'],
+          primaryAction: (r) => (
+            <Button size="xs" variant="ghost" title={t('tokens.revoke')} onClick={() => setRevoking(r)} data-testid="admin-token-revoke">
+              <Trash size={14} className="status-danger-text" />
+            </Button>
+          ),
+        }}
         clientSort
         emptyTitle={t('tokens.empty')}
         testId="admin-tokens-table"

@@ -106,7 +106,7 @@ test('an administrator creates a user', async ({ page }) => {
 
 test('a user enrolls TOTP with the QR code, then turns it off', async ({ page }) => {
   await signIn(page, 'alice', 'alice')
-  await page.goto('/account')
+  await page.goto('/account#securite')
   await page.getByTestId('totp-enroll').click()
   await expect(page.getByTestId('totp-qr')).toBeVisible()
   await expect(page.getByTestId('totp-secret')).not.toBeEmpty()
@@ -116,4 +116,33 @@ test('a user enrolls TOTP with the QR code, then turns it off', async ({ page })
   await page.getByTestId('totp-password').fill('alice')
   await page.getByTestId('totp-disable').click()
   await expect(page.getByTestId('totp-enroll')).toBeVisible()
+})
+
+test('a user without a second factor sees why before any token form', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/account#jetons')
+  const section = page.getByTestId('account-tokens')
+  await expect(section.getByTestId('token-no-factor')).toContainText('second factor')
+  await expect(section.getByTestId('token-add')).toHaveCount(0)
+  await section.getByTestId('token-go-security').click()
+  await expect(page.getByTestId('account-totp')).toBeVisible()
+  await expect(page.getByTestId('account-tokens')).toHaveCount(0)
+})
+
+test('the account page is split in tabs and lists the other nodes', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/account')
+  await expect(page.getByTestId('account-profile')).toBeVisible()
+  await expect(page.getByTestId('profile-other-nodes')).toContainText('ns2')
+  await expect(page.getByTestId('account-password')).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Preferences' }).click()
+  await expect(page.getByTestId('account-preferences')).toBeVisible()
+})
+
+test('the Kea editor says why the root cannot be edited', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/advanced/kea')
+  await expect(page.getByTestId('kea-key-editor')).toBeVisible()
+  await page.getByTestId('kea-tree').getByTestId('json-node').first().locator('> div').first().click()
+  await expect(page.getByTestId('kea-root-hint')).toContainText('root cannot be edited in bulk')
 })

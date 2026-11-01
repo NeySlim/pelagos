@@ -81,7 +81,8 @@
       "missingRoot": "l'objet de premier niveau manque",
       "type": "vaut {{actual}}, le schéma attend {{expected}}",
       "minimum": "vaut {{actual}}, le minimum est {{expected}}"
-    }
+    },
+    "rootHint": "Choisissez une clé : la racine ne se modifie pas en bloc."
   },
   "pending": {
     "title": "Modifications en attente",

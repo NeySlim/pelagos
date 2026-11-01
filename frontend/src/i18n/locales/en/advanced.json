@@ -81,7 +81,8 @@
       "missingRoot": "the top-level object is missing",
       "type": "is {{actual}}, the schema expects {{expected}}",
       "minimum": "is {{actual}}, the minimum is {{expected}}"
-    }
+    },
+    "rootHint": "Choose a key: the root cannot be edited in bulk."
   },
   "pending": {
     "title": "Pending changes",

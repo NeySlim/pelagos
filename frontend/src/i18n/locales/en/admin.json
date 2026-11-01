@@ -153,7 +153,8 @@
       "kea4": "Kea DHCPv4",
       "kea6": "Kea DHCPv6",
       "d2": "DHCP-DDNS"
-    }
+    },
+    "kea6Needs": "Switch DHCPv6 on for the cluster first: the Kea DHCPv6 engine only runs with the module."
   },
   "settings": {
     "saved": "Settings saved",

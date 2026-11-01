@@ -726,7 +726,8 @@ comments. Pelagos keeps them in one of two ways.
   `config-set` does). If `config-test` refuses them, the write goes on
   without them and its result says so.
 
-Rolling back that first plan puts the original file back, comments in it.
+Rolling back that first plan undoes its change, not the copy: the comments
+stay in `user-context`.
 
 ### Changes made outside Pelagos
 

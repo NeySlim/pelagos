@@ -309,8 +309,10 @@ def test_config_write_carries_comments_into_user_context(kea_dhcp4, tmp_root):
     again = backend.apply(second)
     assert again.ok and "comments copied" not in again.message
     assert backend.config_get()["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+    # A rollback undoes the change, not the copy: the comments stay in user-context.
     assert backend.rollback(second).ok and backend.rollback(plan).ok
-    assert "// office LAN" in main.read_text()
+    assert backend.config_get()["subnet4"][0]["user-context"]["pelagos"]["comment"] == "office LAN"
+    assert reads_as_running(backend) == []
 
 
 def test_ha_pair_copies_the_same_comments_and_never_config_writes_a_tree(tmp_root):

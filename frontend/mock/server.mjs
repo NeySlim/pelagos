@@ -45,7 +45,7 @@ const LOGIN_WINDOW_MS = 60_000
 // Permission of each endpoint (section 17); undefined means any authenticated user.
 const PERMISSIONS = {
   'GET /nodes': 'read:nodes', 'GET /nodes/self': 'read:nodes', 'GET /nodes/{id}': 'read:nodes',
-  'POST /nodes/enroll-token': 'admin:nodes', 'DELETE /nodes/{id}': 'admin:nodes', 'POST /nodes/{id}/sync': 'admin:nodes',
+  'POST /nodes/enroll-token': 'admin:nodes', 'PATCH /nodes/{id}': 'admin:nodes', 'DELETE /nodes/{id}': 'admin:nodes', 'POST /nodes/{id}/sync': 'admin:nodes',
   'GET /nodes/replication': 'read:nodes',
   'GET /dns/instances': 'read:dns', 'GET /dns/zones': 'read:dns', 'GET /dns/zones/{zone}': 'read:dns',
   'POST /dns/zones/plan': 'write:dns.zones', 'GET /dns/zones/{zone}/records': 'read:dns',
@@ -1438,6 +1438,15 @@ function buildHandlers(state, emit) {
         expires_at: expires,
         command: `sudo pelagos enroll --url https://ns1.example.lan:8444 --token ${token} --ca-fingerprint sha256:4f2a9c... --name <name> --web-url https://<name>.example.lan:8443 --replication-url https://<name>.example.lan:8444`,
       }
+    },
+    'PATCH /nodes/{id}': ({ params, body }) => {
+      const node = state.nodes.find((n) => n.peer.id === params.id)
+      if (!node) throw notFound(`node ${params.id}`)
+      const site = body.site == null ? '' : body.site
+      if (typeof site !== 'string' || site.trim().length > 64 || [...site].some((c) => c.charCodeAt(0) < 32 || c === '\x7f')) throw invalid('site', '1 to 64 characters without control characters')
+      if (site.trim()) node.peer.site = site.trim()
+      else delete node.peer.site
+      return node
     },
     'DELETE /nodes/{id}': ({ params, user }) => {
       const idx = state.nodes.findIndex((n) => n.peer.id === params.id)

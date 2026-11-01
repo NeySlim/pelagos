@@ -598,9 +598,10 @@ def quiet_store(node: Live) -> ConfigStore:
 
 
 def converged(cluster: Cluster) -> bool:
-    texts = {n.ctx.paths.cluster_toml.read_text() for n in cluster.nodes}
+    # Same entries (digest), not same bytes: a table's key order may differ between nodes.
+    digests = {n.ctx.config_store.digest() for n in cluster.nodes}
     counts = {n.ctx.audit_log.head()[0] for n in cluster.nodes}
-    return len(texts) == 1 and len(counts) == 1
+    return len(digests) == 1 and len(counts) == 1
 
 
 def settle(cluster: Cluster) -> None:

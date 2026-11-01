@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, B1-KEACOMMENTS (WP-KEA, WP-INSTALLER): Kea comments kept
+Additive (section 9). Import plan change `import/<engine>/include-tree`, on by default for a Kea
+file with comments and no include (`kea_include_tree` in `POST /install/import/plan`, CLI
+`--[no-]kea-include-tree`, helper `plan_import` field of the same name): the file becomes one
+file per section under `<conf dir>/<engine>.d/`. Without the tree, `KeaConfigFile.persist` copies
+comments into `user-context.pelagos.comment` before `config-write` (one extra `config-set` on the
+command path). New primitives `KeaDocument.comments`, `comment_notes`, `include_tree`,
+`keafile.copy_comments`, `keep_comments`, `mask_comment`, `NOTED_LISTS`; copies survive rollbacks and replaces, secrets masked. `GET /dhcp/{family}/config/file` items gain `comments`.
+WP-FRONTEND: banner line with `dhcp:keaFile.comments` (U1-DHCP-A), import checkbox (U1-ADMIN).
+
 ## 2026-11-01, B1-AUDIT (WP-CORE, WP-COLLECTOR, WP-API-AUTH): sealed audit segments, token reads not audited
 Section 11 "Sealed segments": once a year the live `audit.jsonl` (name and format unchanged) gets a
 second name `audit-<year>.jsonl` by hard link (`-<n>` for a further one in a year, ordered

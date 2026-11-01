@@ -1716,6 +1716,32 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   running configuration or the files are restored. Every installer rewrite
   of a Kea file (control socket added, D2 clear secrets moved to secret
   files, the shared key switch) goes through the same editor.
+- Comments (B1-KEACOMMENTS). The import plan may hold
+  `import/<engine>/include-tree` (op `replace`, `after`: `conf`, `dir`,
+  `files`, `comments`), proposed when the file has no include and holds
+  comments (`kea_include_tree` in `POST /install/import/plan`: `true` always,
+  `false` never, absent or `null` that default; CLI `--[no-]kea-include-tree`).
+  It runs after the socket step: `KeaDocument.include_tree(root, dir)` moves
+  every object or list member of the root body to `<conf dir>/<engine>.d/<key>.json`
+  (the comments before a member, and after it on its line, go with it), the
+  top file keeps the scalar members and one directive per moved member, the
+  tree must read back as the file; written by the Kea pipeline (`-t`, then
+  `config-reload`), folder `0750` in the Kea group, files `0660` like any
+  included file. A new member appended later to the root body goes into the
+  top file, after the directive of a member that has a file of its own.
+  Without includes, `KeaConfigFile.persist` copies the comments before
+  `config-write` (`KeaDocument.comment_notes`, `keafile.copy_comments`): each
+  comment goes to `user-context.pelagos.comment` (lines joined by `\n`, a line
+  already present skipped, so the copy is idempotent) of the nearest object of
+  a list in `keafile.NOTED_LISTS` that still runs (matched by identity), else
+  of the root body. A config-set plan carries them in its own `config-set`
+  (`KeaConfigFile.with_comments`); otherwise `persist` runs `config-test` and
+  one `config-set` first, and goes on without them when `config-test` refuses
+  or a secret is only known masked. The reconciliation of a partial apply
+  takes the config-set path, so it carries the target's comments the same way.
+  `user-context` is outside the HA shared view: comments never make partners
+  diverge. `GET /dhcp/{family}/config/file` items gain `comments` (count of
+  comments in this node's file).
 - SELinux: where the policy confines Kea (`dhcpd_exec_t` or `kea_exec_t`
   binaries), the installer adds a CIL module letting the domain write its
   configuration type (`/var/lib/pelagos-helper/selinux/pelagos-kea-<domain>.cil`,
@@ -4188,7 +4214,7 @@ reads `key="value"` (SVCB, HTTPS) as one word.
 | `POST /dhcp/{family}/hooks/plan` | `write:dhcp.config` | `{"changes": [Change]}` (target `hooks-libraries`; each `library` is `libdhcp_<name>.so`, bare or in a Kea hooks directory) | `Plan` |
 | `GET /dhcp/{family}/config?node_id=` | `read:dhcp` | | `{"node_id","hash","config": {...}}` |
 | `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, built there when it is a peer; never fanned out) | `Plan` |
-| `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
+| `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","comments","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
 | `POST /dhcp/{family}/config/reconcile/plan` | `write:dhcp.config` | `{"source_node_id", "target_node_id"}` | `Plan` (scope `dhcp.config`, target node only, `requires_confirmation` reason `reconcile`; section 9); `400` same node or no common HA relationship, `409 conflict` different Kea major versions (`problem.detail.kea_major_mismatch`) or nothing to copy, `501 not_supported` a peer without `shared_from`, `503 engine_unavailable` |
 | `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (the node that holds the file, default this node; a peer builds the plan) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/d2/servers` | `read:dhcp` | | `{"items": [{"node_id","capabilities","status"}]}` |

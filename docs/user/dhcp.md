@@ -36,9 +36,9 @@ shows each client's.
   change computed against its own configuration, checked with
   `config-test`, applied, then persisted to its file. A file without
   `<?include?>` is written by Kea's `config-write`: the first write turns
-  it into Kea's own pretty-print with every default spelled out, and its
-  comments are lost. A file tree with includes is patched in place
-  instead, comments and layout kept.
+  it into Kea's own pretty-print with every default spelled out. A file
+  tree with includes is patched in place instead, comments and layout
+  kept. See [Comments and config-write](#comments-and-config-write).
 - With Kea 3.x and the `subnet_cmds` and `host_cmds` hooks, subnets and
   reservations change through those commands. With Kea 2.6 (reduced mode),
   the whole configuration is replaced with `config-set`.
@@ -691,6 +691,42 @@ subnets by id, pools by range, options by code and space, hook libraries by
 file name, client classes and shared networks by name. Each difference names
 its object, for example
 `/subnet4[id=1]/reservations[hw-address=aa:bb:cc:dd:ee:01]`.
+
+### Comments and config-write
+
+Kea's `config-write` rewrites a file without `<?include?>` and drops its
+comments. Pelagos keeps them in one of two ways.
+
+- **Include tree at import** (`import/kea4/include-tree`, and the same for
+  `kea6` and `d2`): the import splits the file into one file per section
+  (`interfaces-config`, `subnet4`, `option-data`, ...) under
+  `<conf dir>/<engine>.d/`, for example `/etc/kea/kea4.d/subnet4.json`.
+  The top file keeps the global values and one `<?include?>` per section;
+  each comment moves with the section it describes. The import plan shows
+  the files it creates, Kea checks and reloads the tree, and the running
+  configuration does not change. From then on Pelagos patches the files
+  and never runs `config-write` on them. The change is proposed by default
+  for a file with comments; `pelagos import --no-kea-include-tree` or
+  `"kea_include_tree": false` in `POST /install/import/plan` leaves the
+  file as it is, `true` splits a file without comments too. A file that
+  already uses includes, or a `<engine>.d` folder that is not empty, is
+  left alone.
+- **Without the tree**: before the first `config-write`, each comment is
+  copied into `user-context` of the nearest object that can hold one (a
+  subnet, shared network, pool, reservation, option, option definition or
+  class; D2 domains, servers and keys; else the global scope), under
+  `"pelagos": {"comment": "..."}`. A comment alone on its line belongs to
+  what follows it, a comment after a value to that value's object. Kea
+  then writes them in its file. A comment already copied is not copied
+  twice. The DHCP screens say how many comments the file holds while it
+  has no includes. When the plan already replaces the configuration
+  (`config-set`), the comments ride on it; when it goes through the
+  `subnet_cmds` or `host_cmds` commands, one more `config-set` carries
+  them first, which restarts the HA service of that server once (as any
+  `config-set` does). If `config-test` refuses them, the write goes on
+  without them and its result says so.
+
+Rolling back that first plan puts the original file back, comments in it.
 
 ### Changes made outside Pelagos
 

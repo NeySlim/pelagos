@@ -418,6 +418,8 @@
     "dismiss": "Masquer"
   },
   "keaFile": {
+    "comments_one": "{{path}} sur {{node}} contient {{count}} commentaire et aucune inclusion : Pelagos le copie dans user-context (\"pelagos\": {\"comment\"}) avant que Kea réécrive le fichier.",
+    "comments_other": "{{path}} sur {{node}} contient {{count}} commentaires et aucune inclusion : Pelagos les copie dans user-context (\"pelagos\": {\"comment\"}) avant que Kea réécrive le fichier.",
     "title": "{{path}} sur {{node}} diffère de la configuration en cours",
     "syntaxTitle": "Kea lit {{path}} sur {{node}} avec des avertissements de syntaxe",
     "syntaxAt": "{{path}} ligne {{line}}, colonne {{column}} : {{message}}",

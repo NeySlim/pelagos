@@ -393,7 +393,6 @@ ISC security advisories:
 | `resolver_raw_days` | `7` | 1 to 3650 days | resolver measures per collector pass, then averaged per hour |
 | `resolver_hourly_days` | `90` | 1 to 3650 days | hourly resolver measures |
 | `neighbor_observation_days` | `30` | 1 to 3650 days | IPv4 neighbors seen by each node ([Hosts](hosts.md#discovery)) |
-| `audit_sealed_years` | `0` | 0 to 100 years | sealed audit segments of a year older than this many years are deleted; 0 keeps them all |
 | `audit_sealed_years` | `0` | 0 to 100 years | a sealed audit segment whose newest entry is before 1 January of the current year minus this many years is deleted; 0 keeps them all |
 
 The audit log rotates once a year: in the first hour of a new UTC year,

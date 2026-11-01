@@ -1732,13 +1732,16 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   Without includes, `KeaConfigFile.persist` copies the comments before
   `config-write` (`KeaDocument.comment_notes`, `keafile.copy_comments`): each
   comment goes to `user-context.pelagos.comment` (lines joined by `\n`, a line
-  already present skipped, so the copy is idempotent; secrets after a
-  `password` or `secret` key masked as `"***"`, `keafile.mask_comment`) of the
-  nearest object of a list in `keafile.NOTED_LISTS` that still runs (matched
-  by identity), else of the root body. `keafile.keep_comments` puts back the
+  already present skipped, so the copy is idempotent; a value after a
+  `password`, `passwd`, `secret` or `token` key, separator optional, masked as
+  `"***"`, `keafile.mask_comment`) of the nearest object of a list in
+  `keafile.NOTED_LISTS` that still runs (matched by identity, an `id` only by
+  the same `id`), else of the root body. `keafile.keep_comments` puts back the
   copies the configuration before the change held on objects whose new value
-  lacks the key (an explicit value, even `""`, wins): a rollback, a
-  whole-configuration replace or a reconciliation never erases them. A
+  lacks the key, unless the changes' recorded `before` held that copy (the
+  user removed it; an explicit value, even `""`, wins too): a rollback or a
+  stale replace never erases a copy made after its plan was built. Adopt
+  "running" falling back to `config-write` copies the comments first too. A
   config-set plan carries both in its own `config-set`
   (`KeaConfigFile.with_comments(doc, body, before)`; when `config-test`
   refuses that body and accepts the plain one, the plain one is set);

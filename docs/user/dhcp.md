@@ -721,8 +721,9 @@ comments. Pelagos keeps them in one of two ways.
   then writes them in its file. The copy is line by line: a line the
   object's comment already holds is not added again, so copying twice
   changes nothing (two identical lines of one object are kept once). A
-  secret written in a comment (`"password": "..."`, `secret = ...`) is
-  copied as `"***"`. The DHCP screens say how many comments would be
+  secret written in a comment (after `password`, `passwd`, `secret` or
+  `token`, with or without `:` or `=`) is copied as `"***"`; paths such as
+  `secret-file` stay readable. The DHCP screens say how many comments would be
   copied while the file has no includes (rulers and blank comments are
   left out). When the plan already replaces the configuration
   (`config-set`), the comments ride on it; when it goes through the
@@ -733,9 +734,10 @@ comments. Pelagos keeps them in one of two ways.
   change still applies and its result says the comments were not copied.
 
 Once copied, a comment stays: a later replace or rollback built from an
-older configuration (rolling back that first plan, a reconciliation, a
-whole-configuration edit) keeps the `"pelagos": {"comment"}` the objects
-held. To drop one, set it to an empty string.
+older configuration that never saw the copy (rolling back that first plan,
+rolling back a reconciliation) keeps the `"pelagos": {"comment"}` the objects
+held. A comment you remove yourself (the plan showed it before the change)
+stays removed. Objects with an `id` are matched by that id only.
 
 ### Changes made outside Pelagos
 

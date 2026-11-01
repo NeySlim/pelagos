@@ -73,19 +73,20 @@ test('a lease missing on the standby is flagged', async ({ page }) => {
   await expect(page.getByTestId('lease-missing')).toContainText('ns2')
 })
 
-test('HA maintenance needs the server name and the plan confirmation', async ({ page }) => {
+test('HA maintenance needs the server name, once', async ({ page }) => {
   await page.goto('/dhcp/v4/ha')
   await page.getByTestId('ha-maintenance-start').first().click()
   await expect(page.getByTestId('confirm-button')).toBeDisabled()
   await page.getByTestId('confirm-type-input').fill('ns1')
   await page.getByTestId('confirm-button').click()
-  await expect(page.getByTestId('plan-apply')).toBeDisabled()
-  await page.getByTestId('plan-confirm-checkbox').check()
+  // The typed name is the confirmation: the plan carries no second checkbox.
+  await expect(page.getByTestId('plan-confirm-checkbox')).toHaveCount(0)
   await page.getByTestId('plan-apply').click()
   await expect(page.getByTestId('plan-result')).toBeVisible()
   await page.keyboard.press('Escape')
-  // Both cards of the pair offer the cancel, on the server in maintenance.
-  await expect(page.getByTestId('ha-maintenance-cancel')).toHaveCount(2)
+  // Only the server in maintenance offers the end of it; its partner's start says why it is off.
+  await expect(page.getByTestId('ha-maintenance-cancel')).toHaveCount(1)
+  await expect(page.getByTestId('ha-maintenance-start')).toBeDisabled()
 })
 
 test('host card and create-host plan', async ({ page }) => {

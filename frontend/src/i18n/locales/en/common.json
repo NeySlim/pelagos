@@ -411,5 +411,9 @@
     "MiB": "{{value}} MiB",
     "GiB": "{{value}} GiB",
     "TiB": "{{value}} TiB"
+  },
+  "roles": {
+    "standby": "Standby",
+    "backup": "Backup"
   }
 }

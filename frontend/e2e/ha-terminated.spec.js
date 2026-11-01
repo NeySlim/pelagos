@@ -44,6 +44,24 @@ for (const width of [1440, 400]) {
       expect(overflow).toBeLessThanOrEqual(0)
     })
 
+    test('removing the HA goes through the "..." menu and one typed confirmation', async ({ page }) => {
+      await signIn(page)
+      await page.goto('/dhcp/v4/ha')
+      await expect(page.getByTestId('ha-remove')).toHaveCount(0)
+      await page.getByTestId('ha-more').click()
+      await page.getByTestId('ha-remove').click()
+      await expect(page.getByTestId('confirm-button')).toBeDisabled()
+      await page.getByTestId('confirm-type-input').fill('ns1, ns2')
+      await page.getByTestId('confirm-button').click()
+      const preview = page.getByTestId('plan-preview')
+      await expect(preview.getByTestId('plan-summary')).toBeVisible()
+      await expect(preview.getByTestId('plan-confirm-checkbox')).toHaveCount(0)
+      await expect(preview.getByTestId('plan-apply')).toBeEnabled()
+      await page.keyboard.press('Escape')
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      expect(overflow).toBeLessThanOrEqual(0)
+    })
+
     test('the nodes page shows each clock against this node and its NTP state', async ({ page }) => {
       await scenario(page, 'terminated')
       await signIn(page)

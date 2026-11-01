@@ -8,14 +8,17 @@
 // HaSetupModal (promoting a backup is an edit of the roles).
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning, PencilSimple, ArrowFatLineUp, Trash } from '@phosphor-icons/react'
+import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning, PencilSimple, ArrowFatLineUp, Trash, DotsThree } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { DataTable } from '../../components/DataTable'
+import { Dropdown } from '../../components/Dropdown'
 import { EmptyState } from '../../components/EmptyState'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
+import { PlanPreviewModal } from '../../components/PlanPreview'
+import { ReadOnlyNote } from '../../components/ReadOnlyNote'
 import { StatusBadge } from '../../components/StatusBadge'
 import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
@@ -49,6 +52,8 @@ export default function HaPage({ family }) {
   const [setup, setSetup] = useState(null) // { draft, title }
   // Kea roles and modes (primary, standby, hot-standby, ...) read in the UI language.
   const haTerm = (value) => (value ? t(`common:status.${value}`, { defaultValue: value }) : '-')
+  // Roles read in full where `standby` and `backup` could be mistaken for each other.
+  const roleTerm = (value) => (value === 'standby' || value === 'backup' ? t(`common:roles.${value}`) : haTerm(value))
   const ha = useApi(() => api.dhcp.ha(family), [family])
   const servers = useApi(() => api.dhcp.servers(family), [family])
   const transitions = useApi(() => api.dhcp.haTransitions(family), [family])
@@ -59,6 +64,18 @@ export default function HaPage({ family }) {
     transitions.refetch()
   }
   const flow = usePlanFlow({ onApplied: refresh })
+  // A plan whose object the user already named in the dialog needs no second tick.
+  const [typedPlan, setTypedPlan] = useState(false)
+  const typedBuild = useRef(null)
+  const buildTyped = async (fn) => {
+    typedBuild.current = fn
+    setTypedPlan(true)
+    if (!(await flow.build(fn))) setTypedPlan(false)
+  }
+  const closePlan = () => {
+    flow.close()
+    setTypedPlan(false)
+  }
   // Each HA status sample newer than the last one seen is a heartbeat on the card's trace.
   const beats = useRef(new Map()) // node id and server name -> { at, n }
   const beatOf = (h) => {
@@ -105,9 +122,13 @@ export default function HaPage({ family }) {
   const runConfirmed = async () => {
     const { kind, nodeId, value } = confirm
     setConfirm(null)
-    if (kind === 'maintenance') await flow.build(() => api.dhcp.haMaintenancePlan(family, nodeId, value))
+    if (kind === 'maintenance') {
+      const build = () => api.dhcp.haMaintenancePlan(family, nodeId, value)
+      if (value === 'start') await buildTyped(build)
+      else await flow.build(build)
+    }
     else if (kind === 'repair') await flow.build(() => api.dhcp.haRepairPlan(family))
-    else if (kind === 'remove') await flow.build(() => api.dhcp.haSetupPlan(family, { remove: true }))
+    else if (kind === 'remove') await buildTyped(() => api.dhcp.haSetupPlan(family, { remove: true }))
     else await flow.build(() => api.dhcp.servicePlan(family, nodeId, value))
   }
 
@@ -150,7 +171,7 @@ export default function HaPage({ family }) {
     )
   const serverColumns = [
     { key: 'name', label: t('fields.server'), render: (r) => <span className="font-mono">{r.name}</span> },
-    { key: 'role', label: t('ha.setup.role'), render: (r) => <Badge variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">{haTerm(r.role)}</Badge> },
+    { key: 'role', label: t('ha.setup.role'), render: (r) => <Badge variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">{roleTerm(r.role)}</Badge> },
     { key: 'node', label: t('fields.node'), render: (r) => (r.node_id ? <span className="font-mono">{nameOf(r.node_id)}</span> : <span className="text-text-tertiary">{t('ha.setup.noNode')}</span>) },
     { key: 'state', label: t('ha.state'), render: (r) => (r.state ? <StatusBadge status={r.state} /> : '-') },
     {
@@ -220,15 +241,16 @@ export default function HaPage({ family }) {
     // node_id in a maintenance plan is the server that enters (or leaves) maintenance; the
     // partner card cancels on that same server.
     const inMaintenance = h.state === 'in-maintenance'
-    const maintained = h.state === 'partner-in-maintenance' ? items.find((x) => x !== h && x.state === 'in-maintenance' && x.server_name === h.partner?.server_name) || items.find((x) => x !== h && x.state === 'in-maintenance') : null
-    const cancelOn = inMaintenance ? h : maintained
-    const cancelName = cancelOn && (cancelOn.server_name || nameOf(cancelOn.node_id))
+    // The partner of a server in maintenance cannot start its own: the reason is its tooltip.
+    const partnerHeld = h.state === 'partner-in-maintenance'
+    const maintained = partnerHeld ? items.find((x) => x !== h && x.state === 'in-maintenance' && x.server_name === h.partner?.server_name) || items.find((x) => x !== h && x.state === 'in-maintenance') : null
+    const maintainedName = maintained && (maintained.server_name || nameOf(maintained.node_id))
     return (
       <Card key={cardKey(h)} className="p-0 overflow-hidden" hover={false} data-testid="ha-server" data-role={h.role || ''}>
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
           <Heartbeat size={16} className="text-accent-pro" />
           <span className="ui-card-title ui-title-literal text-sm font-semibold text-text-primary">{name}</span>
-          {h.role && <Badge variant="outline" size="sm">{haTerm(h.role)}</Badge>}
+          {h.role && <Badge variant="outline" size="sm">{roleTerm(h.role)}</Badge>}
           {h.enabled && !backup && (
             <span className="ml-auto inline-flex items-center" title={t('ha.heartbeat')}>
               <HeartbeatTrace beat={beatOf(h)} lost={partnerLost(h.partner) || h.state === 'partner-down'} testId="ha-heartbeat" />
@@ -243,7 +265,7 @@ export default function HaPage({ family }) {
             {backup ? (
               <>
                 <dt className="text-text-tertiary">{t('ha.setup.role')}</dt>
-                <dd>{haTerm('backup')}</dd>
+                <dd>{roleTerm('backup')}</dd>
                 {backupFields(srv)}
               </>
             ) : (
@@ -280,7 +302,7 @@ export default function HaPage({ family }) {
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-text-secondary">
                 {h.partner.server_name && <span className="font-mono">{h.partner.server_name}</span>}
-                <span>{t('ha.partnerRole', { role: haTerm(h.partner.role) })}</span>
+                <span>{t('ha.partnerRole', { role: roleTerm(h.partner.role) })}</span>
                 {h.partner.age !== null && h.partner.age !== undefined && <span>{t('ha.partnerAge', { seconds: h.partner.age })}</span>}
                 {typeof h.partner.clock_skew === 'number' && h.partner.clock_skew !== 0 && (
                   <span className={Math.abs(h.partner.clock_skew) >= 5 ? 'status-warning-text' : undefined} data-testid="ha-partner-skew">
@@ -309,18 +331,13 @@ export default function HaPage({ family }) {
               <Button
                 variant="warning-soft"
                 size="xs"
-                onClick={() =>
-                  setConfirm(
-                    cancelOn
-                      ? { kind: 'maintenance', nodeId: cancelOn.node_id, value: 'cancel', name: cancelName }
-                      : { kind: 'maintenance', nodeId: h.node_id, value: 'start', name },
-                  )
-                }
-                disabled={flow.building || (!cancelOn && h.state === 'partner-in-maintenance')}
-                data-testid={cancelOn ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
+                onClick={() => setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: inMaintenance ? 'cancel' : 'start', name })}
+                disabled={flow.building || partnerHeld}
+                title={partnerHeld ? t('ha.maintenanceBlocked', { server: maintainedName || h.partner?.server_name || '-' }) : undefined}
+                data-testid={inMaintenance ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
               >
                 <Wrench size={12} />
-                {cancelOn ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
+                {inMaintenance ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
               </Button>
               {userEnabled !== undefined && (
                 <Button
@@ -340,6 +357,10 @@ export default function HaPage({ family }) {
       </Card>
     )
   }
+
+  // Which actions this account lacks, said once under the summary.
+  const missingPermissions = [!canOperate && 'ops:dhcp.ha', !canConfigure && 'write:dhcp.config'].filter(Boolean)
+  const roleNote = missingPermissions.length > 0 && <ReadOnlyNote permission={missingPermissions} testId="ha-role-note" />
 
   // The health line and the rail of one relationship (or of the servers when none is configured).
   const summaryCard = (rel, members) => {
@@ -372,7 +393,7 @@ export default function HaPage({ family }) {
                 <span className={`ui-waypoint fx-tone-${haTone(h)}`} title={haTerm(h.state)}>
                   <StatusDot tone={haTone(h)} size={6} pulse={haTone(h) === 'danger'} />
                   {name}
-                  <span className="ui-waypoint-sub">{feed ? haTerm('backup') : haTerm(h.state)}</span>
+                  <span className="ui-waypoint-sub">{feed ? roleTerm('backup') : haTerm(h.state)}</span>
                 </span>
               </span>
             )
@@ -393,16 +414,19 @@ export default function HaPage({ family }) {
       actions={
         canConfigure && ha.data ? (
           <>
-            {rels.length > 0 && (
-              <Button variant="danger-soft" size="sm" onClick={removeRelationship} disabled={flow.building} data-testid="ha-remove">
-                <Trash size={14} />
-                {t('ha.setup.removeHa')}
-              </Button>
-            )}
             <Button variant="secondary" size="sm" onClick={editRelationship} disabled={flow.building} data-testid="ha-setup">
               <PencilSimple size={14} />
               {rels.length ? t(rels.length > 1 ? 'ha.setup.editMany' : 'ha.setup.edit') : t('ha.setup.start')}
             </Button>
+            {rels.length > 0 && (
+              <Dropdown
+                trigger={<DotsThree size={16} weight="bold" />}
+                size="sm"
+                disabled={flow.building}
+                triggerProps={{ 'aria-label': t('ha.moreActions'), title: t('ha.moreActions'), 'data-testid': 'ha-more' }}
+                items={[{ id: 'remove', label: t('ha.setup.removeHa'), icon: <Trash size={14} />, danger: true, onClick: removeRelationship, testId: 'ha-remove' }]}
+              />
+            )}
           </>
         ) : null
       }
@@ -432,6 +456,7 @@ export default function HaPage({ family }) {
                 </h2>
               )}
               {summaryCard(rel, members)}
+              {r === 0 && roleNote}
               <DataTable
                 title={t('ha.relationship', { count: rel.servers.length })}
                 columns={serverColumns}
@@ -448,6 +473,7 @@ export default function HaPage({ family }) {
         {loose.length > 0 && (
           <>
             {!rels.length && summaryCard(null, loose)}
+            {!rels.length && roleNote}
             <div className="grid gap-4 lg:grid-cols-2">{loose.map((h) => serverCard(h, null, -1))}</div>
           </>
         )}
@@ -478,10 +504,14 @@ export default function HaPage({ family }) {
         message={confirmText?.message}
         confirmLabel={t('ha.buildPlan')}
         variant={confirm?.kind === 'remove' || (confirm?.kind === 'service' && confirm?.value === false) ? 'danger' : 'warning'}
-        typeToConfirm={confirm?.kind === 'maintenance' && confirm?.value === 'start' ? confirm.name : undefined}
+        typeToConfirm={(confirm?.kind === 'maintenance' && confirm?.value === 'start') || confirm?.kind === 'remove' ? confirm.name : undefined}
       />
       {setup && <HaSetupModal family={family} initial={setup.draft} title={setup.title} nodes={nodes} flow={flow} onClose={() => setSetup(null)} />}
-      {flow.modal}
+      {typedPlan && flow.plan ? (
+        <PlanPreviewModal open onClose={closePlan} plan={flow.plan} onApplied={refresh} onRolledBack={refresh} onRecompute={() => flow.build(typedBuild.current, { rethrow: true })} preConfirmed />
+      ) : (
+        flow.modal
+      )}
     </AreaPage>
   )
 }

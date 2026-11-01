@@ -112,7 +112,7 @@ test.describe('at 1440 px', () => {
     await page.getByTestId('confirm-button').click()
     const preview = page.getByTestId('plan-preview')
     await expect(preview.getByTestId('plan-summary')).toContainText('maintenance')
-    await preview.getByTestId('plan-confirm-checkbox').check()
+    await expect(preview.getByTestId('plan-confirm-checkbox')).toHaveCount(0)
     await preview.getByTestId('plan-apply').click()
     await expect(preview.getByTestId('plan-result')).toContainText('Applied')
     await expect(preview.getByTestId('plan-steps-step').last().getByTestId('plan-steps-node')).toHaveCount(2)

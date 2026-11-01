@@ -411,5 +411,9 @@
     "MiB": "{{value}} Mio",
     "GiB": "{{value}} Gio",
     "TiB": "{{value}} Tio"
+  },
+  "roles": {
+    "standby": "Secours (standby)",
+    "backup": "Sauvegarde (backup)"
   }
 }

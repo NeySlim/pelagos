@@ -12,6 +12,12 @@ export const CHANNEL_SECRETS = {
 }
 const DEFAULT_FILTERS = { severity_min: 'warning', kinds_include: [], kinds_exclude: ['ha_transition'], node_ids: [], engines: [] }
 const DEFAULT_SCHEDULE = { reminder_hours: 12, send_resolved: true, confirm_seconds: null, quiet: null }
+// Change events (section 22, Change events): kinds and the server-kept subscription start.
+export const EVENT_KINDS = [
+  'plan.applied', 'plan.rolled_back', 'plan.failed', 'plan.expired', 'lease.new', 'lease.release',
+  'zone.transfer_failed', 'node.offline', 'node.online', 'auth.login_failed', 'audit.conflict',
+]
+const DEFAULT_EVENT_FILTERS = { plan_scopes: [], users: [] }
 
 function paginate(items, query) {
   const page = Math.max(1, parseInt(query.get('page') || '1', 10) || 1)
@@ -44,6 +50,12 @@ export function notifyState(state) {
         events: [{ event: 'opened', alert_id: 'A1', kind: 'ha_partner_down', severity: 'critical', first_seen: iso(now - 3700000) }],
         result: 'ok', status: 200, duration_ms: 87, error: null,
       },
+      {
+        id: ulid(now - 1800000), ts: iso(now - 1800000), channel_id: 'ch-ntfy', channel_name: 'Phone (ntfy)', node_id: state.selfId,
+        batch_id: ulid(now - 1800000), reason: 'events', type: 'event', alert_ids: [], events: [],
+        changes: [{ id: ulid(now - 1860000), event: 'plan.applied', ts: iso(now - 1860000) }],
+        result: 'ok', status: 200, duration_ms: 51, error: null,
+      },
       // The critical rndc key alert of the mock data went out through ntfy too.
       {
         id: ulid(now - 3500000), ts: iso(now - 3500000), channel_id: 'ch-ntfy', channel_name: 'Phone (ntfy)', node_id: state.selfId,
@@ -72,8 +84,24 @@ export function notifyHandlers(state, { Problem, invalid }) {
       : []
   }
   const dropNull = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => v !== null && v !== undefined))
+  // Members at their default are not stored, like the API (alerts true, no events).
+  const eventMembers = (c, body, now) => {
+    const alerts = 'alerts' in body ? body.alerts : (c.alerts ?? true)
+    if (typeof alerts !== 'boolean') throw invalid('alerts', 'boolean expected')
+    const events = 'events' in body ? body.events || [] : (c.events || [])
+    const unknown = events.filter((k) => !EVENT_KINDS.includes(k))
+    if (unknown.length) throw invalid('events', `unknown: ${unknown.join(', ')}`)
+    if (!alerts && !events.length) throw invalid('events', 'a channel without alerts needs at least one event')
+    const since = Object.fromEntries(events.map((k) => [k, c.events_since?.[k] || iso(now)]))
+    const filters = { ...DEFAULT_EVENT_FILTERS, ...(c.event_filters || {}), ...(body.event_filters || {}) }
+    return { alerts, events: [...new Set(events)], events_since: since, event_filters: filters }
+  }
   const publicChannel = (c) => ({
+    alerts: true,
+    events: [],
+    events_since: {},
     ...c,
+    event_filters: { ...DEFAULT_EVENT_FILTERS, ...(c.event_filters || {}) },
     secrets: Object.fromEntries((CHANNEL_SECRETS[c.type] || []).map((k) => [k, Boolean(c.secrets?.[k])])),
     warnings: warningsOf(c),
   })
@@ -116,6 +144,7 @@ export function notifyHandlers(state, { Problem, invalid }) {
         status: { state: 'ok', since: iso(Date.now()), last_sent_at: null, last_error: null },
       }
       check(c)
+      Object.assign(c, eventMembers({}, body, Date.now()))
       applySecrets(c, body.secrets)
       notifyState(state).channels.push(c)
       auditEntry(state, user, { action: 'admin.notify.add', target: `notify:${c.id}`, request: { type: c.type, name: c.name } })
@@ -130,6 +159,7 @@ export function notifyHandlers(state, { Problem, invalid }) {
       if ('params' in body) next.params = dropNull(body.params)
       for (const k of ['filters', 'schedule']) if (k in body) next[k] = { ...c[k], ...body[k] }
       check(next)
+      Object.assign(next, eventMembers(c, body, Date.now()))
       if (targetOf(next) !== targetOf(c)) {
         const kept = Object.keys(c.secrets || {}).filter((k) => c.secrets[k] && !(k in (body.secrets || {})))
         if (kept.length) throw invalid(`secrets.${kept[0]}`, 'enter it again or clear it: the server changed')

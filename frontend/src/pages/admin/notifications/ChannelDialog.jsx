@@ -11,7 +11,7 @@ import { errorMessage } from '../../../services/apiClient'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { KINDS } from '../../alerts/lib'
 import {
-  CHANNEL_TYPES, DAYS, EMAIL_SECURITY, ENGINES, LANGUAGES, NTFY_AUTH, SEVERITIES,
+  CHANNEL_TYPES, DAYS, EMAIL_SECURITY, ENGINES, EVENT_GROUPS, LANGUAGES, NTFY_AUTH, PLAN_SCOPES, SEVERITIES,
   channelBody, formErrors, formFromChannel, formWarnings, serverFieldErrors, testBody, usedSecrets,
 } from './notifyForm'
 
@@ -96,7 +96,14 @@ export default function ChannelDialog({ open, onClose, channel, nodes = [], onSa
 
   const changeType = (type) => {
     setDirty(true)
-    setForm((f) => ({ ...formFromChannel({ name: f.name, language: f.language, filters: f.filters }, type, uiLanguage), schedule: f.schedule, enabled: f.enabled }))
+    setForm((f) => ({
+      ...formFromChannel({ name: f.name, language: f.language, filters: f.filters }, type, uiLanguage),
+      schedule: f.schedule,
+      enabled: f.enabled,
+      alerts: f.alerts,
+      events: f.events,
+      event_filters: f.event_filters,
+    }))
     setErrors({})
     setTest(null)
   }
@@ -239,6 +246,8 @@ export default function ChannelDialog({ open, onClose, channel, nodes = [], onSa
 
         <section className="space-y-3 border-t border-border-op50 pt-3" data-testid="notify-filters">
           <h4 className="text-xs font-semibold text-text-primary">{t('dialog.filters')}</h4>
+          <ToggleSwitch checked={form.alerts} onChange={set('alerts')} label={t('fields.sendAlerts')} description={t('fields.sendAlertsHelp')} />
+          {form.alerts && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Select label={t('fields.severityMin')} value={form.filters.severity_min} onChange={set('filters.severity_min')} options={SEVERITIES.map((x) => option(x, t(`severity.${x}`)))} />
             <Chips label={t('fields.engines')} help={t('fields.allWhenEmpty')} options={ENGINES.map((x) => option(x, x))} value={form.filters.engines} onChange={set('filters.engines')} testId="notify-engines" />
@@ -254,6 +263,35 @@ export default function ChannelDialog({ open, onClose, channel, nodes = [], onSa
               <Chips label={t('fields.nodes')} help={t('fields.allWhenEmpty')} options={nodes.map((n) => option(n.id, n.name))} value={form.filters.node_ids} onChange={set('filters.node_ids')} testId="notify-nodes" />
             )}
           </div>
+          )}
+        </section>
+
+        <section className="space-y-3 border-t border-border-op50 pt-3" data-testid="notify-events">
+          <h4 className="text-xs font-semibold text-text-primary">{t('dialog.events')}</h4>
+          <p className="text-2xs text-text-tertiary">{t('changes.help')}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {Object.entries(EVENT_GROUPS).map(([group, kinds]) => (
+              <Chips
+                key={group}
+                label={t(`changes.groups.${group}`)}
+                help={group === 'leases' ? t('changes.leasesHelp') : undefined}
+                options={kinds.map((k) => option(k, t(`changes.kinds.${k}`)))}
+                value={form.events.filter((k) => kinds.includes(k))}
+                onChange={(picked) => set('events')([...form.events.filter((k) => !kinds.includes(k)), ...picked])}
+                testId={`notify-events-${group}`}
+              />
+            ))}
+          </div>
+          {err('events') && <p className="text-2xs status-danger-text" data-testid="notify-events-error">{err('events')}</p>}
+          {form.events.some((k) => k.startsWith('plan.')) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="block text-xs font-medium text-text-secondary">{t('changes.planScopes')}</span>
+                <MultiSelectFilter searchable options={PLAN_SCOPES.map((x) => option(x, x))} value={form.event_filters.plan_scopes} onChange={set('event_filters.plan_scopes')} placeholder={t('changes.allScopes')} />
+              </div>
+              <Input label={t('changes.users')} value={form.event_filters.users} onChange={ev('event_filters.users')} helperText={t('changes.usersHelp')} placeholder="alice, bob" data-testid="notify-event-users" />
+            </div>
+          )}
         </section>
 
         <section className="space-y-3 border-t border-border-op50 pt-3" data-testid="notify-schedule">

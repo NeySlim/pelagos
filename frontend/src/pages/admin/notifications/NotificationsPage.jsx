@@ -112,7 +112,12 @@ function ChannelCard({ channel, highlight, onTest, onEdit, onToggle, onDelete, t
       <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Field label={t('card.target')}><span className="font-mono text-xs">{channelTarget(channel) || '-'}</span></Field>
         <Field label={t('card.lastSent')}>{st.last_sent_at ? formatDate(st.last_sent_at) : t('card.never')}</Field>
-        <Field label={t('card.filter')}>{t('card.filterValue', { severity: t(`severity.${channel.filters?.severity_min || 'warning'}`) })}</Field>
+        <Field label={t('card.filter')}>
+          <span data-testid="notify-card-filter">
+            {channel.alerts === false ? t('card.noAlerts') : t('card.filterValue', { severity: t(`severity.${channel.filters?.severity_min || 'warning'}`) })}
+            {channel.events?.length ? `, ${t('card.events', { count: channel.events.length })}` : ''}
+          </span>
+        </Field>
         <Field label={t('card.quiet')}>{channel.schedule?.quiet ? `${channel.schedule.quiet.start} - ${channel.schedule.quiet.end} (${channel.schedule.quiet.timezone})` : t('card.none')}</Field>
       </dl>
       {(channel.warnings || []).map((w) => (
@@ -218,7 +223,7 @@ function HistoryCard({ channels, nameOf }) {
   useWsTopic('system', (m) => m?.event === 'notify' && list.refetch())
   const channelName = (h) => channels.find((c) => c.id === h.channel_id)?.name || h.channel_name || h.channel_id
   const eventsText = (h) => {
-    const count = t('history.eventCount', { count: (h.events || []).length })
+    const count = t('history.eventCount', { count: (h.events || []).length + (h.changes || []).length })
     return h.reason && h.reason !== 'events' ? `${t(`history.reasons.${h.reason}`, { defaultValue: h.reason })}, ${count}` : count
   }
   const columns = [
@@ -269,6 +274,12 @@ function HistoryCard({ channels, nameOf }) {
                   {e.severity && <Badge variant={e.severity === 'critical' ? 'danger' : e.severity === 'warning' ? 'warning' : 'secondary'} size="sm">{t(`severity.${e.severity}`)}</Badge>}
                   {e.kind && <span>{t(`dashboard:kinds.${e.kind}`, { defaultValue: e.kind })}</span>}
                   {e.alert_id && <Button size="xs" variant="ghost" onClick={() => navigate(`/alerts?alert=${encodeURIComponent(e.alert_id)}`)}><ArrowSquareOut size={12} />{t('failed.open')}</Button>}
+                </li>
+              ))}
+              {(detail.changes || []).map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center gap-2 text-xs" data-testid="notify-history-change">
+                  <Badge variant="outline" size="sm">{t(`changes.kinds.${c.event}`, { defaultValue: c.event })}</Badge>
+                  {c.ts && <span className="text-text-tertiary">{formatDate(c.ts)}</span>}
                 </li>
               ))}
             </ul>

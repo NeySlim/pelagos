@@ -116,7 +116,10 @@
     "filterValue": "{{severity}} and above",
     "quiet": "Quiet hours",
     "none": "None",
-    "warning": "{{field}}: {{message}}"
+    "warning": "{{field}}: {{message}}",
+    "noAlerts": "No alerts",
+    "events_one": "{{count}} change event",
+    "events_other": "{{count}} change events"
   },
   "empty": {
     "title": "No channel yet",
@@ -162,7 +165,8 @@
     "name": "Name",
     "language": "Message language",
     "filters": "Which alerts",
-    "schedule": "When"
+    "schedule": "When",
+    "events": "Which change events"
   },
   "fields": {
     "host": "SMTP server",
@@ -216,7 +220,9 @@
     "days": "Days",
     "criticalPasses": "Critical alerts still go through",
     "enabled": "Channel enabled",
-    "ntfyOpen": "Without authentication, anyone who knows the topic reads the messages."
+    "ntfyOpen": "Without authentication, anyone who knows the topic reads the messages.",
+    "sendAlerts": "Send alerts",
+    "sendAlertsHelp": "Off: this channel only receives the change events picked below."
   },
   "secrets": {
     "cleared": "Will be removed on save.",
@@ -243,7 +249,8 @@
     "seconds": "From 0 to 3600 seconds",
     "time": "HH:MM",
     "days": "Choose at least one day",
-    "fix": "Fix the highlighted fields"
+    "fix": "Fix the highlighted fields",
+    "nothingToSend": "Pick at least one event, or send alerts"
   },
   "warnings": {
     "plainHttp": "Plain http carries the secret unencrypted",
@@ -265,5 +272,32 @@
     "muted": "Notifications muted",
     "unmuted": "Notifications resumed",
     "order": "Sender order saved"
+  },
+  "changes": {
+    "help": "Changes made in the cluster, sent as their own messages (webhooks get \"type\": \"event\"). A new subscription starts now: nothing older is sent.",
+    "groups": {
+      "plans": "Plans",
+      "nodes": "Nodes and zones",
+      "security": "Security",
+      "leases": "DHCP leases"
+    },
+    "kinds": {
+      "plan.applied": "Plan applied",
+      "plan.rolled_back": "Plan rolled back",
+      "plan.failed": "Plan failed",
+      "plan.expired": "Rollback window closed",
+      "node.offline": "Node offline",
+      "node.online": "Node back online",
+      "zone.transfer_failed": "Zone transfer failing",
+      "auth.login_failed": "Failed sign-ins",
+      "audit.conflict": "Replication conflict",
+      "lease.new": "New lease",
+      "lease.release": "Lease released"
+    },
+    "leasesHelp": "Can be many: at most 20 per message, within the hourly limit.",
+    "planScopes": "Plan scopes",
+    "allScopes": "All scopes",
+    "users": "Plan authors",
+    "usersHelp": "User names separated by commas; empty: everyone."
   }
 }

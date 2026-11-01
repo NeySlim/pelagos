@@ -10,6 +10,21 @@ export const LANGUAGES = ['en', 'fr']
 export const EMAIL_SECURITY = ['starttls', 'tls', 'none']
 export const NTFY_AUTH = ['none', 'token', 'basic']
 export const GOTIFY_DEFAULTS = { critical: 8, warning: 5, info: 2 }
+// Change events a channel may subscribe to, grouped as the dialog shows them (section 22).
+export const EVENT_GROUPS = {
+  plans: ['plan.applied', 'plan.rolled_back', 'plan.failed', 'plan.expired'],
+  nodes: ['node.offline', 'node.online', 'zone.transfer_failed'],
+  security: ['auth.login_failed', 'audit.conflict'],
+  leases: ['lease.new', 'lease.release'],
+}
+export const EVENT_KINDS = Object.values(EVENT_GROUPS).flat()
+// Plan scopes (domain.plan.PlanScope) the plan events can be narrowed to.
+export const PLAN_SCOPES = [
+  'dns.rrset', 'dns.zone', 'dns.config', 'dns.key', 'dns.acl', 'dns.failover', 'dns.resolver',
+  'dhcp.subnet', 'dhcp.shared_network', 'dhcp.reservation', 'dhcp.class', 'dhcp.options', 'dhcp.config',
+  'dhcp.lease', 'dhcp.ha', 'dhcp.ddns', 'd2.config', 'host', 'install', 'import', 'security', 'admin',
+  'restore', 'kea.migration', 'update',
+]
 // Monday 0, as the dispatcher counts days.
 export const DAYS = [0, 1, 2, 3, 4, 5, 6]
 
@@ -113,6 +128,13 @@ export function formFromChannel(channel = {}, type = 'ntfy', uiLanguage = 'en') 
         critical_passes: s.quiet?.critical_passes ?? true,
       },
     },
+    alerts: channel.alerts ?? true,
+    subscribed: channel.alerts === false || Boolean(channel.events?.length),
+    events: (channel.events || []).filter((k) => EVENT_KINDS.includes(k)),
+    event_filters: {
+      plan_scopes: [...(channel.event_filters?.plan_scopes || [])],
+      users: (channel.event_filters?.users || []).join(', '),
+    },
     secrets: Object.fromEntries((SECRET_NAMES[kind] || []).map((k) => [k, ''])),
     clear: {},
     stored,
@@ -134,6 +156,9 @@ export function secretSet(form, name) {
   if (form.secrets[name]) return true
   return Boolean(form.stored[name]) && !form.clear[name]
 }
+
+// "alice, bob" or one per line -> ['alice', 'bob'].
+export const splitList = (text) => [...new Set(String(text || '').split(/[\s,]+/).map((x) => x.trim()).filter(Boolean))]
 
 const num = (v) => (v === '' || v === null || v === undefined ? NaN : Number(v))
 
@@ -189,6 +214,13 @@ export function channelBody(form) {
         ? { start: s.quiet.start, end: s.quiet.end, timezone: s.quiet.timezone.trim(), days: [...s.quiet.days].sort(), critical_passes: Boolean(s.quiet.critical_passes) }
         : null,
     },
+  }
+  // Change event members go only when used now or before, so a plain channel's body is unchanged.
+  const events = EVENT_KINDS.filter((k) => (form.events || []).includes(k))
+  if (form.alerts === false || events.length || form.subscribed) {
+    body.alerts = form.alerts !== false
+    body.events = events
+    body.event_filters = { plan_scopes: [...(form.event_filters?.plan_scopes || [])], users: splitList(form.event_filters?.users) }
   }
   const used = usedSecrets(form)
   const secrets = {}
@@ -278,6 +310,7 @@ export function formErrors(form) {
   const reminder = num(s.reminder_hours)
   if (!(reminder >= 0 && reminder <= 720)) errors['schedule.reminder_hours'] = 'hours'
   if (s.confirm_seconds !== '' && s.confirm_seconds !== null && !(num(s.confirm_seconds) >= 0 && num(s.confirm_seconds) <= 3600)) errors['schedule.confirm_seconds'] = 'seconds'
+  if (form.alerts === false && !(form.events || []).length) errors.events = 'nothingToSend'
   if (s.quiet_enabled) {
     if (!TIME.test(s.quiet.start)) errors['schedule.quiet.start'] = 'time'
     if (!TIME.test(s.quiet.end)) errors['schedule.quiet.end'] = 'time'
@@ -306,6 +339,7 @@ export function serverFieldErrors(errors = []) {
     let field = e.field
     if (/^params\.to\.\d+$/.test(field)) field = 'params.to'
     if (field.startsWith('params.headers.')) field = 'params.headers'
+    if (field.startsWith('event_filters.')) field = 'events'
     out[field] = e.message || 'invalid'
   }
   return out

@@ -172,3 +172,36 @@ describe('notifications i18n', () => {
     }
   })
 })
+
+describe('change events of a channel', () => {
+  it('starts with alerts on and no event, and sends the subscription', () => {
+    const form = formFromChannel(NTFY)
+    expect(form.alerts).toBe(true)
+    expect(form.events).toEqual([])
+    const body = channelBody({ ...form, alerts: false, events: ['node.offline', 'plan.applied'], event_filters: { plan_scopes: ['dns.rrset'], users: 'alice, bob alice' } })
+    expect(body.alerts).toBe(false)
+    expect(body.events).toEqual(['plan.applied', 'node.offline'])
+    expect(body.event_filters).toEqual({ plan_scopes: ['dns.rrset'], users: ['alice', 'bob'] })
+  })
+
+  it('round-trips a stored subscription and drops unknown kinds', () => {
+    const form = formFromChannel({ ...NTFY, alerts: false, events: ['plan.failed', 'plan.someday'], event_filters: { plan_scopes: [], users: ['carol'] } })
+    expect(form.events).toEqual(['plan.failed'])
+    expect(form.event_filters.users).toBe('carol')
+  })
+
+  it('refuses a channel that would send nothing', () => {
+    const form = formFromChannel(NTFY)
+    expect(formErrors({ ...form, alerts: false }).events).toBe('nothingToSend')
+    expect(formErrors({ ...form, alerts: false, events: ['lease.new'] }).events).toBeUndefined()
+    expect(serverFieldErrors([{ field: 'event_filters.plan_scopes', message: 'unknown: x' }])).toEqual({ events: 'unknown: x' })
+  })
+})
+
+describe('change event members in the body', () => {
+  it('clears a former subscription with an empty list', () => {
+    const form = formFromChannel({ ...NTFY, events: ['plan.applied'] })
+    expect(channelBody({ ...form, events: [] }).events).toEqual([])
+    expect('events' in channelBody(formFromChannel(NTFY))).toBe(false)
+  })
+})

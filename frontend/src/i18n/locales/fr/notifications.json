@@ -116,7 +116,10 @@
     "filterValue": "{{severity}} et plus",
     "quiet": "Heures calmes",
     "none": "Aucune",
-    "warning": "{{field}} : {{message}}"
+    "warning": "{{field}} : {{message}}",
+    "noAlerts": "Aucune alerte",
+    "events_one": "{{count}} événement de changement",
+    "events_other": "{{count}} événements de changement"
   },
   "empty": {
     "title": "Aucun canal",
@@ -162,7 +165,8 @@
     "name": "Nom",
     "language": "Langue des messages",
     "filters": "Quelles alertes",
-    "schedule": "Quand"
+    "schedule": "Quand",
+    "events": "Quels événements de changement"
   },
   "fields": {
     "host": "Serveur SMTP",
@@ -216,7 +220,9 @@
     "days": "Jours",
     "criticalPasses": "Les alertes critiques passent quand même",
     "enabled": "Canal activé",
-    "ntfyOpen": "Sans authentification, quiconque connaît le sujet lit les messages."
+    "ntfyOpen": "Sans authentification, quiconque connaît le sujet lit les messages.",
+    "sendAlerts": "Envoyer les alertes",
+    "sendAlertsHelp": "Désactivé : ce canal ne reçoit que les événements de changement choisis ci-dessous."
   },
   "secrets": {
     "cleared": "Sera supprimé à l'enregistrement.",
@@ -243,7 +249,8 @@
     "seconds": "De 0 à 3600 secondes",
     "time": "HH:MM",
     "days": "Choisissez au moins un jour",
-    "fix": "Corrigez les champs signalés"
+    "fix": "Corrigez les champs signalés",
+    "nothingToSend": "Choisissez au moins un événement, ou envoyez les alertes"
   },
   "warnings": {
     "plainHttp": "En http simple, le secret circule en clair",
@@ -265,5 +272,32 @@
     "muted": "Notifications suspendues",
     "unmuted": "Notifications reprises",
     "order": "Ordre d'envoi enregistré"
+  },
+  "changes": {
+    "help": "Changements faits dans la grappe, envoyés dans leurs propres messages (les webhooks reçoivent \"type\": \"event\"). Un abonnement commence maintenant : rien de plus ancien n'est envoyé.",
+    "groups": {
+      "plans": "Plans",
+      "nodes": "Nœuds et zones",
+      "security": "Sécurité",
+      "leases": "Baux DHCP"
+    },
+    "kinds": {
+      "plan.applied": "Plan appliqué",
+      "plan.rolled_back": "Plan annulé",
+      "plan.failed": "Échec du plan",
+      "plan.expired": "Fenêtre d'annulation close",
+      "node.offline": "Nœud hors ligne",
+      "node.online": "Nœud de nouveau en ligne",
+      "zone.transfer_failed": "Transfert de zone en échec",
+      "auth.login_failed": "Échecs de connexion",
+      "audit.conflict": "Conflit de réplication",
+      "lease.new": "Nouveau bail",
+      "lease.release": "Bail libéré"
+    },
+    "leasesHelp": "Peut être nombreux : 20 au plus par message, dans la limite horaire.",
+    "planScopes": "Portées de plan",
+    "allScopes": "Toutes les portées",
+    "users": "Auteurs des plans",
+    "usersHelp": "Noms d'utilisateur séparés par des virgules ; vide : tout le monde."
   }
 }

@@ -13,6 +13,14 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-11-01, B1-METRICS (WP-API-AUTH, WP-CORE): Prometheus endpoint
+Additive. New root route `GET /metrics` (section 30), `read:series` token or listed network, never
+audited; new `MetricsService` (`Services.metrics`, listener on the event hub for plan outcomes);
+`app.py` registers the route, one block. Settings domain `metrics`: `endpoint_enabled` (true),
+`allowed_networks` ([], CIDR items). WP-FRONTEND: labels in `admin.json`, schema copy of the mock
+regenerated; the UI never calls the route. `scripts/examples/pelagos-metrics.py` stays as it is and
+gains `--from-endpoint`.
+
 ## 2026-11-01, B1-WEBPROC (WP-BIND, WP-API-AUTH): web worker concurrency rules
 Section 2 gains "Web worker concurrency": what `patch_all` makes cooperative in the one gevent
 worker, what stays blocking (CPU work, blocking `flock`), and the rules (pace long CPU work with a

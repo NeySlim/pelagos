@@ -6578,3 +6578,44 @@ the screen (U6), daemon and lab tests (U7).
   chose on 2026-10-30; the warning, the typed version, the password and the
   audit entry make it explicit. With a key configured, signed releases stay
   the normal path and an altered one is always refused.
+
+## 30. Prometheus endpoint
+
+`GET /metrics` answers the Prometheus text format (`text/plain; version=0.0.4`). It lives at the
+root, outside `/api/v1`, and is absent from the API description.
+
+**Access.** Either `Authorization: Bearer <token>` with `read:series` (a `viewer` token is
+enough; the token's own source networks and expiry apply, and a wrong token is `401` even from a
+listed network), or a client address inside `metrics.allowed_networks` and no token. Otherwise
+`401` (problem document); a token without `read:series` is `403`. `metrics.endpoint_enabled`
+(default true) off answers `404`. The client address is the connection's, never a forwarded header.
+The route is never audited, a Bearer call to it included.
+
+**Content.** One document per scrape of the node asked, cached 10 seconds per process. The data is
+what the dashboard summary, the alert summary, the HA view and the statistics routes already show
+to a viewer: no secret, no lease, no host name or address of a client.
+
+| Family | Type | Labels |
+| --- | --- | --- |
+| `pelagos_build_info` | gauge | `version` |
+| `pelagos_node_up`, `pelagos_node_clock_offset_seconds` | gauge | `node` (`version` on `node_up`) |
+| `pelagos_pool_utilization_percent` | gauge | `node`, `engine`, `subnet`, `pool` |
+| `pelagos_zone_serial_divergent` | gauge | `zone`, `view` |
+| `pelagos_d2_updates_total` | counter | `node`, `counter` |
+| `pelagos_alerts`, `pelagos_alerts_by_severity`, `pelagos_alerts_by_kind`, `pelagos_alerts_unavailable_nodes` | gauge | `state`, `severity`, `kind` |
+| `pelagos_ha_state`, `pelagos_ha_healthy`, `pelagos_ha_partner_in_touch`, `pelagos_ha_unsent_updates`, `pelagos_ha_leases` | gauge | `server`, `role`, `mode` (`state` on `ha_state`; `family="v6"` for DHCPv6, absent for DHCPv4) |
+| `pelagos_bind_queries_total` | counter | `node`, `qtype` |
+| `pelagos_bind_responses_total` | counter | `node`, `rcode` |
+| `pelagos_bind_transfers_total` | counter | `node`, `counter` (BIND zone and server counters whose name contains `Xfr`) |
+| `pelagos_kea_packets_total` | counter | `node`, `engine` (`kea4`, `kea6`), `packet` (`pkt4-ack-sent` is `ack-sent`) |
+| `pelagos_kea_assigned_addresses`, `pelagos_kea_declined_addresses` | gauge | `node`, `engine` (sum over the subnets) |
+| `pelagos_plan_applied_total` | counter | `scope`, `result` (`applied`, `rolled_back`, `failed`) |
+| `pelagos_scrape_success` | gauge | `source` (`dashboard`, `alerts`, `ha`, `bind`, `kea`) |
+| `pelagos_summary_source_error` | gauge | `source` |
+
+The families from `pelagos_node_up` to `pelagos_summary_source_error` (except `pelagos_bind_*`,
+`pelagos_kea_*` and the plan counter) are those of `scripts/examples/pelagos-metrics.py`, with the
+same names and labels. A node that does not answer a counter read is left out of that family and logged;
+the other nodes and sources are still served. `pelagos_plan_applied_total` counts in memory in
+the process that applied or rolled back the plan (it restarts at zero with the process): use
+`increase()` or `rate()`.

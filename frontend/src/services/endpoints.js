@@ -122,6 +122,7 @@ export const ENDPOINTS = [
   'DELETE /dhcp/{family}/reservations/{key}',
   'GET /dhcp/{family}/leases',
   'GET /dhcp/{family}/leases/recent',
+  'GET /dhcp/{family}/leases/history',
   'GET /dhcp/{family}/leases/{ip}',
   'POST /dhcp/{family}/leases/{ip}/delete/plan',
   'GET /dhcp/{family}/utilization',
@@ -149,6 +150,7 @@ export const ENDPOINTS = [
   // Hosts
   'GET /hosts',
   'GET /hosts/{key}',
+  'GET /hosts/{key}/timeline',
   'POST /hosts/plan',
   // Plans and jobs
   'GET /plans',

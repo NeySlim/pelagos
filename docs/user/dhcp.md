@@ -120,6 +120,33 @@ state, expiry, the DNS forward and reverse flags, and the node read.
 A banner "lease changes, refresh" appears when the collector sees leases
 come and go.
 
+### Lease history
+
+Each node's collector records lease changes as it walks the lease table
+(every few seconds when clients are served, at least once per poll): who
+got an address (`new`), kept it (`renew`), took it over from another client
+(`reassign`), gave it back (`release`), let it lapse (`expire`) or lost it
+to a delete or a decline (`delete`). It answers "which device had
+192.0.2.57 last Tuesday at 14:00".
+
+- **API**: `GET /api/v1/dhcp/v4/leases/history?ip=192.0.2.57&since=...&until=...`
+  (also `mac`, `duid`, `hostname`; `read:dhcp`), and
+  `GET /api/v1/hosts/mac:02:00:5e:00:53:0a/timeline` for one host
+  (`read:hosts`). Both read every node and fold the copies of an HA pair
+  into one event listing the nodes that saw it; a node that does not
+  answer is named in `meta.unavailable`.
+- **Settings**: `collector.lease_history_enabled` (on),
+  `retention.lease_history_days` (90), and
+  `collector.lease_history_renew_seconds` (one day): a renewal that changes
+  nothing else is recorded at most that often per address, so a busy
+  server does not fill the cache (0 records every renewal).
+- **Limits**: a change that comes and goes between two walks leaves no
+  trace, and a table larger than `collector.lease_watch_max_leases` has no
+  history. The history is derived data, local to each node: `pelagos
+  collector --rebuild` clears it. For a legal record of every exchange,
+  configure Kea's forensic logging hook (`legal_log`); Pelagos does not
+  read its output.
+
 ## Reservations
 
 Reservations by subnet (or global): identifier type (`hw-address`,

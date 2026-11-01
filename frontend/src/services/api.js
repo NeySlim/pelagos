@@ -136,6 +136,8 @@ export const dhcp = {
   reservationPlan: (family, change) => apiClient.post(`/dhcp/${family}/reservations/plan`, { change }),
   leases: (family, params) => apiClient.get(`/dhcp/${family}/leases${buildQueryString(params)}`),
   recentLeases: (family, params) => apiClient.get(`/dhcp/${family}/leases/recent${buildQueryString(params)}`),
+  // { ip?, mac?, duid?, hostname?, since?, until?, node_id?, page?, per_page? } -> paginated LeaseEvent
+  leaseHistory: (family, params) => apiClient.get(`/dhcp/${family}/leases/history${buildQueryString(params)}`),
   lease: (family, ip) => apiClient.get(`/dhcp/${family}/leases/${enc(ip)}`),
   // node_id: the node holding the copy to delete (default: every node holding the lease).
   leaseDeletePlan: (family, ip, node_id) =>
@@ -178,6 +180,7 @@ export const d2 = {
 export const hosts = {
   list: (params) => apiClient.get(`/hosts${buildQueryString(params)}`),
   get: (key) => apiClient.get(`/hosts/${enc(key)}`),
+  timeline: (key, params) => apiClient.get(`/hosts/${enc(key)}/timeline${buildQueryString(params)}`),
   plan: (body) => apiClient.post('/hosts/plan', body),
 }
 

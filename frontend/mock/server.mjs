@@ -25,6 +25,7 @@ import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
 import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
+import { leaseHistoryHandlers } from './leaseHistory.mjs'
 import { desiredHandlers } from './desired.mjs'
 import { updatesHandlers } from './updates.mjs'
 import { searchHandlers } from './search.mjs'
@@ -74,6 +75,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/config/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/adopt/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/adopt/plan': 'write:dhcp.config',
   'GET /hosts': 'read:hosts', 'GET /hosts/{key}': 'read:hosts', 'POST /hosts/plan': 'write:hosts',
+  'GET /hosts/{key}/timeline': 'read:hosts',
   'GET /alerts': 'read:alerts', 'GET /alerts/summary': 'read:alerts', 'POST /alerts/{id}/ack': 'write:alerts',
   'POST /alerts/consistency/run': 'write:alerts',
   'GET /alerts/exceptions': 'read:alerts', 'POST /alerts/exceptions': 'write:alerts', 'DELETE /alerts/exceptions/{id}': 'write:alerts',
@@ -2835,6 +2837,7 @@ function buildHandlers(state, emit) {
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...resolverHandlers(state, { Problem, invalid, createPlan }),
     ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
+    ...leaseHistoryHandlers(state, { invalid, notFound }),
     ...ipv6Handlers(state, { Problem, invalid, createPlan, zonePlan: (args) => handlers['POST /dns/zones/plan'](args) }),
     ...updatesHandlers(state, { Problem, invalid, createPlan }),
     ...searchHandlers(state, { Problem, invalid, hasPermission, buildHosts, leasesFor }),
